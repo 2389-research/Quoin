@@ -34,6 +34,7 @@ public enum MarkdownConverter {
     }
 
     public static func parse(_ source: String) -> QuoinDocument {
+        var watch = PhaseTrace.parseEnabled ? PhaseTrace.Stopwatch() : nil
         // YAML front matter is split off before cmark sees the source; all
         // ranges downstream are shifted back to absolute source offsets.
         var parseInput = source
@@ -60,10 +61,12 @@ public enum MarkdownConverter {
                 as: UTF8.self)
         }
 
+        watch?.lap("frontmatter/endmatter")
         var builder = Builder(source: source, parseInput: parseInput, baseOffset: baseOffset)
         // Collect \newcommand/\def from every math segment first, so a
         // macro used before its definition still resolves (document scope).
         builder.macroTable = MathMacros.collectDefinitions(from: source)
+        watch?.lap("macro scan")
 
         var blocks: [Block] = []
         if let frontMatterYAML {
@@ -79,9 +82,12 @@ public enum MarkdownConverter {
         // safe because every claimed span is blank-line-separated from its
         // neighbors, exactly where cmark closes blocks anyway.
         let mathSpans = DisplayMathPrescan.spans(in: parseInput)
+        watch?.lap("displaymath prescan")
         if mathSpans.isEmpty {
             let document = Markdown.Document(parsing: parseInput)
+            watch?.lap("cmark parse")
             blocks.append(contentsOf: builder.convert(children: document.children))
+            watch?.lap("tree walk")
         } else {
             let inputBytes = Array(parseInput.utf8)
             var cursor = 0
@@ -101,6 +107,7 @@ public enum MarkdownConverter {
                 let segment = String(decoding: inputBytes[cursor...], as: UTF8.self)
                 blocks.append(contentsOf: builder.convert(segment: segment, at: baseOffset + cursor))
             }
+            watch?.lap("cmark+walk (math-segmented)")
         }
         if let endmatter {
             blocks.append(builder.makeBlock(
@@ -110,13 +117,17 @@ public enum MarkdownConverter {
         }
         let footnotes = builder.gatherFootnotes()
         builder.finalizeStats()
+        watch?.lap("footnotes/stats")
+        let sourceHash = SHA256Hex.hash(of: source)
+        watch?.lap("source hash")
+        watch?.emit("parse.initial")
         return QuoinDocument(
             source: source,
             blocks: blocks,
             outline: builder.outline,
             footnotes: footnotes,
             stats: builder.stats,
-            sourceHash: SHA256Hex.hash(of: source),
+            sourceHash: sourceHash,
             reviewMetadata: endmatter?.metadata
         )
     }

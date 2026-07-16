@@ -314,46 +314,127 @@ parse (reporting which strategy fired), the active-block patch fragment, and —
 for comparison — the full parse, warm-cache full render, and full-string diff
 scan the same edit *would* have cost without the fast paths.
 
-Baseline on a ~1.2 MB public-domain book fixture (`moby_dick.md`):
+Representative run on a ~1.2 MB public-domain book fixture (a Project Gutenberg
+*Moby-Dick* converted to chapter headings + plain-prose paragraphs), Apple
+Silicon, release build:
 
 | Metric | Value |
 | --- | ---: |
-| Bytes | 1,204,081 |
-| Lines | 5,402 |
-| Parsed blocks | 2,701 |
-| Headings | 137 |
-| Edit block bytes | 170 |
-| `parse.initial` | 344.85 ms |
-| `render.cold` | 98.00 ms |
-| `render.activateBlock` | 75.44 ms |
-| Active editable UTF-16 | 170 |
-| `source.applyEdit` | 0.79 ms |
-| `parseAfterEdit.middleInsert` | 8.86 ms |
+| Bytes | 1,237,788 |
+| Lines | 21,710 |
+| Parsed blocks | 2,804 |
+| Headings | 279 |
+| Edit block bytes | 282 |
+| `parse.initial` | 595.70 ms |
+| `render.cold` | 149.71 ms |
+| `render.activateBlock` | 69.30 ms |
+| `source.applyEdit` | 0.09 ms |
+| `parseAfterEdit.middleInsert` | **1.64 ms** |
 | `parseAfterEdit.strategy` | `plainParagraphFastPath` |
-| `render.activeBlockPatch.fragment` | 0.19 ms |
-| `parse.middleInsert` (fallback) | 328.92 ms |
-| `render.middleInsert.warmCache` (fallback) | 44.60 ms |
-| `render.fullStringDiffScan` (fallback) | 11.57 ms |
+| `render.activeBlockPatch.fragment` | 0.38 ms |
+| `parse.middleInsert` (fallback) | 581.30 ms |
+| `render.middleInsert.warmCache` (fallback) | 44.03 ms |
+| `render.fullStringDiffScan` (fallback) | 12.67 ms |
 
-The story the numbers tell:
+The story the top-line numbers tell:
 
 - **A full re-parse dominates.** On book-sized prose, `parse.middleInsert` (a
-  full parse) is ~329 ms — the single largest per-edit cost, and the thing the
+  full parse) is ~581 ms — the single largest per-edit cost, and the thing the
   fast paths exist to avoid.
-- **The fast path lands near a frame.** For a plain paragraph edit,
-  `parseAfterEdit.middleInsert` is ~9 ms — roughly a 37× reduction over the full
+- **The fast path is well under a frame.** For a plain paragraph edit,
+  `parseAfterEdit.middleInsert` is ~1.6 ms — a **~350× reduction** over the full
   parse — because only the edited paragraph's slice is re-parsed.
 - **The patch render is sub-millisecond.** `render.activeBlockPatch.fragment`
-  (~0.19 ms) replaces the one changed fragment, versus ~45 ms to rebuild the
+  (~0.4 ms) replaces the one changed fragment, versus ~44 ms to rebuild the
   whole attributed string with a warm cache.
 - **The fallbacks are still bounded.** When an edit *can't* take a fast path,
-  fragment caching keeps the warm full render (~45 ms) and diff scan (~12 ms)
+  fragment caching keeps the warm full render (~44 ms) and diff scan (~13 ms)
   far below the cold numbers, so even structural edits stay usable.
 
-Exact milliseconds depend on the hardware and the fixture; re-run the script
-locally rather than trusting these to the decimal. What holds across machines is
-the *shape*: the fast paths cut roughly two orders of magnitude off the parse and
-render that a single-block edit would otherwise cost.
+Exact milliseconds depend on the hardware and the fixture — this fixture's
+paragraphs keep the ebook's ~70-column hard wraps (21,710 physical lines for
+2,804 blocks), which is why its `parse.initial` runs heavier than a
+same-byte-count file with reflowed paragraphs would. **Re-run the script locally
+rather than trusting these to the decimal.** What holds across machines is the
+*shape*: the fast paths cut two-plus orders of magnitude off the parse and render
+a single-block edit would otherwise cost.
+
+### Where `parse.initial` actually spends its time
+
+`parse.initial` is not "the cmark parse." Set `QUOIN_PARSE_PHASE_LOG=1` and the
+595 ms decomposes as:
+
+| Stage | Time | Share | What it is |
+| --- | ---: | ---: | --- |
+| tree walk | 286 ms | **48%** | cmark AST → `Block` tree, inline post-passes (math/CriticMarkup scans per inline), outline + statistics |
+| frontmatter/endmatter split | 82 ms | 14% | detecting there is **no** YAML front matter and **no** review endmatter |
+| footnotes / finalize stats | 70 ms | 12% | gathering footnote definitions, finalizing word/char counts |
+| macro scan | 54 ms | 9% | scanning the whole source for `\newcommand`/`\def` (Vinculum) |
+| display-math prescan | 54 ms | 9% | scanning the whole source for `$$…$$` / `\[…\]` spans |
+| **cmark parse** | 48 ms | **8%** | the actual CommonMark/GFM block parse |
+| source hash | 1 ms | 0.2% | SHA-256 of the source for change detection |
+
+Two findings worth internalizing:
+
+- **The parse *walk* costs 6× the parse itself.** cmark hands back a tree in
+  ~48 ms; turning that tree into Quoin's `Block` model — with the per-inline
+  math and CriticMarkup post-passes, the outline, and the statistics folded into
+  the same walk — is ~286 ms. That is where parse-time optimization has to look.
+- **~32% of a cold parse is whole-document *string searches for features the
+  document doesn't have.*** The front-matter/endmatter split (82 ms), macro scan
+  (54 ms), and display-math prescan (54 ms) each sweep the entire 1.2 MB source.
+  The endmatter detector runs two `String.range(of:options:.backwards)` searches;
+  the display-math prescan's own "cheap bail" is `source.contains("$$")`. On a
+  Swift `String` those are **Unicode-grapheme-aware** searches — ~25–50 ms per
+  full sweep — so the guards meant to make these passes cheap are themselves the
+  cost. Moby-Dick has no front matter, no macros, and no math, and still pays
+  ~190 ms to confirm it. Doing these presence checks over the UTF-8 **byte** view
+  (`source.utf8`, ASCII markers) instead of the grapheme view is a
+  semantics-preserving ~10–50× speedup and the obvious next optimization. (This
+  is one-time, on document *open* — the per-keystroke fast paths skip all of it.)
+
+### Where `render.cold` spends its time
+
+Set `QUOIN_RENDER_PHASE_LOG=1` for a per-block-kind breakdown. On the all-prose
+fixture the cold render is almost entirely paragraph inline-attribution, and it
+is *linear and cheap per block*:
+
+| Block kind | Time | Share | Count | Per block |
+| --- | ---: | ---: | ---: | ---: |
+| paragraph | 90.5 ms | 88% | 2,521 | 0.036 ms |
+| heading | 12.0 ms | 12% | 279 | 0.043 ms |
+| list / rule | 0.3 ms | 0.3% | 4 | — |
+
+The per-kind sum (~103 ms) is below the end-to-end `render.cold` (~150 ms); the
+~47 ms difference is the inter-block `separator()` computation plus assembling
+2,804 fragments into one 1.2 M-character `NSMutableAttributedString`. The
+takeaway: **prose renders for free (~0.04 ms/block); the cold-render cost of a
+real document is set by its *heavy* block kinds**, which this fixture has none
+of. Each math block is a full Vinculum typeset, each Mermaid block a layout +
+draw, each code block a syntax-highlight pass — those are the fragments the
+per-block cache exists to build once and never rebuild.
+
+### Why `render.activateBlock` costs 69 ms of *nothing*
+
+Activating a block for editing re-runs `render` with a warm cache, so
+`QUOIN_RENDER_PHASE_LOG` reports **0.00 ms** of actual per-block work: 2,803
+cache hits and one reveal. The 69 ms is pure *assembly* — concatenating 2,804
+cached fragments (plus separators) back into the full attributed string. That is
+exactly the cost the active-block **patch** path (~0.4 ms, splice one fragment in
+place) exists to avoid on every subsequent keystroke; the full re-assembly
+happens only on the single activation.
+
+### Reproducing the breakdown
+
+```sh
+QUOIN_PARSE_PHASE_LOG=1 QUOIN_RENDER_PHASE_LOG=1 \
+  scripts/benchmark-editing-responsiveness.sh /path/to/large.md
+```
+
+Both flags are read once per process (a cached env lookup) and are inert unless
+set, so the same code path runs in shipping builds. `QUOIN_PARSE_PHASE_LOG`
+prints one stopwatch block per full parse; `QUOIN_RENDER_PHASE_LOG` prints a
+per-kind tally per render. The plumbing lives in `PhaseTrace` (QuoinCore).
 
 ### Regression guard
 

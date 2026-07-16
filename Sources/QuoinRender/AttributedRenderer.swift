@@ -228,6 +228,7 @@ public struct AttributedRenderer {
         var activeSourceText: String?
         var revealConfig: RevealStylerConfig?
         var newCache: [BlockID: NSAttributedString] = [:]
+        var tally = PhaseTrace.renderEnabled ? PhaseTrace.Tally() : nil
 
         for (index, block) in document.blocks.enumerated() {
             let start = output.length
@@ -248,16 +249,20 @@ public struct AttributedRenderer {
                 activeSourceText = slice
                 revealConfig = Self.revealStylerConfig(kind: block.kind, slice: slice)
                 output.append(revealed.attributed)
+                tally?.add("reveal (active)", 0)
             } else if isCacheable(block.kind), let cached = cache[block.id] {
                 newCache[block.id] = cached
                 output.append(cached)
+                tally?.add("cache hit", 0)
             } else {
                 // A fragment awaiting async content (an image still decoding)
                 // must NOT be cached: its BlockID is content-hash-stable, so a
                 // cached placeholder would be returned forever — the decoded
                 // image's re-render would hit the cache and never rebuild. The
                 // fragment marks itself pending (QuoinAttribute.pendingContent).
-                let fragment = render(block: block, depth: 0, document: document)
+                let built = PhaseTrace.timed { render(block: block, depth: 0, document: document) }
+                let fragment = built.value
+                tally?.add(Self.kindLabel(block.kind), built.ms)
                 if isCacheable(block.kind), !fragmentHasPendingContent(fragment) {
                     newCache[block.id] = fragment
                 }
@@ -281,6 +286,7 @@ public struct AttributedRenderer {
                 blockRanges[id] = NSRange(location: base + range.location, length: range.length)
             }
         }
+        tally?.emit(activeBlockID == nil ? "render.cold (by block kind)" : "render (by block kind)")
         // Keep only fragments for blocks still present; drops removed blocks.
         cache = newCache
         return RenderedDocument(
@@ -292,6 +298,27 @@ public struct AttributedRenderer {
             previewPanel: activeBlockID != nil ? Self.previewPanel(for: heldPreview) : nil,
             revealStyler: revealConfig
         )
+    }
+
+    /// Stable short label for a block kind, used only by the
+    /// `QUOIN_RENDER_PHASE_LOG` per-kind render breakdown.
+    static func kindLabel(_ kind: BlockKind) -> String {
+        switch kind {
+        case .paragraph: return "paragraph"
+        case .heading: return "heading"
+        case .codeBlock: return "codeBlock"
+        case .mermaid: return "mermaid"
+        case .mathBlock: return "mathBlock"
+        case .table: return "table"
+        case .list: return "list"
+        case .blockQuote: return "blockQuote"
+        case .callout: return "callout"
+        case .htmlBlock: return "htmlBlock"
+        case .frontMatter: return "frontMatter"
+        case .reviewEndmatter: return "reviewEndmatter"
+        case .thematicBreak: return "thematicBreak"
+        case .tableOfContents: return "tableOfContents"
+        }
     }
 
     /// A revealed block's projection: the full fragment plus the range of
