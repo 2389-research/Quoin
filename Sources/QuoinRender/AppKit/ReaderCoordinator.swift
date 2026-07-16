@@ -1787,6 +1787,12 @@ extension MarkdownReaderView {
             if commandSelector == #selector(NSTextView.insertBacktab(_:)) {
                 return indentListLines(outdent: true, in: textView)
             }
+            // Return on a list/quote/checkbox line continues the marker (or
+            // ends the list on an empty item), like every native editor.
+            // Non-list lines fall through to the ordinary newline.
+            if commandSelector == #selector(NSTextView.insertNewline(_:)) {
+                return continueListOnReturn(in: textView)
+            }
             // ⌘A while EDITING selects the active block's editable range,
             // not the whole document (live redline 2026-07-15) — the block
             // is the editing scope, and whole-doc selection from inside a
@@ -1856,6 +1862,114 @@ extension MarkdownReaderView {
                 beginAwaitingEditEcho()
             }
             return true
+        }
+
+        /// Return inside the active block's revealed source: continue a
+        /// list/quote/checkbox marker onto the new line (or, on an empty item,
+        /// end the list by removing the marker), as ONE relative byte edit.
+        /// Never fires in verbatim (code/math/diagram) source, or when the
+        /// caret line isn't a list item — those fall through to a plain newline.
+        private func continueListOnReturn(in textView: NSTextView) -> Bool {
+            guard let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  !parent.rendered.revealVerbatimCode,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            guard let edit = Self.listContinuationEdit(sourceText: sourceText, caretUTF16: relCaret)
+            else { return false }
+            if let (byteRange, replacement, caretDelta) = edit.byteEdit(inText: sourceText) {
+                onEdit(byteRange, replacement, caretDelta)
+                beginAwaitingEditEcho()
+            }
+            return true
+        }
+
+        /// The pure computation behind Return list continuation: which UTF-16
+        /// span to replace, with what, and where the caret lands within the
+        /// replacement. Nil when the caret line isn't a continuable marker (a
+        /// plain newline follows).
+        struct ListContinuationEdit {
+            let utf16Range: Range<Int>
+            let replacement: String
+            let caretUTF16: Int   // offset WITHIN the replacement
+
+            func byteEdit(inText sourceText: String) -> (ByteRange, String, Int?)? {
+                guard let byteRange = EditMapping.utf8Range(
+                    inText: sourceText, utf16Range: utf16Range) else { return nil }
+                return (byteRange, replacement,
+                        EditMapping.utf8Offset(inText: replacement, utf16Offset: caretUTF16))
+            }
+        }
+
+        static func listContinuationEdit(sourceText: String, caretUTF16 caret: Int) -> ListContinuationEdit? {
+            let ns = sourceText as NSString
+            guard caret >= 0, caret <= ns.length else { return nil }
+            let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
+            let rawLine = ns.substring(with: lineRange)
+            let line = Substring(rawLine.hasSuffix("\n") ? String(rawLine.dropLast()) : rawLine)
+            guard let (prefixCount, continuation) = listContinuationMarker(of: line) else { return nil }
+            // The marker prefix is all ASCII, so char count == UTF-16 length.
+            let contentStart = lineRange.location + prefixCount
+            guard caret >= contentStart else { return nil } // caret inside the marker → plain newline
+            let content = line.dropFirst(prefixCount)
+            if content.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Empty item + Return: remove the marker, ending the list.
+                return ListContinuationEdit(
+                    utf16Range: lineRange.location ..< contentStart, replacement: "", caretUTF16: 0)
+            }
+            // Non-empty: split the line, carrying the continued marker down.
+            let replacement = "\n" + continuation
+            return ListContinuationEdit(
+                utf16Range: caret ..< caret, replacement: replacement, caretUTF16: replacement.utf16.count)
+        }
+
+        /// Parses a list/quote/checkbox marker at the start of `line`, returning
+        /// the marker prefix's character count and the marker to write on the
+        /// continued line (indent preserved, ordered numbers incremented,
+        /// checkboxes reset to unchecked). Nil for non-list lines.
+        static func listContinuationMarker(of line: Substring) -> (prefixCount: Int, continuation: String)? {
+            let chars = Array(line)
+            var i = 0
+            while i < chars.count, chars[i] == " " { i += 1 }
+            let indent = String(repeating: " ", count: i)
+            guard i < chars.count else { return nil }
+
+            // Blockquote: a run of '>' and spaces.
+            if chars[i] == ">" {
+                var j = i
+                while j < chars.count, chars[j] == ">" || chars[j] == " " { j += 1 }
+                var cont = String(chars[0..<j])
+                if !cont.hasSuffix(" ") { cont += " " }
+                return (j, cont)
+            }
+
+            let bullet = chars[i]
+            if bullet == "-" || bullet == "*" || bullet == "+" {
+                guard i + 1 < chars.count, chars[i + 1] == " " else { return nil }
+                // Checkbox: bullet space '[' (space|x|X) ']' (space)
+                if i + 4 < chars.count, chars[i + 2] == "[",
+                   chars[i + 3] == " " || chars[i + 3] == "x" || chars[i + 3] == "X",
+                   chars[i + 4] == "]" {
+                    let trailingSpace = i + 5 < chars.count && chars[i + 5] == " "
+                    return (trailingSpace ? i + 6 : i + 5, indent + String(bullet) + " [ ] ")
+                }
+                return (i + 2, indent + String(bullet) + " ")
+            }
+
+            // Ordered: 1–9 digits, then '.'/')' , then a space.
+            var d = i
+            while d < chars.count, chars[d].isNumber { d += 1 }
+            let digits = d - i
+            guard digits >= 1, digits <= 9,
+                  d < chars.count, chars[d] == "." || chars[d] == ")",
+                  d + 1 < chars.count, chars[d + 1] == " " else { return nil }
+            let next = (Int(String(chars[i..<d])) ?? 0) + 1
+            return (d + 2, indent + String(next) + String(chars[d]) + " ")
         }
 
         /// The pure computation behind Tab/⇧Tab list indenting: which

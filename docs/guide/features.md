@@ -67,6 +67,10 @@ the file on disk stays clean markdown you own.
   | Edit Source / Done Editing | ⌘↩ | toggles the caret block into raw markdown |
   | Move Block Up / Down | ⌥⌘↑ / ⌥⌘↓ | reorders whole blocks byte-exactly |
 
+- **List editing** — `Tab` / `⇧Tab` indent and outdent the current item;
+  **Return** continues the list — bullets, incrementing numbers, `- [ ]`
+  checkboxes (reset to unchecked), and `>` quotes — and Return on an empty
+  item ends the list. All as byte-exact source edits.
 - **Task lists** — click a checkbox; it toggles and writes `- [x]` back to the
   file.
 - **Block operations** — right-click any block for **Duplicate Block**,
