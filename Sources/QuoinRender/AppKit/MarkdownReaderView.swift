@@ -398,6 +398,33 @@ public struct MarkdownReaderView: NSViewRepresentable {
             ]
         }
 
+        let (caretLineAnchorY, flipMotionID) = applyProjection(
+            coordinator: coordinator, textView: textView, in: scrollView)
+        // Activation changes invalidate queued keystroke positions.
+        if rendered.activeBlockID != coordinator.lastActiveBlockID {
+            coordinator.clearPendingKeystrokes()
+        }
+        coordinator.lastActiveBlockID = rendered.activeBlockID
+
+        restoreActiveCaret(
+            coordinator: coordinator, textView: textView, in: scrollView,
+            caretLineAnchorY: caretLineAnchorY)
+
+        applyPendingCommands(
+            coordinator: coordinator, textView: textView, in: scrollView,
+            flipMotionID: flipMotionID)
+    }
+
+    /// Apply the changed projection to the live text storage (the viewport
+    /// invariant lives here): capture the anchor line the caret is on, freeze
+    /// flip pixels, splice only the changed span, collapse a straddling
+    /// selection, restore the flip-back caret, and announce the mode change.
+    /// Returns the caret-line anchor and flip-motion id the post-splice caret
+    /// restore and motion passes need. A no-op (returns nils) when the
+    /// revision is unchanged or marked text (IME) is in flight.
+    private func applyProjection(
+        coordinator: Coordinator, textView: NSTextView, in scrollView: NSScrollView
+    ) -> (caretLineAnchorY: CGFloat?, flipMotionID: BlockID?) {
         // THE viewport invariant: the thing the user touched must not move.
         // On a flip (activate/deactivate), the anchor is the LINE THE CARET
         // IS ON — the clicked row of a table, the list item the arrow key
@@ -585,54 +612,69 @@ public struct MarkdownReaderView: NSViewRepresentable {
                 )
             }
         }
-        // Activation changes invalidate queued keystroke positions.
-        if rendered.activeBlockID != coordinator.lastActiveBlockID {
-            coordinator.clearPendingKeystrokes()
-        }
-        coordinator.lastActiveBlockID = rendered.activeBlockID
+        return (caretLineAnchorY, flipMotionID)
+    }
 
-        // Restore the caret into the active block after an edit round-trip.
-        // Deferred during IME composition alongside the projection (3.5):
-        // setSelectedRange would discard the marked text.
-        if let caret = caretInActiveBlock,
-           caretGeneration != coordinator.appliedCaretGeneration,
-           !textView.hasMarkedText(),
-           let active = rendered.activeEditableRange {
-            coordinator.appliedCaretGeneration = caretGeneration
-            let location = min(active.location + caret, active.location + active.length)
-            coordinator.suppressSelectionCallback = true
-            textView.setSelectedRange(NSRange(location: location, length: 0))
-            if let caretLineAnchorY {
-                // Flip: the caret's line goes back exactly where the user
-                // was looking (the clicked table row, the list item the
-                // arrow key entered) regardless of the height change. The
-                // revealed block's full range is laid out first so the pin
-                // measures real geometry, not estimates.
-                coordinator.pinCaretLine(
-                    at: location, toScreenY: caretLineAnchorY, in: textView,
-                    ensuringLayoutOf: rendered.activeBlockID.flatMap { rendered.blockRanges[$0] })
-            } else if typewriterEnabled, rendered.activeBlockID != nil {
-                // Typewriter scrolling (idea #1): while typing, the
-                // caret's line holds a fixed height — the page moves, the
-                // eye doesn't. Reuses the viewport-invariant pin.
-                let anchorY = scrollView.contentView.bounds.height * 0.4
-                coordinator.pinCaretLine(
-                    at: location, toScreenY: anchorY, in: textView, settle: false)
-            } else {
-                // Edit round-trip: scroll ONLY if the caret left the
-                // viewport, and then by the minimal amount — arrowing and
-                // typing must never lurch.
-                coordinator.scrollCaretIntoViewIfNeeded(location, in: textView)
-            }
-            coordinator.suppressSelectionCallback = false
-            if textView.window?.firstResponder !== textView {
-                textView.window?.makeFirstResponder(textView)
-            }
-            // The edit's echo has fully landed (projection + caret):
-            // release the next queued keystroke (ledger #11).
-            coordinator.noteEditEchoApplied(in: textView)
+    /// Restore the caret into the active block after an edit round-trip, then
+    /// hold its line where the user was looking. Deferred during IME
+    /// composition (3.5): `setSelectedRange` would discard marked text. The
+    /// three positioning modes are the viewport invariant in miniature — a
+    /// flip pins to the captured anchor line, typewriter mode holds a fixed
+    /// height, and an ordinary edit scrolls only if the caret left the viewport.
+    private func restoreActiveCaret(
+        coordinator: Coordinator, textView: NSTextView, in scrollView: NSScrollView,
+        caretLineAnchorY: CGFloat?
+    ) {
+        guard let caret = caretInActiveBlock,
+              caretGeneration != coordinator.appliedCaretGeneration,
+              !textView.hasMarkedText(),
+              let active = rendered.activeEditableRange
+        else { return }
+        coordinator.appliedCaretGeneration = caretGeneration
+        let location = min(active.location + caret, active.location + active.length)
+        coordinator.suppressSelectionCallback = true
+        textView.setSelectedRange(NSRange(location: location, length: 0))
+        if let caretLineAnchorY {
+            // Flip: the caret's line goes back exactly where the user
+            // was looking (the clicked table row, the list item the
+            // arrow key entered) regardless of the height change. The
+            // revealed block's full range is laid out first so the pin
+            // measures real geometry, not estimates.
+            coordinator.pinCaretLine(
+                at: location, toScreenY: caretLineAnchorY, in: textView,
+                ensuringLayoutOf: rendered.activeBlockID.flatMap { rendered.blockRanges[$0] })
+        } else if typewriterEnabled, rendered.activeBlockID != nil {
+            // Typewriter scrolling (idea #1): while typing, the
+            // caret's line holds a fixed height — the page moves, the
+            // eye doesn't. Reuses the viewport-invariant pin.
+            let anchorY = scrollView.contentView.bounds.height * 0.4
+            coordinator.pinCaretLine(
+                at: location, toScreenY: anchorY, in: textView, settle: false)
+        } else {
+            // Edit round-trip: scroll ONLY if the caret left the
+            // viewport, and then by the minimal amount — arrowing and
+            // typing must never lurch.
+            coordinator.scrollCaretIntoViewIfNeeded(location, in: textView)
         }
+        coordinator.suppressSelectionCallback = false
+        if textView.window?.firstResponder !== textView {
+            textView.window?.makeFirstResponder(textView)
+        }
+        // The edit's echo has fully landed (projection + caret):
+        // release the next queued keystroke (ledger #11).
+        coordinator.noteEditEchoApplied(in: textView)
+    }
 
+    /// The generation-fired commands that run after the projection settles:
+    /// flip-motion choreography, search, format, edit-source toggle, focus
+    /// dimming, first-responder claims, annotation, flash, scroll target, and
+    /// viewport restore. Each is edge-triggered on its own generation so it
+    /// fires once per request. Ordering matters — motion measures the settled
+    /// geometry the splice produced, and the focus/scroll passes run last.
+    private func applyPendingCommands(
+        coordinator: Coordinator, textView: NSTextView, in scrollView: NSScrollView,
+        flipMotionID: BlockID?
+    ) {
         // Motion, second half: with the splice applied and the pin's settle
         // pass already queued, measure the flipped block's REAL new
         // geometry and start the choreography — its animations enqueue
