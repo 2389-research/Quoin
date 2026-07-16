@@ -584,6 +584,24 @@ public enum MarkdownConverter {
             return ByteRange(offset: relative.offset + baseOffset, length: relative.length)
         }
 
+        /// A heading's swift-markdown range ends at its trimmed content, so the
+        /// trailing whitespace on the heading LINE (which the parser strips) is
+        /// left unowned. That orphaned gap is where a space typed at the end of
+        /// a heading used to land: the block never grew, the caret couldn't
+        /// advance past its content, and repeated spaces piled up at one offset,
+        /// corrupting the layout below. Extend the range to own that trailing
+        /// whitespace (spaces/tabs up to — never including — the newline) so
+        /// end-of-heading editing behaves. Scoped to headings on purpose:
+        /// paragraphs use two trailing spaces as a hard line break.
+        func extendingTrailingLineSpaces(_ range: ByteRange) -> ByteRange {
+            var end = range.upperBound
+            while end < sourceBytes.count,
+                  sourceBytes[end] == UInt8(ascii: " ") || sourceBytes[end] == UInt8(ascii: "\t") {
+                end += 1
+            }
+            return ByteRange(offset: range.offset, length: end - range.offset)
+        }
+
         // MARK: Identity
 
         mutating func makeBlock(kind: BlockKind, range: ByteRange) -> Block {
@@ -622,7 +640,7 @@ public enum MarkdownConverter {
 
             switch markup {
             case let heading as Markdown.Heading:
-                return [convertHeading(heading, range: range)]
+                return [convertHeading(heading, range: extendingTrailingLineSpaces(range))]
 
             case let paragraph as Markdown.Paragraph:
                 return convertParagraph(paragraph, range: range)
