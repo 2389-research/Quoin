@@ -318,6 +318,11 @@ public struct MarkdownReaderView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false // straight quotes stay straight
         textView.isAutomaticDashSubstitutionEnabled = false  // "--" stays "--", not "—"
         textView.isAutomaticSpellingCorrectionEnabled = false // no autocorrect rewrites
+        // Spelling underlines ARE safe here (#26): unlike the substitutions
+        // above they only annotate, never rewrite the bytes. Enabled once as
+        // the default so the standard Edit ▸ Spelling and Grammar menu can
+        // still toggle it per the user's preference. Grammar stays off (noisy).
+        textView.isContinuousSpellCheckingEnabled = true
         textView.isAutomaticLinkDetectionEnabled = false     // don't auto-linkify raw URLs
         textView.isAutomaticDataDetectionEnabled = false     // no date/address detection
         textView.smartInsertDeleteEnabled = false            // no smart copy/paste spacing

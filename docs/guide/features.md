@@ -84,6 +84,9 @@ the file on disk stays clean markdown you own.
   item ends the list. All as byte-exact source edits.
 - **Task lists** — click a checkbox; it toggles and writes `- [x]` back to the
   file.
+- **Spell-check** — misspellings are underlined as you write (Edit ▸ Spelling
+  and Grammar to toggle or correct). It only annotates — autocorrect and smart
+  quote/dash substitutions stay off so your exact bytes reach disk.
 - **Images** — drag an image file in, or **paste** a screenshot / copied image
   (⌘V). Quoin copies it into an `assets/` folder beside your document and
   inserts `![](assets/…)` at the caret — the file stays a plain `.md` you can
