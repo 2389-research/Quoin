@@ -267,10 +267,16 @@ resolution can never quietly corrupt the document.
 
 | Feature | Shortcut | What it does |
 | :--- | :--- | :--- |
-| Focus Mode | ⌥⌘F | dims everything but the current block |
+| Focus Mode | View menu / toolbar | dims everything but the current block |
 | Sentence Focus | — | narrows the focus to the current sentence (needs Focus Mode) |
 | Typewriter Scrolling | ⌥⌘T | keeps the active line vertically centered |
+| Zoom In / Out | ⌘= / ⌘− | scales the reading text up or down |
+| Actual Size | ⌃⌘0 | resets the reading text to 100% |
 | Status Bar | — | word count, reading progress, and goals |
+
+Text zoom changes only how large the document reads on screen — it's a viewing
+preference, not an edit. Exports (PDF, RTF) and print always render at 100%, so a
+comfortable reading zoom never leaks into the files you share.
 
 Twelve selectable code themes are available for fenced code blocks; the default
 follows the app's light/dark appearance. A reading-progress hairline and

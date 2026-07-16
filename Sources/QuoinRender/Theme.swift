@@ -35,6 +35,10 @@ public struct Theme: Sendable {
         } else {
             prefersDark = false
         }
+        // Text zoom (⌘+/⌘−/⌘0 → QuoinTextScale). 0/unset means 100%; clamped
+        // to a sane range. Multiplied into the type ramp below.
+        let stored = UserDefaults.standard.double(forKey: "QuoinTextScale")
+        textScale = stored > 0 ? min(max(CGFloat(stored), 0.6), 2.5) : 1
         #else
         prefersDark = false
         #endif
@@ -48,6 +52,17 @@ public struct Theme: Sendable {
 
     // MARK: - Spacing & metrics (handoff: 4 · 8 · 12 · 16 · 24 · 32)
 
+    /// Document text-zoom factor (1 = 100%); multiplied into every font size
+    /// in the ramp. Set from the app's ⌘+/⌘−/⌘0 zoom; 1 for exports.
+    public var textScale: CGFloat = 1
+
+    /// The same theme at 100% zoom — exports and print render full-size, never
+    /// the reader's on-screen zoom.
+    public func atActualSize() -> Theme {
+        var copy = self
+        copy.textScale = 1
+        return copy
+    }
     public var bodySize: CGFloat = 14
     public var bodyLineHeightMultiple: CGFloat = 1.7
     public var paragraphSpacing: CGFloat = 12
@@ -101,19 +116,20 @@ public struct Theme: Sendable {
 
     /// Inline code: 12.5pt mono. Code blocks: 12pt mono, line height 1.6.
     public func inlineCodeFont() -> PlatformFont {
-        .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        .monospacedSystemFont(ofSize: 12.5 * textScale, weight: .regular)
     }
 
     public func codeBlockFont() -> PlatformFont {
-        .monospacedSystemFont(ofSize: 12, weight: .regular)
+        .monospacedSystemFont(ofSize: 12 * textScale, weight: .regular)
     }
 
     /// UI captions/status: 10.5pt mono per spec.
     public func captionFont() -> PlatformFont {
-        .monospacedSystemFont(ofSize: 10.5, weight: .regular)
+        .monospacedSystemFont(ofSize: 10.5 * textScale, weight: .regular)
     }
 
-    private func roundedFont(size: CGFloat, weight: PlatformFont.Weight) -> PlatformFont {
+    private func roundedFont(size rawSize: CGFloat, weight: PlatformFont.Weight) -> PlatformFont {
+        let size = rawSize * textScale
         let base = PlatformFont.systemFont(ofSize: size, weight: weight)
         #if canImport(AppKit)
         let descriptor = base.fontDescriptor.withDesign(.rounded)

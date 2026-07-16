@@ -24,6 +24,7 @@ struct ReaderScreen: View {
     /// Code-canvas theme (#63): colors are BAKED into the projection, so a
     /// change must re-render, same as an appearance flip.
     @AppStorage("QuoinCodeTheme") private var codeTheme = "match"
+    @AppStorage("QuoinTextScale") private var textScale = 1.0
 
     @State private var formatCommand: FormatCommand?
     @State private var formatGeneration = 0
@@ -253,6 +254,11 @@ struct ReaderScreen: View {
         .onChange(of: codeTheme) {
             model.refreshTheme()
         }
+        // Text zoom (⌘+/⌘−/⌃⌘0): Theme() reads QuoinTextScale, so a change
+        // re-renders the projection at the new size.
+        .onChange(of: textScale) {
+            model.refreshTheme()
+        }
         .inspector(isPresented: $isOutlineVisible) {
             VStack(spacing: 0) {
                 // The open count lives OUTSIDE the picker as an accent
@@ -401,10 +407,16 @@ struct ReaderScreen: View {
                     Label("Focus", systemImage: isFocusMode ? "scope" : "circle.dashed")
                 }
                 .help(isFocusMode ? "Leave focus mode" : "Focus mode: dim everything but the current paragraph")
+                if let fileURL {
+                    ShareLink(item: fileURL) {
+                        Label("Share", systemImage: "square.and.arrow.up")
+                    }
+                    .help("Share this document (AirDrop, Mail, Messages…)")
+                }
                 Button {
                     isExportVisible = true
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up")
+                    Label("Export", systemImage: "arrow.up.doc")
                 }
                 .help("Export as Markdown, HTML, or PDF (⇧⌘E)")
                 Button {

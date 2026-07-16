@@ -205,6 +205,7 @@ private struct ViewCommands: Commands {
     @AppStorage("QuoinTypewriter") private var isTypewriter = false
     @AppStorage("QuoinFocusSentence") private var isSentenceFocus = false
     @AppStorage("QuoinShowStatusBar") private var showStatusBar = true
+    @AppStorage("QuoinTextScale") private var textScale = 1.0
 
     var body: some Commands {
         // Replacing .sidebar also removes the system Toggle Sidebar
@@ -226,6 +227,14 @@ private struct ViewCommands: Commands {
                 .disabled(!isFocusMode)
             Toggle("Typewriter Scrolling", isOn: $isTypewriter)
                 .keyboardShortcut("t", modifiers: [.command, .option])
+            Divider()
+            // Document text zoom. ⌘0 is Show/Hide Sidebar, so reset is ⌃⌘0.
+            Button("Zoom In") { textScale = min((textScale > 0 ? textScale : 1) + 0.1, 2.5) }
+                .keyboardShortcut("=", modifiers: .command)
+            Button("Zoom Out") { textScale = max((textScale > 0 ? textScale : 1) - 0.1, 0.6) }
+                .keyboardShortcut("-", modifiers: .command)
+            Button("Actual Size") { textScale = 1 }
+                .keyboardShortcut("0", modifiers: [.command, .control])
             Divider()
         }
     }

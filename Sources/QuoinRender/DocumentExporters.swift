@@ -21,7 +21,8 @@ public enum DocumentExporters {
     // MARK: - RTF
 
     public static func rtf(from document: QuoinDocument, theme: Theme = Theme()) throws -> Data {
-        let renderer = AttributedRenderer(theme: theme)
+        // Exports always render at 100%, never the reader's on-screen zoom.
+        let renderer = AttributedRenderer(theme: theme.atActualSize())
         let rendered = renderer.render(document)
         let range = NSRange(location: 0, length: rendered.attributed.length)
         guard let data = try? rendered.attributed.data(
@@ -53,7 +54,8 @@ public enum DocumentExporters {
         #else
         let resolvedTheme = theme ?? Theme()
         #endif
-        let renderer = AttributedRenderer(theme: resolvedTheme)
+        // Exports always render at 100%, never the reader's on-screen zoom.
+        let renderer = AttributedRenderer(theme: resolvedTheme.atActualSize())
 
         var pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let margin: CGFloat = 54
@@ -144,7 +146,8 @@ public enum DocumentExporters {
     /// text view — the element spec doubles as the print stylesheet.
     @MainActor
     public static func runPrintOperation(for document: QuoinDocument, theme: Theme = Theme(), jobTitle: String) {
-        let rendered = AttributedRenderer(theme: theme).render(document).attributed
+        // Print always renders at 100%, never the reader's on-screen zoom.
+        let rendered = AttributedRenderer(theme: theme.atActualSize()).render(document).attributed
 
         let printInfo = NSPrintInfo()
         printInfo.topMargin = 54
