@@ -104,7 +104,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp build/release/Quoin-*.dmg build/Quoin.dmg
-          args=(--verify-tag --title "Quoin $GITHUB_REF_NAME" --generate-notes)
+          version="${GITHUB_REF_NAME#v}"
+          args=(--verify-tag --title "Quoin $GITHUB_REF_NAME")
+          # Curated release notes: commit docs/releases/<version>.md before
+          # tagging and it becomes the release body; otherwise fall back to
+          # GitHub's auto-generated commit list. (See docs/reference/distribution.md.)
+          if [ -f "docs/releases/${version}.md" ]; then
+            echo "Using curated notes: docs/releases/${version}.md"
+            args+=(--notes-file "docs/releases/${version}.md")
+          else
+            echo "No docs/releases/${version}.md — generating notes from commits"
+            args+=(--generate-notes)
+          fi
           case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" "${args[@]}" \
             build/release/Quoin-*.zip build/release/Quoin-*.dmg \

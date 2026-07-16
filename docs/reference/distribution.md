@@ -115,16 +115,24 @@ its directory to skip the search. Run `generate_keys` from the same directory.
 
 ## Cutting a release
 
-The normal path is a tag:
+The normal path is a tag. **Write the release notes first** — commit
+`docs/releases/<version>.md` (Markdown body, no title; the workflow titles it
+`Quoin vX.Y.Z`), then tag:
 
 ```sh
-git tag v1.0.1 && git push origin v1.0.1     # real release
-git tag v1.0.1-rc.1 && git push origin v1.0.1-rc.1   # prerelease dry run
+# 1. curate the notes for this version, then commit them
+$EDITOR docs/releases/1.0.2.md && git commit -am "release notes: 1.0.2"
+# 2. tag + push
+git tag -a v1.0.2 -m "Quoin 1.0.2" && git push origin v1.0.2       # real release
+git tag -a v1.0.2-rc.1 -m "…" && git push origin v1.0.2-rc.1       # prerelease dry run
 ```
 
 CI does the rest and the release appears on GitHub with the notarized zip and
-signed appcast attached. Existing installs pick up a non-prerelease on their
-next Sparkle check.
+signed appcast attached. **Release notes:** the publish step uses
+`docs/releases/<version>.md` as the body if the tagged commit carries one;
+otherwise it falls back to GitHub's auto-generated commit list (thin — prefer
+the curated file). Existing installs pick up a non-prerelease on their next
+Sparkle check.
 
 ## Cutting a release locally (fallback)
 
