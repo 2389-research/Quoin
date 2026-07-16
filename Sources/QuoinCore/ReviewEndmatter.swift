@@ -66,6 +66,15 @@ public enum ReviewEndmatter {
     }
 
     public static func detect(in source: String) -> Detected? {
+        // Cheap byte-level guard: the grapheme-aware backwards String
+        // searches below cost tens of ms on a large document even when no
+        // delimiter exists. The `---` fences have exactly one UTF-8 encoding,
+        // so a byte scan decides "no endmatter possible" identically and far
+        // faster; only a document that actually contains a fence pays for the
+        // precise search (see ByteScan / performance.md).
+        guard source.utf8Contains([0x0A, 0x2D, 0x2D, 0x2D, 0x0A])
+           || source.utf8Contains([0x0D, 0x0A, 0x2D, 0x2D, 0x2D, 0x0D, 0x0A])
+        else { return nil }
         // CRLF documents delimit with \r\n---\r\n — a pure-LF search never
         // matched, so their endmatter rendered as prose and every
         // resolution stacked a fresh LF endmatter on top (panel review,

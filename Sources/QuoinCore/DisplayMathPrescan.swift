@@ -38,8 +38,10 @@ enum DisplayMathPrescan {
     }
 
     static func spans(in source: String) -> [Span] {
-        // Cheap bail: no possible opener, no scan.
-        guard source.contains("$$") || source.contains("\\[") else { return [] }
+        // Cheap bail: no possible opener, no scan. Byte-level so the guard
+        // itself isn't a grapheme-aware full-string search (see ByteScan).
+        guard source.utf8Contains([0x24, 0x24]) || source.utf8Contains([0x5C, 0x5B])
+        else { return [] }
 
         let bytes = Array(source.utf8)
         // Line table: (start, contentEnd, next) — contentEnd excludes the

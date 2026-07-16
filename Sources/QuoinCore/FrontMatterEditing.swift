@@ -206,6 +206,14 @@ public enum FrontMatterEditing {
     /// converter's rule.
     static func block(in source: String) -> DetectedBlock? {
         let bytes = Array(source.utf8)
+        // Front matter must open with a bare `---` line at byte 0. The
+        // overwhelmingly common no-front-matter document fails this in four
+        // byte comparisons, so check it before building a whole-document line
+        // table (see performance.md → Benchmarks). `----…` or `--- …` are not
+        // an opening fence, matching the `opening.text == "---"` check below.
+        guard bytes.count > 3, bytes[0] == 0x2D, bytes[1] == 0x2D, bytes[2] == 0x2D,
+              bytes[3] == 0x0A || bytes[3] == 0x0D
+        else { return nil }
         let lines = sourceLines(in: bytes)
         guard let opening = lines.first, opening.text == "---",
               // A bare `---` at EOF (no terminator) is a thematic break.

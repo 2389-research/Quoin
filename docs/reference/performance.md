@@ -325,16 +325,16 @@ Silicon, release build:
 | Parsed blocks | 2,804 |
 | Headings | 279 |
 | Edit block bytes | 282 |
-| `parse.initial` | 595.70 ms |
-| `render.cold` | 149.71 ms |
-| `render.activateBlock` | 69.30 ms |
-| `source.applyEdit` | 0.09 ms |
-| `parseAfterEdit.middleInsert` | **1.64 ms** |
+| `parse.initial` | 415.01 ms |
+| `render.cold` | 151.74 ms |
+| `render.activateBlock` | 61.74 ms |
+| `source.applyEdit` | 0.13 ms |
+| `parseAfterEdit.middleInsert` | **1.58 ms** |
 | `parseAfterEdit.strategy` | `plainParagraphFastPath` |
-| `render.activeBlockPatch.fragment` | 0.38 ms |
-| `parse.middleInsert` (fallback) | 581.30 ms |
-| `render.middleInsert.warmCache` (fallback) | 44.03 ms |
-| `render.fullStringDiffScan` (fallback) | 12.67 ms |
+| `render.activeBlockPatch.fragment` | 0.33 ms |
+| `parse.middleInsert` (fallback) | 405.82 ms |
+| `render.middleInsert.warmCache` (fallback) | 44.01 ms |
+| `render.fullStringDiffScan` (fallback) | 13.01 ms |
 
 The story the top-line numbers tell:
 
@@ -362,36 +362,46 @@ a single-block edit would otherwise cost.
 ### Where `parse.initial` actually spends its time
 
 `parse.initial` is not "the cmark parse." Set `QUOIN_PARSE_PHASE_LOG=1` and the
-595 ms decomposes as:
+415 ms decomposes as:
 
 | Stage | Time | Share | What it is |
 | --- | ---: | ---: | --- |
-| tree walk | 286 ms | **48%** | cmark AST → `Block` tree, inline post-passes (math/CriticMarkup scans per inline), outline + statistics |
-| frontmatter/endmatter split | 82 ms | 14% | detecting there is **no** YAML front matter and **no** review endmatter |
-| footnotes / finalize stats | 70 ms | 12% | gathering footnote definitions, finalizing word/char counts |
-| macro scan | 54 ms | 9% | scanning the whole source for `\newcommand`/`\def` (Vinculum) |
-| display-math prescan | 54 ms | 9% | scanning the whole source for `$$…$$` / `\[…\]` spans |
-| **cmark parse** | 48 ms | **8%** | the actual CommonMark/GFM block parse |
-| source hash | 1 ms | 0.2% | SHA-256 of the source for change detection |
+| tree walk | 284 ms | **69%** | cmark AST → `Block` tree, inline post-passes (math/CriticMarkup scans per inline), outline + statistics |
+| footnotes / finalize stats | 69 ms | 17% | gathering footnote definitions, finalizing word/char counts |
+| **cmark parse** | 47 ms | **11%** | the actual CommonMark/GFM block parse |
+| frontmatter/endmatter split | 4.5 ms | 1.1% | detecting there is **no** YAML front matter and **no** review endmatter |
+| display-math prescan | 4.0 ms | 1.0% | scanning for `$$…$$` / `\[…\]` spans |
+| macro scan | 3.1 ms | 0.8% | scanning for `\newcommand`/`\def` (Vinculum) |
+| source hash | 0.8 ms | 0.2% | SHA-256 of the source for change detection |
 
 Two findings worth internalizing:
 
 - **The parse *walk* costs 6× the parse itself.** cmark hands back a tree in
-  ~48 ms; turning that tree into Quoin's `Block` model — with the per-inline
+  ~47 ms; turning that tree into Quoin's `Block` model — with the per-inline
   math and CriticMarkup post-passes, the outline, and the statistics folded into
-  the same walk — is ~286 ms. That is where parse-time optimization has to look.
-- **~32% of a cold parse is whole-document *string searches for features the
-  document doesn't have.*** The front-matter/endmatter split (82 ms), macro scan
-  (54 ms), and display-math prescan (54 ms) each sweep the entire 1.2 MB source.
-  The endmatter detector runs two `String.range(of:options:.backwards)` searches;
-  the display-math prescan's own "cheap bail" is `source.contains("$$")`. On a
-  Swift `String` those are **Unicode-grapheme-aware** searches — ~25–50 ms per
-  full sweep — so the guards meant to make these passes cheap are themselves the
-  cost. Moby-Dick has no front matter, no macros, and no math, and still pays
-  ~190 ms to confirm it. Doing these presence checks over the UTF-8 **byte** view
-  (`source.utf8`, ASCII markers) instead of the grapheme view is a
-  semantics-preserving ~10–50× speedup and the obvious next optimization. (This
-  is one-time, on document *open* — the per-keystroke fast paths skip all of it.)
+  the same walk — is ~284 ms. That is now where the remaining parse-time
+  optimization has to look.
+- **The preprocessing passes used to be ~32% of a cold parse — whole-document
+  string searches for features the document doesn't have — and were fixed.** The
+  front-matter/endmatter split, macro scan, and display-math prescan each swept
+  the entire 1.2 MB source with *Unicode-grapheme-aware* `String` searches
+  (`String.range(of:options:.backwards)`, `source.contains("$$")`) — ~25–50 ms
+  per sweep, ~190 ms total, just to confirm Moby-Dick has no front matter, no
+  macros, and no math. Moving those presence checks to the UTF-8 **byte** view
+  (`ByteScan.utf8Contains`, ASCII markers) is semantics-preserving and collapsed
+  them to a combined ~11.5 ms:
+
+  | Preprocessing pass | before | after |
+  | --- | ---: | ---: |
+  | frontmatter/endmatter split | 82 ms | 4.5 ms |
+  | macro scan | 54 ms | 3.1 ms |
+  | display-math prescan | 54 ms | 4.0 ms |
+
+  That is the ~180 ms difference between the old 595 ms and the current 415 ms
+  `parse.initial`. (It is one-time, on document *open* — the per-keystroke fast
+  paths skip all of it — but it is exactly the cost of opening a large file.) A
+  document that *does* contain a `---` fence still pays the precise backwards
+  search; only the common no-endmatter case shortcuts.
 
 ### Where `render.cold` spends its time
 

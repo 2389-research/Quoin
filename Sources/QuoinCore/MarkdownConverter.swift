@@ -65,7 +65,12 @@ public enum MarkdownConverter {
         var builder = Builder(source: source, parseInput: parseInput, baseOffset: baseOffset)
         // Collect \newcommand/\def from every math segment first, so a
         // macro used before its definition still resolves (document scope).
-        builder.macroTable = MathMacros.collectDefinitions(from: source)
+        // Every definition begins with a backslash; a document without one
+        // cannot define a macro, so skip the whole-source math scan for it
+        // (macroTable already defaults to empty).
+        if source.utf8.contains(0x5C) {
+            builder.macroTable = MathMacros.collectDefinitions(from: source)
+        }
         watch?.lap("macro scan")
 
         var blocks: [Block] = []
