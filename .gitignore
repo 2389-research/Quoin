@@ -34,6 +34,11 @@ playground.xcworkspace
 # release pipeline output (scripts/notarize.sh, scripts/release.sh)
 build/
 
+# hugo build output (.github/workflows/pages.yml)
+site/public/
+site/resources/
+site/.hugo_build.lock
+
 # CocoaPods
 #
 # We recommend against adding the Pods directory to your .gitignore. However

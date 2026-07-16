@@ -1,0 +1,31 @@
+# ABOUTME: Hugo configuration for the Quoin website, deployed to GitHub Pages
+# ABOUTME: at 2389-research.github.io/Quoin by .github/workflows/pages.yml.
+
+baseURL = "https://2389-research.github.io/Quoin/"
+languageCode = "en-us"
+title = "Quoin — a native macOS Markdown editor with review inside the file"
+
+# One bespoke page; no taxonomies or feeds.
+disableKinds = ["taxonomy", "term", "rss"]
+
+# Declaring any mount replaces ALL of Hugo's defaults, so content and layouts
+# are re-declared alongside the shared asset directories. Images, media, and
+# brand assets stay in docs/ because repo markdown files reference them too —
+# mounting them keeps one copy serving both, at the same URLs the old
+# main:/docs deployment used.
+[module]
+  [[module.mounts]]
+    source = "content"
+    target = "content"
+  [[module.mounts]]
+    source = "layouts"
+    target = "layouts"
+  [[module.mounts]]
+    source = "../docs/images"
+    target = "static/images"
+  [[module.mounts]]
+    source = "../docs/media"
+    target = "static/media"
+  [[module.mounts]]
+    source = "../docs/brand"
+    target = "static/brand"

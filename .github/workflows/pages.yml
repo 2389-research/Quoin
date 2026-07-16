@@ -1,0 +1,72 @@
+name: Pages
+
+# Builds the Hugo site in site/ and deploys it to GitHub Pages. The Pages
+# site is configured for workflow deploys (build_type=workflow), replacing
+# the old legacy build of main:/docs. docs/{images,media,brand} are mounted
+# into the site as static assets (see site/hugo.toml), so asset URLs are
+# unchanged from the old deployment — which is why changes to those
+# directories also trigger a deploy.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - "docs/media/**"
+      - "docs/brand/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; never cancel an in-flight production deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # Keep in step with the Hugo version used for local `hugo --source site`.
+      HUGO_VERSION: "0.164.0"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Hugo
+        run: |
+          wget -q -O "$RUNNER_TEMP/hugo.deb" \
+            "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.deb"
+          sudo dpkg -i "$RUNNER_TEMP/hugo.deb"
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v6
+
+      # base_url comes from the Pages config, so a rename or custom domain
+      # doesn't require touching site/hugo.toml.
+      - name: Build with Hugo
+        env:
+          HUGO_ENVIRONMENT: production
+        run: |
+          hugo --source site --minify --gc \
+            --baseURL "${{ steps.pages.outputs.base_url }}/"
+
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: site/public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
