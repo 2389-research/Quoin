@@ -101,8 +101,10 @@ public enum ReviewEndmatter {
         let hasRecords = metadata.comments.values.contains { $0.status == "resolved" }
             || metadata.suggestions.values.contains { $0.status == "resolved" }
         guard body.contains("{#") || documentLevel || hasRecords else { return nil }
-        let offset = source.utf8.distance(from: source.utf8.startIndex,
-                                          to: delimiterRange.lowerBound.samePosition(in: source.utf8)!)
+        // The delimiter lower bound is a `\n`, always on a UTF-8 boundary,
+        // but detection is nil-tolerant — guard rather than force-unwrap.
+        guard let utf8Lower = delimiterRange.lowerBound.samePosition(in: source.utf8) else { return nil }
+        let offset = source.utf8.distance(from: source.utf8.startIndex, to: utf8Lower)
         let lineEnding = (crlf.map { delimiterRange == $0 } ?? false) ? "\r\n" : "\n"
         return Detected(
             range: ByteRange(offset: offset, length: source.utf8.count - offset),

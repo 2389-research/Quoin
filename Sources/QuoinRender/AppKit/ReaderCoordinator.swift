@@ -94,6 +94,8 @@ extension MarkdownReaderView {
             var oldBuf = [unichar](repeating: 0, count: chunk)
             var newBuf = [unichar](repeating: 0, count: chunk)
             func chunksEqual(_ n: Int) -> Bool {
+                // Both buffers are fixed `chunk`-sized (never empty), so
+                // `baseAddress` is always non-nil here.
                 oldBuf.withUnsafeBufferPointer { a in
                     newBuf.withUnsafeBufferPointer { b in
                         memcmp(a.baseAddress!, b.baseAddress!, n * MemoryLayout<unichar>.size) == 0
@@ -638,6 +640,14 @@ extension MarkdownReaderView {
                 )
                 let (utf16Range, text, caret) = intent.edit
                 guard let byteRange = EditMapping.utf8Range(inText: sourceText, utf16Range: utf16Range) else {
+                    // A nil mapping would drop the keystroke silently — the
+                    // "input vanished" class we treat as the worst editor
+                    // failure. Refuse audibly and leave a trace, never mute.
+                    NSSound.beep()
+                    QuoinPerformanceTrace.log(
+                        "edit.mapping.failed",
+                        startedAt: DispatchTime.now().uptimeNanoseconds,
+                        metadata: "utf16=\(utf16Range) sourceUTF16=\(sourceText.utf16.count)")
                     return false
                 }
                 let caretDelta = caret.flatMap { EditMapping.utf8Offset(inText: text, utf16Offset: $0) }
@@ -2204,10 +2214,13 @@ extension MarkdownReaderView {
             guard let textView else { return }
             if QuoinPerformanceTrace.isEnabled {
                 let panel = parent.rendered.previewPanel
+                let panelDesc = panel.map {
+                    "img@\(UInt(bitPattern: ObjectIdentifier($0.image).hashValue) % 100_000)"
+                } ?? "nil"
                 QuoinPerformanceTrace.log(
                     "panel.update", startedAt: DispatchTime.now().uptimeNanoseconds,
                     metadata: "frame=\(frameBox.map { Int($0.minY) } ?? -1) "
-                        + "panel=\(panel == nil ? "nil" : "img@\(UInt(bitPattern: ObjectIdentifier(panel!.image).hashValue) % 100_000)")"
+                        + "panel=\(panelDesc)"
                         + " status=\(panel?.statusMessage != nil) active=\(parent.rendered.activeBlockID != nil) rev=\(parent.rendered.revision)")
             }
             lastPanelFrameBox = frameBox

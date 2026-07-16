@@ -33,6 +33,36 @@ struct MarkdownSourceStyler {
     /// code font.
     var treatsSourceAsVerbatimCode = false
 
+    /// Reveal-styling patterns are literals — recompiling them on every
+    /// keystroke measurably cost the reveal path, so compile them once.
+    /// Optional so a malformed literal degrades that one styling pass rather
+    /// than trapping; the reveal-fidelity tests exercise every construct.
+    private enum Patterns {
+        static func compile(_ pattern: String,
+                            _ options: NSRegularExpression.Options = []) -> NSRegularExpression? {
+            try? NSRegularExpression(pattern: pattern, options: options)
+        }
+        /// The optional `{#id}` tail every CriticMarkup mark may carry;
+        /// ALPHA-first id grammar, matching CriticScanner.
+        static let idTail = #"(\{#[A-Za-z][A-Za-z0-9_-]*\})?"#
+        static let criticInsertion = compile(#"\{\+\+([\s\S]*?)\+\+\}"# + idTail)
+        static let criticDeletion = compile(#"\{--([\s\S]*?)--\}"# + idTail)
+        // Substitution halves are TEMPERED so the old half can't cross a `~>`
+        // or either half a `~~}` — the lazy version matched `{~~a~~}` through
+        // a LATER `~~}`, styling prose the scanner degraded to text (panel).
+        static let criticSubstitution =
+            compile(#"\{~~((?:(?!~~\}|~>)[\s\S])*)~>((?:(?!~~\})[\s\S])*?)~~\}"# + idTail)
+        static let criticComment = compile(#"\{>>([\s\S]*?)<<\}"# + idTail)
+        static let criticHighlight = compile(#"\{==([\s\S]*?)==\}"# + idTail)
+        static let referenceDefinition =
+            compile(#"^[ \t]*\[[^\]\n]+\]:[ \t]*(\S.*)$"#, [.anchorsMatchLines])
+        static let entity = compile(#"&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});"#)
+        static let image = compile(#"!\[([^\]\n]*)\]\(([^)\n]*)\)"#)
+        static let angleTag = compile(#"</?[a-zA-Z][^<>\n]*>"#)
+        static let footnote = compile(#"\[\^([^\]\n]+)\]"#)
+        static let link = compile(#"\[([^\]\n]*)\]\(([^)\n]*)\)"#)
+    }
+
     /// `caretOffset` is the caret position in UTF-16 units relative to
     /// `source`. nil reveals every delimiter (whole-block flip mode for
     /// code/math/mermaid blocks, and before the caret has landed).
@@ -214,29 +244,24 @@ struct MarkdownSourceStyler {
             .strikethroughStyle: NSUnderlineStyle.single.rawValue,
             .foregroundColor: theme.ink.withAlphaComponent(0.55),
         ]
-        // These must agree with CriticScanner's recognition: the id tail is
-        // ALPHA-first (spec grammar), and the substitution's halves are
-        // TEMPERED so the old half can't cross a `~>` or either half a
-        // `~~}` — the lazy version matched from `{~~a~~}` through a LATER
-        // `~~}`, styling literal prose as a mark the scanner (rightly)
-        // degraded to text (panel review).
-        let idTail = #"(\{#[A-Za-z][A-Za-z0-9_-]*\})?"#
-        let patterns: [(pattern: String, contents: [[NSAttributedString.Key: Any]])] = [
-            (#"\{\+\+([\s\S]*?)\+\+\}"# + idTail, [insertContent]),
-            (#"\{--([\s\S]*?)--\}"# + idTail, [deleteContent]),
-            (#"\{~~((?:(?!~~\}|~>)[\s\S])*)~>((?:(?!~~\})[\s\S])*?)~~\}"# + idTail,
-             [deleteContent, insertContent]),
-            (#"\{>>([\s\S]*?)<<\}"# + idTail, [[
+        // These must agree with CriticScanner's recognition (patterns +
+        // rationale live in `Patterns` above). The per-mark content styling
+        // is theme-dependent, so it is paired with the compiled regexes here.
+        let entries: [(regex: NSRegularExpression?, contents: [[NSAttributedString.Key: Any]])] = [
+            (Patterns.criticInsertion, [insertContent]),
+            (Patterns.criticDeletion, [deleteContent]),
+            (Patterns.criticSubstitution, [deleteContent, insertContent]),
+            (Patterns.criticComment, [[
                 .foregroundColor: theme.suggestionCommentInk,
                 .backgroundColor: theme.suggestionCommentFill,
             ]]),
-            (#"\{==([\s\S]*?)==\}"# + idTail, [[
+            (Patterns.criticHighlight, [[
                 .backgroundColor: theme.suggestionHighlightFill,
             ]]),
         ]
 
-        for entry in patterns {
-            guard let regex = try? NSRegularExpression(pattern: entry.pattern) else { continue }
+        for entry in entries {
+            guard let regex = entry.regex else { continue }
             for match in regex.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let whole = match.range
                 guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }),
@@ -283,8 +308,7 @@ struct MarkdownSourceStyler {
         // without this poured a wall of URLs into the layout (+264pt
         // measured — the reported "click near the reference list and
         // everything shoves around").
-        if collapsesNonLiteralSpans, let definitions = try? NSRegularExpression(
-            pattern: #"^[ \t]*\[[^\]\n]+\]:[ \t]*(\S.*)$"#, options: [.anchorsMatchLines]) {
+        if collapsesNonLiteralSpans, let definitions = Patterns.referenceDefinition {
             for match in definitions.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let urlRange = match.range(at: 1)
                 guard !claimed.contains(where: { NSIntersectionRange($0, match.range).length > 0 }),
@@ -308,7 +332,7 @@ struct MarkdownSourceStyler {
         // which entity each one was (ledger #3) — on the caret's line every
         // entity shows its literal source; other lines stay compact, so the
         // anti-reflow win holds for the block.
-        if collapsesNonLiteralSpans, let entities = try? NSRegularExpression(pattern: #"&(?:[a-zA-Z][a-zA-Z0-9]{1,31}|#[0-9]{1,7}|#x[0-9a-fA-F]{1,6});"#) {
+        if collapsesNonLiteralSpans, let entities = Patterns.entity {
             let caretLine: NSRange? = caretOffset.map {
                 text.lineRange(for: NSRange(location: max(0, min($0, text.length)), length: 0))
             }
@@ -334,7 +358,7 @@ struct MarkdownSourceStyler {
         // guarded per-match against code spans/fences)
         // the source is alt + URL. Collapse everything but a faded `!` and
         // the alt text unless the caret is inside.
-        if collapsesNonLiteralSpans, let images = try? NSRegularExpression(pattern: #"!\[([^\]\n]*)\]\(([^)\n]*)\)"#) {
+        if collapsesNonLiteralSpans, let images = Patterns.image {
             for match in images.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let whole = match.range
                 guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }),
@@ -354,7 +378,7 @@ struct MarkdownSourceStyler {
         // the angle-bracketed run is source-only chrome (autolink URLs
         // render as their own text, so only the brackets hide; tags render
         // as nothing). Caret-scoped like every span.
-        if collapsesNonLiteralSpans, let angles = try? NSRegularExpression(pattern: #"</?[a-zA-Z][^<>\n]*>"#) {
+        if collapsesNonLiteralSpans, let angles = Patterns.angleTag {
             for match in angles.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let whole = match.range
                 guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }),
@@ -383,7 +407,7 @@ struct MarkdownSourceStyler {
         }
 
         // Footnote refs first so `[^1]` isn't half-matched as a link label.
-        if let footnotes = try? NSRegularExpression(pattern: #"\[\^([^\]\n]+)\]"#) {
+        if let footnotes = Patterns.footnote {
             for match in footnotes.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let whole = match.range
                 guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }) else { continue }
@@ -406,7 +430,7 @@ struct MarkdownSourceStyler {
             }
         }
 
-        if let links = try? NSRegularExpression(pattern: #"\[([^\]\n]*)\]\(([^)\n]*)\)"#) {
+        if let links = Patterns.link {
             for match in links.matches(in: source, range: NSRange(location: 0, length: text.length)) {
                 let whole = match.range
                 guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }) else { continue }

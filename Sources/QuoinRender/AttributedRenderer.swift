@@ -1229,9 +1229,10 @@ public struct AttributedRenderer {
             // `<!-- section_id: … -->` blocks dressed up as html snippets).
             let trimmed = html.trimmingCharacters(in: .whitespacesAndNewlines)
             if trimmed.hasPrefix("<!--"), trimmed.hasSuffix("-->"),
+               let closer = trimmed.range(of: "-->"),
                // Only a PURE comment block: a comment followed by markup
                // is real HTML and keeps the code canvas.
-               trimmed.range(of: "-->")!.upperBound == trimmed.endIndex {
+               closer.upperBound == trimmed.endIndex {
                 var attributes = bodyAttributes()
                 attributes[.font] = theme.inlineCodeFont()
                 attributes[.foregroundColor] = theme.secondaryTextColor.withAlphaComponent(0.6)
