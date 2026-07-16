@@ -37,8 +37,8 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 engineRow("Markdown", "swift-markdown (cmark-gfm), byte-lossless round-trip")
-                engineRow("Diagrams", "MermaidKit — native Mermaid rendering, all 30 diagram types")
-                engineRow("Math", "native math typesetting, no web view")
+                engineRow("Diagrams", "MermaidKit — native Mermaid, all 30 diagram types")
+                engineRow("Math", "Vinculum — native LaTeX typesetting, no web view")
                 engineRow("Text", "TextKit 2, SF Pro Rounded")
             }
             .font(.system(size: 11))
@@ -48,12 +48,13 @@ struct AboutView: View {
 
             VStack(spacing: 4) {
                 HStack(spacing: 14) {
-                    Link("MermaidKit on GitHub", destination: URL(string: "https://github.com/2389-research/MermaidKit")!)
+                    Link("MermaidKit", destination: URL(string: "https://github.com/2389-research/MermaidKit")!)
+                    Link("Vinculum", destination: URL(string: "https://github.com/2389-research/Vinculum")!)
                     Button("Acknowledgements") { isAcknowledgementsVisible = true }
                         .buttonStyle(.link)
                 }
                 .font(.system(size: 11))
-                Text("© 2026 Clint Ecker")
+                Text("© 2026 2389 Research · Chicago, Illinois")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.tertiary)
             }
@@ -91,7 +92,7 @@ struct AboutView: View {
         let url = Bundle.main.url(forResource: "Acknowledgements", withExtension: "md")
             ?? Bundle.main.url(forResource: "Acknowledgements", withExtension: "md", subdirectory: "Resources")
         guard let url, let text = try? String(contentsOf: url, encoding: .utf8) else {
-            return "swift-markdown © Apple Inc., Apache License 2.0 — https://github.com/swiftlang/swift-markdown\nMermaidKit © 2026 Clint Ecker — https://github.com/2389-research/MermaidKit"
+            return "swift-markdown © Apple Inc., Apache License 2.0 — https://github.com/swiftlang/swift-markdown\nMermaidKit © 2026 2389 Research — https://github.com/2389-research/MermaidKit\nVinculum © 2026 2389 Research — https://github.com/2389-research/Vinculum"
         }
         return text
     }

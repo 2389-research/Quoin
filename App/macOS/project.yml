@@ -69,7 +69,7 @@ targets:
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSMinimumSystemVersion: "14.0"
-        NSHumanReadableCopyright: "© 2026 Clint Ecker"
+        NSHumanReadableCopyright: "© 2026 2389 Research · Chicago, Illinois"
         # Sparkle auto-update (see docs/reference/distribution.md).
         #   • SUFeedURL   → appcast.xml on GitHub Releases, regenerated per release.
         #   • SUPublicEDKey → Quoin's EdDSA public key (keychain account "Quoin";

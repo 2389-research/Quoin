@@ -68,49 +68,57 @@ private struct GeneralSettings: View {
 
     var body: some View {
         Form {
-            Picker("Appearance:", selection: $appearanceRaw) {
-                ForEach(AppAppearance.allCases) { appearance in
-                    Text(appearance.label).tag(appearance.rawValue)
+            Section {
+                Picker("Appearance", selection: $appearanceRaw) {
+                    ForEach(AppAppearance.allCases) { appearance in
+                        Text(appearance.label).tag(appearance.rawValue)
+                    }
                 }
+                .pickerStyle(.radioGroup)
+                .horizontalRadioGroupLayout()
+            } footer: {
+                Text("The accent color follows System Settings.")
             }
-            .pickerStyle(.radioGroup)
-            .horizontalRadioGroupLayout()
 
-            caption("The accent color follows System Settings.")
+            Section {
+                Toggle("Show status bar", isOn: $showStatusBar)
+            } footer: {
+                Text("The current section and word count, at the foot of the window.")
+            }
 
-            Toggle("Show status bar", isOn: $showStatusBar)
-            caption("Current section and word count, at the foot of the window.")
-
-            Picker("Code blocks:", selection: $codeTheme) {
-                Text("Match Appearance").tag("match")
-                Divider()
-                ForEach(CodePalette.registry.filter(\.isDark)) { palette in
-                    Text(palette.name).tag(palette.id)
+            Section {
+                Picker("Code blocks", selection: $codeTheme) {
+                    Text("Match Appearance").tag("match")
+                    Divider()
+                    ForEach(CodePalette.registry.filter(\.isDark)) { palette in
+                        Text(palette.name).tag(palette.id)
+                    }
+                    Divider()
+                    ForEach(CodePalette.registry.filter { !$0.isDark }) { palette in
+                        Text(palette.name).tag(palette.id)
+                    }
                 }
-                Divider()
-                ForEach(CodePalette.registry.filter { !$0.isDark }) { palette in
-                    Text(palette.name).tag(palette.id)
+            } footer: {
+                Text("The syntax theme for code blocks. Match Appearance pairs GitHub Light with Graphite.")
+            }
+
+            Section {
+                Picker("When Quoin opens", selection: $launchBehavior) {
+                    Text("Open the folders from last time").tag("restore")
+                    Text("Start with an empty window").tag("empty")
                 }
+                .pickerStyle(.radioGroup)
+            } footer: {
+                Text("Each window remembers its own folder.")
             }
-            .frame(maxWidth: 320)
 
-            caption("Syntax theme for code blocks. Match Appearance pairs GitHub Light with Graphite.")
-
-            Picker("When Quoin opens:", selection: $launchBehavior) {
-                Text("Open the folders from last time").tag("restore")
-                Text("Start with an empty window").tag("empty")
+            Section {
+                TextField("Review as", text: $reviewerName, prompt: Text(NSUserName()))
+            } footer: {
+                Text("Comments and suggestions you create are attributed to this name.")
             }
-            .pickerStyle(.radioGroup)
-
-            caption("Each window remembers its own folder.")
-
-            TextField("Review as:", text: $reviewerName, prompt: Text(NSUserName()))
-                .frame(maxWidth: 220)
-
-            caption("Comments and suggestions you create are attributed to this name.")
         }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 22)
+        .formStyle(.grouped)
         .onChange(of: appearanceRaw) {
             AppAppearance.applyStored()
         }
@@ -128,8 +136,8 @@ private struct AdvancedSettings: View {
 
     var body: some View {
         Form {
-            Section("Writing") {
-                LabeledContent("Word goal:") {
+            Section {
+                LabeledContent("Word goal") {
                     HStack(spacing: 6) {
                         TextField("", value: $wordGoal, format: .number)
                             .frame(width: 64)
@@ -137,31 +145,23 @@ private struct AdvancedSettings: View {
                         Stepper("", value: $wordGoal, in: 0...1_000_000, step: 50)
                             .labelsHidden()
                         Text(wordGoal == 0 ? "off" : "words")
-                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
                 }
-                caption("The status bar shows progress toward this target. Zero turns it off.")
+            } header: {
+                Text("Writing")
+            } footer: {
+                Text("The status bar shows progress toward this target. Zero turns it off.")
             }
 
-            Section("Updates") {
+            Section {
                 Toggle("Automatically check for updates", isOn: $autoUpdateChecks)
-                caption("Quoin checks for a new version in the background. This update check is the only time Quoin connects to the network. Use “Check for Updates…” in the Quoin menu to check now.")
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Quoin checks for a new version in the background — the only time it connects to the network. Use “Check for Updates…” in the Quoin menu to check now.")
             }
         }
         .formStyle(.grouped)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
     }
-}
-
-/// A right-column footnote caption, matching the classic preferences layout.
-private func caption(_ text: String) -> some View {
-    LabeledContent("") {
-        Text(text)
-            .font(.system(size: 11))
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-    }
-    .padding(.bottom, 6)
 }
