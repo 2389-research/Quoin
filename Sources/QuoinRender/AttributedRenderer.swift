@@ -1515,10 +1515,7 @@ public struct AttributedRenderer {
         // Nested cards (code, diagrams) keep their own decoration — the
         // callout box is applied around them, not over them (a blanket
         // add replaced the child's canvas with the box; ledger #1 family).
-        var cardRanges: [NSRange] = []
-        output.enumerateAttribute(QuoinAttribute.blockDecoration, in: full) { value, range, _ in
-            if value != nil { cardRanges.append(range) }
-        }
+        let (cardRanges, gaps) = containerCardsAndGaps(in: output)
         output.enumerateAttribute(.paragraphStyle, in: full) { value, range, _ in
             let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? paragraphStyle()
             style.firstLineHeadIndent += 12
@@ -1539,24 +1536,12 @@ public struct AttributedRenderer {
         // Bottom padding inside the box: the last paragraph carries it.
         padLastLine(in: output, spacing: 8)
         // Rounded 4% tint + 15% border in the semantic color, drawn as a
-        // block decoration by the reader view — on the NON-card runs only.
-        var cursor = 0
-        for card in cardRanges.sorted(by: { $0.location < $1.location }) {
-            if card.location > cursor {
-                output.addAttribute(
-                    QuoinAttribute.blockDecoration,
-                    value: BlockDecoration(kind: .callout(color: semantic)),
-                    range: NSRange(location: cursor, length: card.location - cursor)
-                )
-            }
-            cursor = max(cursor, NSMaxRange(card))
-        }
-        if cursor < output.length {
+        // block decoration by the reader view — on the NON-card gaps only.
+        for gap in gaps {
             output.addAttribute(
                 QuoinAttribute.blockDecoration,
                 value: BlockDecoration(kind: .callout(color: semantic)),
-                range: NSRange(location: cursor, length: output.length - cursor)
-            )
+                range: gap)
         }
         return output
     }
@@ -1909,6 +1894,32 @@ public struct AttributedRenderer {
         }
     }
 
+    /// A container body's nested-card ranges (code/diagram/table/callout, each
+    /// carrying its own blockDecoration) and the text-run gaps between them.
+    /// The container's italic/indent/recolor and its own rule/tint passes style
+    /// only the gaps; cards keep their canvas (a blanket pass over a child
+    /// replaced its canvas — ledger #1 family). Shared by the callout and
+    /// block-quote bodies, which computed this identically.
+    private func containerCardsAndGaps(in output: NSAttributedString) -> (cards: [NSRange], gaps: [NSRange]) {
+        let full = NSRange(location: 0, length: output.length)
+        var cards: [NSRange] = []
+        output.enumerateAttribute(QuoinAttribute.blockDecoration, in: full) { value, range, _ in
+            if value != nil { cards.append(range) }
+        }
+        var gaps: [NSRange] = []
+        var cursor = 0
+        for card in cards.sorted(by: { $0.location < $1.location }) {
+            if card.location > cursor {
+                gaps.append(NSRange(location: cursor, length: card.location - cursor))
+            }
+            cursor = max(cursor, NSMaxRange(card))
+        }
+        if cursor < full.length {
+            gaps.append(NSRange(location: cursor, length: full.length - cursor))
+        }
+        return (cards, gaps)
+    }
+
     private func renderBlockQuote(children: [Block], depth: Int, document: QuoinDocument) -> NSAttributedString {
         let output = NSMutableAttributedString()
         for (index, child) in children.enumerated() {
@@ -1924,24 +1935,9 @@ public struct AttributedRenderer {
         // indent passes and its full-range quote-rule overwrite must skip those
         // ranges, or the child loses its canvas and renders as bare, italicised,
         // muted monospace. Collect the card ranges, then style only the gaps.
-        var cardRanges: [NSRange] = []
-        output.enumerateAttribute(QuoinAttribute.blockDecoration, in: full) { value, range, _ in
-            if value != nil { cardRanges.append(range) }
-        }
+        let (cardRanges, textRuns) = containerCardsAndGaps(in: output)
         func intersectsCard(_ range: NSRange) -> Bool {
             cardRanges.contains { NSIntersectionRange($0, range).length > 0 }
-        }
-        // Text runs are the parts of `full` not covered by any card.
-        var textRuns: [NSRange] = []
-        var cursor = 0
-        for card in cardRanges.sorted(by: { $0.location < $1.location }) {
-            if card.location > cursor {
-                textRuns.append(NSRange(location: cursor, length: card.location - cursor))
-            }
-            cursor = max(cursor, NSMaxRange(card))
-        }
-        if cursor < full.length {
-            textRuns.append(NSRange(location: cursor, length: full.length - cursor))
         }
 
         output.enumerateAttribute(.paragraphStyle, in: full) { value, range, _ in
