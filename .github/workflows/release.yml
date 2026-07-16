@@ -2,7 +2,8 @@ name: Release
 
 # Tag-driven releases: pushing a v* tag archives Release, signs with
 # Developer ID, notarizes + staples, signs the Sparkle appcast, and publishes
-# a GitHub Release carrying Quoin-<version>.zip + appcast.xml.
+# a GitHub Release carrying Quoin-<version>.zip (Sparkle update archive),
+# Quoin-<version>.dmg (drag-install download), and appcast.xml.
 #
 # scripts/release.sh is the single source of truth for the pipeline (the same
 # command works on a laptop); this workflow only supplies credentials and does
@@ -102,4 +103,5 @@ jobs:
           args=(--verify-tag --title "Quoin $GITHUB_REF_NAME" --generate-notes)
           case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" "${args[@]}" \
-            build/release/Quoin-*.zip build/release/appcast.xml
+            build/release/Quoin-*.zip build/release/Quoin-*.dmg \
+            build/release/appcast.xml

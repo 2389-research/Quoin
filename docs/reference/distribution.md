@@ -19,7 +19,7 @@ flowchart LR
     notarize["notarytool submit<br/>Apple notary service"]
     staple["stapler staple<br/>ticket baked in"]
     appcast["generate_appcast<br/>EdDSA-signed appcast.xml"]
-    host["Upload zip + appcast<br/>to release host"]
+    host["Upload zip + dmg + appcast<br/>to release host"]
     user["Installed Quoin<br/>Sparkle checks appcast"]
 
     build --> sign --> notarize --> staple --> appcast --> host
@@ -35,7 +35,9 @@ The blue steps are automated by `scripts/release.sh` (which calls
 
 - **CI (the normal path):** push a `v*` tag and
   `.github/workflows/release.yml` runs the same script on a macOS runner,
-  then publishes a GitHub Release carrying `Quoin-<version>.zip` +
+  then publishes a GitHub Release carrying `Quoin-<version>.zip` (the
+  Sparkle update archive), `Quoin-<version>.dmg` (the drag-install download
+  for humans — signed, notarized, and stapled in its own right), and
   `appcast.xml`. The marketing version is stamped from the tag
   (`v1.2.3 → 1.2.3`) and `CFBundleVersion` from the commit count, so Sparkle
   always sees a growing build number. Tags containing a hyphen
@@ -133,10 +135,10 @@ QUOIN_VERSION=1.0.1 QUOIN_BUILD=$(git rev-list --count HEAD) \
 
 That archives Release with the hardened runtime, signs with your Developer ID
 and a secure timestamp, submits to Apple's notary service and waits, staples the
-ticket, then signs and regenerates `appcast.xml` (add
-`SPARKLE_ED_KEY_FILE=/path/to/key` if the EdDSA key isn't in your keychain
-under account `Quoin`). Output lands in `build/release/`. Upload the `.zip`
-and `appcast.xml` to the GitHub Release yourself.
+ticket, builds and notarizes the drag-install DMG, then signs and regenerates
+`appcast.xml` (add `SPARKLE_ED_KEY_FILE=/path/to/key` if the EdDSA key isn't
+in your keychain under account `Quoin`). Output lands in `build/release/`.
+Upload the `.zip`, `.dmg`, and `appcast.xml` to the GitHub Release yourself.
 
 Verify a build is Gatekeeper-clean before announcing it:
 ```sh

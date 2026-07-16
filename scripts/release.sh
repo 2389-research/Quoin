@@ -31,8 +31,9 @@ set -euo pipefail
 # Notary auth + version stamping env is documented in notarize.sh
 # (QUOIN_NOTARY_*, QUOIN_VERSION, QUOIN_BUILD) and passes straight through.
 #
-# Output: build/release/ containing Quoin-<version>.zip (notarized, stapled)
-# and appcast.xml (EdDSA-signed). Upload BOTH to your release host.
+# Output: build/release/ containing Quoin-<version>.zip (notarized,
+# stapled), Quoin-<version>.dmg (the drag-install download), and appcast.xml
+# (EdDSA-signed). Upload ALL THREE to your release host.
 
 identity="${1:?usage: release.sh \"Developer ID Application: … (TEAMID)\"}"
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -59,7 +60,11 @@ fi
 
 # 3. Sign every archive in the folder and (re)write appcast.xml. The private
 #    EdDSA key comes from a file in CI, from the keychain locally; the tool
-#    refuses if it's missing.
+#    refuses if it's missing. DMGs are drag-install downloads for humans,
+#    not Sparkle updates — generate_appcast would treat any it sees as
+#    update archives, so clear them from the scan folder first and add the
+#    fresh one to the upload bundle afterwards.
+rm -f "$releases"/*.dmg
 echo "==> Generating EdDSA-signed appcast"
 if [ -n "${SPARKLE_ED_KEY_FILE:-}" ]; then
   "$generate_appcast" "$releases" --download-url-prefix "$appcast_base/" \
@@ -68,6 +73,7 @@ else
   "$generate_appcast" "$releases" --download-url-prefix "$appcast_base/" \
     --account "${SPARKLE_ACCOUNT:-Quoin}"
 fi
+cp "$root"/build/notarized/Quoin-*.dmg "$releases/"
 
 echo "DONE. Upload to $appcast_base :"
-ls -1 "$releases"/*.zip "$releases"/appcast.xml
+ls -1 "$releases"/*.zip "$releases"/*.dmg "$releases"/appcast.xml
