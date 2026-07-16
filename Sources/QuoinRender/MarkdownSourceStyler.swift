@@ -280,6 +280,33 @@ struct MarkdownSourceStyler {
         }
     }
 
+    /// The CriticMarkup mark ranges this reveal styler recognizes, in document
+    /// order — the SAME `Patterns`, claimed-first ordering, and code-context
+    /// guard `styleCriticMarks` styles by, just without the styling. Exposed
+    /// so a test can pin that this recognizer agrees with `CriticScanner` (the
+    /// parser's recognizer): two recognizers for one grammar drift, and this
+    /// grammar shipped a bug when they did (CLAUDE.md). Code-free inputs only —
+    /// inside code/math both recognizers stand down, by different rules.
+    func criticMarkRanges(in source: String) -> [NSRange] {
+        let text = source as NSString
+        let full = NSRange(location: 0, length: text.length)
+        var claimed: [NSRange] = []
+        let patterns = [
+            Patterns.criticInsertion, Patterns.criticDeletion,
+            Patterns.criticSubstitution, Patterns.criticComment, Patterns.criticHighlight,
+        ]
+        for regex in patterns.compactMap({ $0 }) {
+            for match in regex.matches(in: source, range: full) {
+                let whole = match.range
+                guard !claimed.contains(where: { NSIntersectionRange($0, whole).length > 0 }),
+                      !SmartPairs.isInsideCodeContext(text: source, caretUTF16: whole.location)
+                else { continue }
+                claimed.append(whole)
+            }
+        }
+        return claimed.sorted { $0.location < $1.location }
+    }
+
     private func italicFont() -> PlatformFont {
         #if canImport(AppKit)
         return NSFontManager.shared.convert(theme.bodyFont(), toHaveTrait: .italicFontMask)
