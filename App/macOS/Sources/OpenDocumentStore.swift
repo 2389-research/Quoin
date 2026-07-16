@@ -32,10 +32,21 @@ final class OpenDocumentStore {
     private var entries: [URL: Entry] = [:]
 
     /// The identity key: two path forms of the same file (a symlink, a `/var`
-    /// vs `/private/var` prefix, a trailing slash) must collapse to one key so
-    /// they can never open as two sessions.
+    /// vs `/private/var` prefix, a trailing slash, a case variant) must
+    /// collapse to one key so they can never open as two sessions.
     static func key(for url: URL) -> URL {
-        url.resolvingSymlinksInPath().standardizedFileURL
+        let normalized = url.resolvingSymlinksInPath().standardizedFileURL
+        // The default macOS volume (APFS) is case-INSENSITIVE, so `Todo.md`
+        // and `todo.md` are ONE file — but `standardizedFileURL` keeps their
+        // case, so a recents entry / restored window / Finder "Open With" in a
+        // different case produced a second key → two sessions ping-ponging
+        // autosaves (the ledger-#12 corruption). Fold case on such volumes;
+        // leave it on case-sensitive volumes, where the two ARE distinct.
+        if let values = try? normalized.resourceValues(forKeys: [.volumeSupportsCaseSensitiveNamesKey]),
+           values.volumeSupportsCaseSensitiveNames == false {
+            return URL(fileURLWithPath: normalized.path.lowercased())
+        }
+        return normalized
     }
 
     /// Whether two URLs name the same file on disk.

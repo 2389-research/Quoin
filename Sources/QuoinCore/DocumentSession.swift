@@ -71,17 +71,39 @@ public actor DocumentSession {
 
     // MARK: - Lifecycle
 
-    public init(source: String, fileURL: URL? = nil) {
+    /// The encoding the file was read in, so a save writes it back the SAME
+    /// way instead of silently converting (e.g. a UTF-16 note stays UTF-16).
+    /// Defaults to UTF-8; updated on open and on external reload.
+    public private(set) var fileEncoding: String.Encoding = .utf8
+
+    public init(source: String, fileURL: URL? = nil, encoding: String.Encoding = .utf8) {
         self.document = MarkdownConverter.parse(source)
         self.fileURL = fileURL
+        self.fileEncoding = encoding
+    }
+
+    /// Decode file bytes to a source string, detecting the encoding. UTF-8 is
+    /// the overwhelming default; a BOM is unambiguous; the legacy single-byte
+    /// fallbacks let a `.md` another tool wrote in UTF-16 or Latin-1 OPEN
+    /// instead of being rejected as unreadable (which reads as data loss). The
+    /// returned encoding lets a save round-trip the file in the same encoding.
+    public static func decode(_ data: Data) -> (source: String, encoding: String.Encoding)? {
+        if data.starts(with: [0xEF, 0xBB, 0xBF]),                       // UTF-8 BOM
+           let s = String(data: data.dropFirst(3), encoding: .utf8) { return (s, .utf8) }
+        if data.starts(with: [0xFF, 0xFE]) || data.starts(with: [0xFE, 0xFF]), // UTF-16 BOM
+           let s = String(data: data, encoding: .utf16) { return (s, .utf16) }
+        if let s = String(data: data, encoding: .utf8) { return (s, .utf8) }
+        if let s = String(data: data, encoding: .windowsCP1252) { return (s, .windowsCP1252) }
+        if let s = String(data: data, encoding: .isoLatin1) { return (s, .isoLatin1) }
+        return nil
     }
 
     /// Opens a file and starts watching it for external changes.
     public static func open(fileURL: URL) throws -> DocumentSession {
         guard let data = try? Data(contentsOf: fileURL),
-              let source = String(data: data, encoding: .utf8)
+              let decoded = decode(data)
         else { throw SessionError.fileUnreadable(fileURL) }
-        return DocumentSession(source: source, fileURL: fileURL)
+        return DocumentSession(source: decoded.source, fileURL: fileURL, encoding: decoded.encoding)
     }
 
     /// Begins publishing snapshots for external file changes. Idempotent.
@@ -223,11 +245,13 @@ public actor DocumentSession {
     public func reloadFromDisk() {
         guard let fileURL else { return }
         guard let data = try? Data(contentsOf: fileURL),
-              let source = String(data: data, encoding: .utf8)
+              let decoded = Self.decode(data)
         else {
             scheduleVanishCheck(for: fileURL)
             return
         }
+        let source = decoded.source
+        fileEncoding = decoded.encoding  // an external re-save may have changed it
         vanishCheckTask?.cancel()
         vanishCheckTask = nil
         if isDetached {
@@ -271,7 +295,7 @@ public actor DocumentSession {
     private func confirmVanished(expecting url: URL) {
         vanishCheckTask = nil
         guard fileURL == url, !isDetached else { return }
-        if let data = try? Data(contentsOf: url), String(data: data, encoding: .utf8) != nil {
+        if let data = try? Data(contentsOf: url), Self.decode(data) != nil {
             // Transient (mid-replace): route through the normal reload so
             // the hash/conflict logic applies.
             reloadFromDisk()
@@ -593,7 +617,11 @@ public actor DocumentSession {
     /// detached-session bookkeeping around this shared core.
     private func writeToDisk(_ source: String, to url: URL) throws {
         do {
-            try Data(source.utf8).write(to: url, options: .atomic)
+            // Write back in the file's original encoding; only if the current
+            // content can't be represented there (e.g. a Latin-1 file that now
+            // holds an emoji) fall back to UTF-8 rather than fail the save.
+            let data = source.data(using: fileEncoding) ?? Data(source.utf8)
+            try data.write(to: url, options: .atomic)
             selfWriteHash = SHA256Hex.hash(of: source)
             lastSaveError = nil
         } catch {
@@ -609,6 +637,12 @@ public actor DocumentSession {
     public func toggleTask(markerRange: ByteRange) throws {
         let viewed = document
 
+        // A checkbox is still an edit: it must obey the same conflict guard
+        // as saveNow, or a click quietly picks a side of an unanswered merge.
+        if hasUnresolvedConflict, let fileURL {
+            throw SessionError.conflictUnresolved(fileURL)
+        }
+
         // The offset the UI sent is only meaningful against the render the
         // user clicked. Capture *which* task that was (by label + ordinal)
         // before touching disk, so a shifted file can't reroute the toggle.
@@ -623,8 +657,18 @@ public actor DocumentSession {
         // identity — never by the stale offset.
         if let fileURL,
            let data = try? Data(contentsOf: fileURL),
-           let diskSource = String(data: data, encoding: .utf8),
+           let diskSource = Self.decode(data)?.source,
            SHA256Hex.hash(of: diskSource) != viewed.sourceHash {
+            // Disk moved under us. If we ALSO hold unsaved local edits,
+            // re-anchoring onto disk and toggling would silently throw those
+            // edits away — raise the merge banner (exactly as the reload path
+            // does when dirty) and refuse, rather than clobber.
+            if isDirty {
+                hasUnresolvedConflict = true
+                autosaveTask?.cancel()
+                onConflict?(diskSource)
+                throw SessionError.conflictUnresolved(fileURL)
+            }
             let fresh = MarkdownConverter.parse(diskSource)
             guard let relocated = TaskLocator.relocate(intended, in: fresh) else {
                 // Can't prove which task the user meant. Surface the current
