@@ -39,15 +39,23 @@ Severity: **H** = structural/risk, **M** = principled cleanup, **L** = polish.
   private `onConflict`/`onSaveFailure`; the "Fallback" → native-path renames;
   the 11 reveal regexes hoisted to compile-once statics (§6).
 
-**Remaining — the structural tier** (each its own careful commit, guarded by
+**Structural tier — shipped so far** (each its own commit, all 647 tests green):
+
+- ✅ The renderer/scanner **grammar-agreement test** — `criticMarkRanges`
+  seam + `RevealCriticAgreementTests` pins the reveal styler and
+  `CriticScanner` to the same mark spans (the highest-risk latent bug).
+- ✅ **`updateNSView`** (358 lines) → a ~15-line orchestration over
+  `applyProjection` / `restoreActiveCaret` / `applyPendingCommands`.
+
+**Structural tier — remaining** (each its own careful commit, guarded by
 RevealFidelity / CaretLineAnchor / ProjectorEquivalence):
 
-- §1 god-objects: `updateNSView` (358 lines), `ReaderCoordinator` (5
-  subsystems), `AttributedRenderer` (4-way), `Builder`.
+- §1 god-objects: `ReaderCoordinator` (5 subsystems), `AttributedRenderer`
+  (4-way), `Builder`.
 - §1 secondary: `convertParagraph`, `toggleTask`, `measureVisibleRuns`,
   `styleLinks`, `spliceChanges` prefix/suffix.
-- §2: `rebuild()` fast-path dedup, `forEachYAMLLine` tokenizer, the
-  renderer/scanner grammar-agreement test, `styleContainerBody` dedup.
+- §2: `rebuild()` fast-path dedup, `forEachYAMLLine` tokenizer,
+  `styleContainerBody` dedup.
 - §6: callback config structs, a real `SeparatorPolicy` type, typed `@objc`
   payloads, `SegmentCursor`, the `isCode` marker attribute, draw magic numbers.
 

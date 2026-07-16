@@ -731,32 +731,10 @@ public enum MarkdownConverter {
 
         mutating func convertParagraph(_ paragraph: Markdown.Paragraph, range: ByteRange) -> [Block] {
             let slice = source.substring(in: range)
-
-            // `[TOC]` block: a paragraph that is exactly the marker.
-            if let slice, slice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "[toc]" {
-                return [makeBlock(kind: .tableOfContents, range: range)]
-            }
-
-            // Footnote definitions: `[^id]: content` — removed from the block
-            // flow and gathered at document end. Consecutive definition lines
-            // share ONE cmark paragraph, so the slice can hold several.
-            if let slice {
-                let definitions = parseFootnoteDefinitions(slice)
-                if !definitions.isEmpty {
-                    for definition in definitions {
-                        let fragment = Markdown.Document(parsing: definition.content)
-                        var blocks: [Block] = []
-                        for child in fragment.children {
-                            if let para = child as? Markdown.Paragraph {
-                                let inlines = postProcess(convertInlines(para.children))
-                                blocks.append(makeBlock(kind: .paragraph(inlines: inlines), range: range))
-                            }
-                        }
-                        footnoteDefinitions[definition.id] = blocks
-                    }
-                    return []
-                }
-            }
+            // Two paragraphs aren't prose: the `[TOC]` marker and footnote
+            // definitions. Each is tried in order and claims the paragraph.
+            if let toc = tableOfContentsBlock(slice: slice, range: range) { return toc }
+            if let defs = footnoteDefinitionBlocks(slice: slice, range: range) { return defs }
 
             let inlines: [Inline]
             // Any `$` (even escaped) or a `\[` / `\(` LaTeX delimiter routes
@@ -787,6 +765,37 @@ public enum MarkdownConverter {
             appendProse(inlines.plainText)
             stats.paragraphCount += 1
             return [makeBlock(kind: .paragraph(inlines: inlines), range: range)]
+        }
+
+        /// A paragraph that is exactly the `[TOC]` marker becomes a
+        /// table-of-contents block; otherwise nil (ordinary paragraph).
+        private mutating func tableOfContentsBlock(slice: String?, range: ByteRange) -> [Block]? {
+            guard let slice,
+                  slice.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "[toc]"
+            else { return nil }
+            return [makeBlock(kind: .tableOfContents, range: range)]
+        }
+
+        /// Footnote definitions (`[^id]: content`) are removed from the block
+        /// flow and gathered at document end; returns `[]` when the paragraph
+        /// WAS definitions (consecutive lines share one cmark paragraph, so the
+        /// slice can hold several), or nil when it is ordinary prose.
+        private mutating func footnoteDefinitionBlocks(slice: String?, range: ByteRange) -> [Block]? {
+            guard let slice else { return nil }
+            let definitions = parseFootnoteDefinitions(slice)
+            guard !definitions.isEmpty else { return nil }
+            for definition in definitions {
+                let fragment = Markdown.Document(parsing: definition.content)
+                var blocks: [Block] = []
+                for child in fragment.children {
+                    if let para = child as? Markdown.Paragraph {
+                        let inlines = postProcess(convertInlines(para.children))
+                        blocks.append(makeBlock(kind: .paragraph(inlines: inlines), range: range))
+                    }
+                }
+                footnoteDefinitions[definition.id] = blocks
+            }
+            return []
         }
 
         /// Parses `[^id]: content` at the start of a paragraph slice.
