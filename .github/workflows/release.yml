@@ -96,12 +96,16 @@ jobs:
 
       # Prerelease tags (any hyphen: v1.2.3-rc.1) never become "latest", so
       # the live appcast at releases/latest/download stays untouched by them.
+      # Quoin.dmg is a stable-named copy of the versioned DMG: it gives the
+      # website a permanent download URL
+      # (releases/latest/download/Quoin.dmg) that survives every release.
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          cp build/release/Quoin-*.dmg build/Quoin.dmg
           args=(--verify-tag --title "Quoin $GITHUB_REF_NAME" --generate-notes)
           case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease) ;; esac
           gh release create "$GITHUB_REF_NAME" "${args[@]}" \
             build/release/Quoin-*.zip build/release/Quoin-*.dmg \
-            build/release/appcast.xml
+            build/Quoin.dmg build/release/appcast.xml
