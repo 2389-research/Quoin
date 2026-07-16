@@ -288,6 +288,10 @@ private struct FormatCommands: Commands {
         post(name, userInfo: format.map { ["format": $0] })
     }
 
+    private func postStructure(_ op: String) {
+        post(AppDelegate.structureNotification, userInfo: ["op": op])
+    }
+
     var body: some Commands {
         CommandMenu("Format") {
             Group {
@@ -322,6 +326,37 @@ private struct FormatCommands: Commands {
                 .keyboardShortcut(.return, modifiers: .command)
             }
             .disabled(hasDocument != true)
+            Divider()
+            // Structure (#25): line-prefix edits on the caret's block. Enabled
+            // only while a block is being edited — they act on that block.
+            Menu("Structure") {
+                Menu("Heading") {
+                    Button("No Heading") { postStructure("h0") }
+                    Divider()
+                    Button("Heading 1") { postStructure("h1") }
+                        .keyboardShortcut("1", modifiers: [.command, .option])
+                    Button("Heading 2") { postStructure("h2") }
+                        .keyboardShortcut("2", modifiers: [.command, .option])
+                    Button("Heading 3") { postStructure("h3") }
+                        .keyboardShortcut("3", modifiers: [.command, .option])
+                    Button("Heading 4") { postStructure("h4") }
+                        .keyboardShortcut("4", modifiers: [.command, .option])
+                    Button("Heading 5") { postStructure("h5") }
+                        .keyboardShortcut("5", modifiers: [.command, .option])
+                    Button("Heading 6") { postStructure("h6") }
+                        .keyboardShortcut("6", modifiers: [.command, .option])
+                    Divider()
+                    Button("Cycle Heading Level") { postStructure("cycleHeading") }
+                }
+                Divider()
+                Button("Toggle Bullet List") { postStructure("bullet") }
+                Button("Toggle Numbered List") { postStructure("numbered") }
+                Button("Toggle Block Quote") { postStructure("quote") }
+                Divider()
+                Button("Toggle Checkbox") { postStructure("checkbox") }
+                    .keyboardShortcut(.return, modifiers: [.command, .control])
+            }
+            .disabled(isEditingBlock != true)
             Divider()
             // Review gestures (suggestions §3.6, S3a): annotate the
             // selection without changing the prose. ⇧⌘H stays with the
@@ -366,6 +401,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openGuideNotification = Notification.Name("quoin.openGuide")
     static let openWelcomeNotification = Notification.Name("quoin.openWelcome")
     static let formatNotification = Notification.Name("quoin.format")
+    static let structureNotification = Notification.Name("quoin.structure")
     static let undoNotification = Notification.Name("quoin.undo")
     static let redoNotification = Notification.Name("quoin.redo")
     static let exportNotification = Notification.Name("quoin.export")

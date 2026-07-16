@@ -67,6 +67,17 @@ the file on disk stays clean markdown you own.
   | Edit Source / Done Editing | ⌘↩ | toggles the caret block into raw markdown |
   | Move Block Up / Down | ⌥⌘↑ / ⌥⌘↓ | reorders whole blocks byte-exactly |
 
+- **Structure commands** (Format ▸ Structure, while editing a block) — reshape
+  the caret's block without hand-editing prefixes:
+
+  | Action | Shortcut | What it does |
+  | :--- | :--- | :--- |
+  | Heading 1–6 | ⌥⌘1 … ⌥⌘6 | set the heading level (`#` … `######`) |
+  | No Heading / Cycle Heading Level | menu | strip to a paragraph, or cycle none → 1 → … → 6 → none |
+  | Toggle Bullet / Numbered List | menu | wrap the block's lines as `- ` / `1. ` items (or unwrap) |
+  | Toggle Block Quote | menu | add or remove a `>` prefix on every line |
+  | Toggle Checkbox | ⌃⌘↩ | flip `- [ ]` ⇄ `- [x]` on the caret's line (adds one to a plain line) |
+
 - **List editing** — `Tab` / `⇧Tab` indent and outdent the current item;
   **Return** continues the list — bullets, incrementing numbers, `- [ ]`
   checkboxes (reset to unchecked), and `>` quotes — and Return on an empty

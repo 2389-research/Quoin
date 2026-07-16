@@ -641,6 +641,12 @@ struct ReaderScreen: View {
             let direction = note.userInfo?["direction"] as? String
             model.perform(direction == "up" ? .moveUp : .moveDown, on: id)
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.structureNotification)) { note in
+            guard isKeyWindow, model.activeBlockID != nil,
+                  let op = note.userInfo?["op"] as? String,
+                  let command = structureCommand(for: op) else { return }
+            model.applyStructure(command)
+        }
         // Lets the Format menu title follow the editing state, and File/
         // Edit/Go items enable only when a document can receive them.
         .focusedSceneValue(\.quoinIsEditingBlock, model.activeBlockID != nil)
@@ -655,6 +661,25 @@ struct ReaderScreen: View {
     /// so it never reads as a dead control (a persistent dimmed pill was
     /// mistaken for broken).
     private var isEditingBlock: Bool { model.activeBlockID != nil }
+
+    /// Map a Format ▸ Structure menu op string (#25) to a model command.
+    private func structureCommand(for op: String) -> ReaderModel.StructureCommand? {
+        switch op {
+        case "h0": return .setHeading(0)
+        case "h1": return .setHeading(1)
+        case "h2": return .setHeading(2)
+        case "h3": return .setHeading(3)
+        case "h4": return .setHeading(4)
+        case "h5": return .setHeading(5)
+        case "h6": return .setHeading(6)
+        case "cycleHeading": return .cycleHeading
+        case "bullet": return .toggleBullet
+        case "numbered": return .toggleNumbered
+        case "quote": return .toggleQuote
+        case "checkbox": return .toggleCheckbox
+        default: return nil
+        }
+    }
 
     @ViewBuilder
     private var formatPill: some View {

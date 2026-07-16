@@ -547,6 +547,58 @@ final class ReaderModel {
         applyAbsolute(edit, caretUTF8: nil)
     }
 
+    /// A structural line-prefix command (#25) — heading level, list/quote
+    /// toggle, checkbox — applied to the caret's active block. Structural edits
+    /// only touch prose blocks; a code/table/math slice would be corrupted by
+    /// line-prefix surgery, so anything else is a quiet no-op.
+    enum StructureCommand: Equatable {
+        case setHeading(Int)   // 0 = plain paragraph, 1…6 = ATX level
+        case cycleHeading
+        case toggleBullet
+        case toggleNumbered
+        case toggleQuote
+        case toggleCheckbox
+    }
+
+    func applyStructure(_ command: StructureCommand) {
+        guard let id = activeBlockID,
+              let index = document.blocks.firstIndex(where: { $0.id == id }) else { return }
+        let block = document.blocks[index]
+        switch block.kind {
+        case .paragraph, .heading, .list, .blockQuote: break
+        default: return
+        }
+        guard let slice = document.source.substring(in: block.range) else { return }
+
+        let newSlice: String?
+        switch command {
+        case .setHeading(let level):
+            guard isHeadingTarget(block.kind) else { return }
+            newSlice = StructureEditing.settingHeadingLevel(slice, level: level)
+        case .cycleHeading:
+            guard isHeadingTarget(block.kind) else { return }
+            newSlice = StructureEditing.cyclingHeadingLevel(slice)
+        case .toggleBullet:
+            newSlice = StructureEditing.togglingList(slice, ordered: false)
+        case .toggleNumbered:
+            newSlice = StructureEditing.togglingList(slice, ordered: true)
+        case .toggleQuote:
+            newSlice = StructureEditing.togglingQuote(slice)
+        case .toggleCheckbox:
+            newSlice = StructureEditing.togglingCheckbox(slice, caretUTF16: caretInActiveBlock ?? 0)
+        }
+        guard let newSlice, newSlice != slice else { return }
+        // nil caret: don't fling the caret; the block transforms in place.
+        applyAbsolute(SourceEdit(range: block.range, replacement: newSlice), caretUTF8: nil)
+    }
+
+    private func isHeadingTarget(_ kind: BlockKind) -> Bool {
+        switch kind {
+        case .paragraph, .heading: return true
+        default: return false
+        }
+    }
+
     /// Typing into a document with no blocks (freshly created, empty):
     /// append the text; the first block materializes around the caret.
     /// Without this, ⌘N produced an untypeable blank pane (launch audit
