@@ -70,6 +70,9 @@ struct ReaderScreen: View {
     @State private var isFindVisible = false
     @State private var isReplaceVisible = false
     @State private var replaceText = ""
+    /// Transient "Replaced N" feedback after a replace, cleared when the query
+    /// changes so a stale count can't linger.
+    @State private var replaceStatus: String?
     @FocusState private var replaceFieldFocused: Bool
     @State private var searchQuery = ""
     @State private var activeMatch = 0
@@ -899,6 +902,12 @@ struct ReaderScreen: View {
                 .focused($replaceFieldFocused)
                 .onSubmit { replaceCurrent() }
                 .onExitCommand { closeFind() }
+            if let replaceStatus {
+                Text(replaceStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
             Button("Replace") { replaceCurrent() }
                 .disabled(matchCount == 0)
             Button("All") { replaceAll() }
@@ -913,13 +922,15 @@ struct ReaderScreen: View {
 
     private func replaceCurrent() {
         guard !searchQuery.isEmpty else { return }
-        _ = model.replaceNextMatch(
+        let replaced = model.replaceNextMatch(
             of: searchQuery, with: replaceText, fromByteOffset: model.caretByteOffset)
+        replaceStatus = replaced ? "Replaced 1" : "No match"
     }
 
     private func replaceAll() {
         guard !searchQuery.isEmpty else { return }
-        _ = model.replaceAllMatches(of: searchQuery, with: replaceText)
+        let count = model.replaceAllMatches(of: searchQuery, with: replaceText)
+        replaceStatus = count == 0 ? "No matches" : "Replaced \(count)"
     }
 
     private var findBarContent: some View {
@@ -931,6 +942,7 @@ struct ReaderScreen: View {
                 .focused($findFieldFocused)
                 .onSubmit { nextMatch() }
                 .onExitCommand { closeFind() }
+                .onChange(of: searchQuery) { replaceStatus = nil }
             if !searchQuery.isEmpty {
                 Text(matchCount == 0 ? "No matches" : "\(activeMatch + 1) of \(matchCount)")
                     .font(.caption)

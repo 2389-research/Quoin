@@ -2769,9 +2769,14 @@ extension MarkdownReaderView {
             let haystack = storage.string as NSString
             var searchRange = NSRange(location: 0, length: haystack.length)
             while searchRange.length > 0 {
+                // Case-insensitive but diacritic-SENSITIVE, matching
+                // SourceReplace exactly — the highlight/count and Replace-All
+                // must recognize the same occurrences, or "1 of 3" replaces a
+                // different number (a diacritic-insensitive scan highlighted
+                // "café" for "cafe" that the replace then skipped). #23.
                 let found = haystack.range(
                     of: trimmed,
-                    options: [.caseInsensitive, .diacriticInsensitive],
+                    options: [.caseInsensitive],
                     range: searchRange
                 )
                 guard found.location != NSNotFound else { break }
