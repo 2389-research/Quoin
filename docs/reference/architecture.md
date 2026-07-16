@@ -78,14 +78,20 @@ swift test --filter testRenderDocDiagrams`.</sub>
 
 ```mermaid
 flowchart TD
-    Disk[document.md] -->|file events| Session[DocumentSession actor]
+    Disk[("document.md")]
+    Session["DocumentSession actor"]
+    Model["ReaderModel"]
+    Renderer["AttributedRenderer"]
+    Coord["Coordinator"]
+    View["QuoinTextView"]
+
+    Disk -->|file events| Session
     Session -->|autosave| Disk
-    Session -->|QuoinDocument snapshots| Model[ReaderModel]
-    Model -->|render + fragment cache| Renderer[AttributedRenderer]
-    Renderer -->|RenderedDocument| Coordinator
-    Coordinator -->|splice changed span only| TextView[QuoinTextView]
-    TextView -->|keystrokes| Coordinator
-    Coordinator -->|SourceEdit: byte range + replacement| Session
+    Session -->|QuoinDocument snapshots| Model
+    Model -->|render + fragment cache| Renderer
+    Renderer -->|RenderedDocument| Coord
+    Coord -->|splice changed span| View
+    View -->|keystroke becomes SourceEdit| Session
 ```
 
 </details>
