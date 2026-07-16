@@ -202,7 +202,10 @@ final class ReaderModel {
                 try await session.resolveConflictKeepingMine()
                 self.conflictDiskSource = nil
             } catch {
-                // Keep the merge banner visible; the local version is still dirty.
+                // The banner stays (the version is still unresolved), but tell
+                // the user their choice didn't take — otherwise "Keep Mine"
+                // silently ignores the click and the banner just sits there.
+                self.reportFailure("Couldn't keep your version — the document is still unresolved.")
             }
         }
     }

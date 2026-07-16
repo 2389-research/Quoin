@@ -475,6 +475,12 @@ public actor DocumentSession {
         return try applyEdit(edit, publishSnapshot: publishSnapshot)
     }
 
+    /// Hoisted out of `applyAnnotation` — allocating a formatter per annotation
+    /// is pure waste (QoL #34). Only `string(from:)` is called (never a config
+    /// mutation), which is safe to share across the actor's calls, so the
+    /// non-Sendable formatter is marked `nonisolated(unsafe)`.
+    nonisolated(unsafe) private static let timestampFormatter = ISO8601DateFormatter()
+
     /// CREATE an annotation (S3a selection gestures): comment, suggested
     /// replacement/deletion/insertion, or highlight — one atomic edit
     /// (mark + endmatter entry), computed in-actor with the same
@@ -492,7 +498,7 @@ public actor DocumentSession {
               String(decoding: bytes[range.offset..<(range.offset + range.length)],
                      as: UTF8.self) == expectedSlice
         else { return nil }
-        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let timestamp = Self.timestampFormatter.string(from: Date())
         guard let edit = ReviewAuthoring.annotationEdit(
             kind: kind, range: range, in: document.source,
             reviewer: reviewer, timestamp: timestamp) else { return nil }

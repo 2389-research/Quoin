@@ -37,7 +37,25 @@ public final class FileWatcher: @unchecked Sendable {
         self.onRelocate = onRelocate
     }
 
-    deinit { cancel() }
+    deinit {
+        #if canImport(Darwin)
+        // Direct teardown, NOT `cancel()`. `cancel()` bounces through
+        // `queue.async { [weak self] … }`, but by the time that block runs
+        // during deallocation `self` is already nil, so the guard returns
+        // early, the source is never cancelled, and its cancel handler's
+        // `close(fd)` never fires — repeated opens leak descriptors and can
+        // exhaust the process's fd table (QoL #34). The dispatch source's
+        // cancel is thread-safe and owns the close(); no event handler can be
+        // executing, since they capture `[weak self]` and could not have kept
+        // us alive to this point.
+        isCancelled = true
+        if let source {
+            source.cancel()               // cancel handler closes the fd
+        } else if fileDescriptor >= 0 {
+            close(fileDescriptor)
+        }
+        #endif
+    }
 
     public func start() {
         #if canImport(Darwin)

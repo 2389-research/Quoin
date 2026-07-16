@@ -46,6 +46,17 @@ final class LibraryModel {
     @ObservationIgnored private var eventsWatcher: FSEventsWatcher?
     @ObservationIgnored private var librarySearchTask: Task<Void, Never>?
     @ObservationIgnored private var quickOpenTask: Task<Void, Never>?
+    /// Coalesce full-tree rescans: at most one runs at a time; requests that
+    /// arrive mid-scan collapse into a single re-run (QoL #34).
+    @ObservationIgnored private var scanTask: Task<Void, Never>?
+    @ObservationIgnored private var rescanRequestedDuringScan = false
+    /// Hoisted out of `dailyNote()` — a fixed `yyyy-MM-dd` formatter never
+    /// needs re-allocating (QoL #34).
+    @ObservationIgnored private static let dailyNoteFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
     /// Inverse file moves for ⌘Z (design rule: sidebar moves are undoable).
     @ObservationIgnored private var moveUndoStack: [(from: URL, to: URL)] = []
 
@@ -192,11 +203,29 @@ final class LibraryModel {
 
     func rescan() {
         guard let rootURL else { return }
+        // Coalesce: a scan already in flight absorbs this request (it re-runs
+        // once when it finishes) instead of racing a second full-tree scan.
+        // FSEvents already batches at 0.5s latency, but a burst that straddles
+        // the window — or a direct mutation landing next to an FSEvent — would
+        // otherwise spawn overlapping detached scans whose last completion wins
+        // arbitrarily. Direct callers still get an immediate first scan.
+        if scanTask != nil {
+            rescanRequestedDuringScan = true
+            return
+        }
         // Scanning is fast (directory metadata only) but not free; keep it
         // off the main actor for large libraries.
-        Task.detached(priority: .userInitiated) { [weak self] in
+        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
             let tree = Library.scan(root: rootURL)
-            await MainActor.run { self?.root = tree }
+            await MainActor.run {
+                guard let self else { return }
+                self.root = tree
+                self.scanTask = nil
+                if self.rescanRequestedDuringScan {
+                    self.rescanRequestedDuringScan = false
+                    self.rescan()
+                }
+            }
         }
     }
 
@@ -255,7 +284,13 @@ final class LibraryModel {
     /// Move a file or folder to the Trash (recoverable — never a hard
     /// delete; the Finder's undo owns restoration).
     func trash(url: URL) {
-        guard (try? FileManager.default.trashItem(at: url, resultingItemURL: nil)) != nil else { return }
+        do {
+            try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        } catch {
+            // Silence reads as success; a failed trash beeps like a failed drop.
+            NSSound.beep()
+            return
+        }
         NotificationCenter.default.post(
             name: Self.documentTrashedNotification, object: nil, userInfo: ["url": url])
         rescan()
@@ -391,9 +426,7 @@ final class LibraryModel {
         guard let rootURL else { return nil }
         let journal = rootURL.appendingPathComponent("Journal", isDirectory: true)
         try? FileManager.default.createDirectory(at: journal, withIntermediateDirectories: true)
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        let name = formatter.string(from: Date())
+        let name = Self.dailyNoteFormatter.string(from: Date())
         let url = journal.appendingPathComponent("\(name).md")
         if !FileManager.default.fileExists(atPath: url.path) {
             guard (try? Data("# \(name)\n\n".utf8).write(to: url)) != nil else { return nil }
