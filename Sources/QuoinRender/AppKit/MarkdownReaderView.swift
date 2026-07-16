@@ -303,12 +303,13 @@ public struct MarkdownReaderView: NSViewRepresentable {
         // spaces" glitch), curly quotes, "--"→em dash, autocorrect. In a
         // byte-lossless plain-text Markdown editor those are wrong by design:
         // what you type is what lands on disk. Turn them all off.
-        textView.isAutomaticTextReplacementEnabled = false
-        textView.isAutomaticPeriodSubstitutionEnabled = false
-        textView.isAutomaticQuoteSubstitutionEnabled = false
-        textView.isAutomaticDashSubstitutionEnabled = false
-        textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.smartInsertDeleteEnabled = false
+        textView.isAutomaticTextReplacementEnabled = false   // incl. double-space→". "
+        textView.isAutomaticQuoteSubstitutionEnabled = false // straight quotes stay straight
+        textView.isAutomaticDashSubstitutionEnabled = false  // "--" stays "--", not "—"
+        textView.isAutomaticSpellingCorrectionEnabled = false // no autocorrect rewrites
+        textView.isAutomaticLinkDetectionEnabled = false     // don't auto-linkify raw URLs
+        textView.isAutomaticDataDetectionEnabled = false     // no date/address detection
+        textView.smartInsertDeleteEnabled = false            // no smart copy/paste spacing
         textView.textContainerInset = NSSize(width: theme.contentInset, height: theme.contentInset)
         textView.autoresizingMask = [.width]
         textView.isVerticallyResizable = true
