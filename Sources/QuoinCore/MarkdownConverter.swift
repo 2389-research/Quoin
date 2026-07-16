@@ -222,9 +222,34 @@ public enum MarkdownConverter {
               newParse.blocks[0].range.length == oldParse.blocks[0].range.length + byteDelta
         else { return nil }
 
-        // Identity: same uniqueness rules as the paragraph fast path, so the
-        // occurrence indices a full parse would assign are reproduced.
         let newKind = newParse.blocks[0].kind
+        var stats = previous.stats
+        // Diff, not recount — same reasoning as the paragraph path.
+        stats.characterCount += newSlice.count - oldSlice.count
+        // Only code-block bodies feed the prose word count (mermaid and math
+        // sources are diagrams, not words — see convertCodeBlock).
+        if case .codeBlock(_, let oldCode) = block.kind,
+           case .codeBlock(_, let newCode) = newKind {
+            stats.wordCount += wordCount(in: newCode) - wordCount(in: oldCode)
+        }
+        // The edit is strictly inside a fenced body — endmatter is untouched,
+        // so the shared rebuild carries previous.reviewMetadata verbatim.
+        return rebuild(previous: previous, blockIndex: blockIndex, newKind: newKind,
+                       byteDelta: byteDelta, newSource: newSource, stats: stats)
+    }
+
+    /// The tail both fast paths share once each has self-calibrated its slice
+    /// re-parse and diffed its own statistics: reproduce the block's identity
+    /// under a full parse's uniqueness rules (or bail), splice the one rebuilt
+    /// block into the previous list, shift the byte ranges and outline of every
+    /// following block by the delta, and construct the document (endmatter
+    /// metadata carries over — a slice-local edit never touches it). Returns
+    /// nil when the content-hash uniqueness gate fails, exactly as before.
+    private static func rebuild(
+        previous: QuoinDocument, blockIndex: Int, newKind: BlockKind,
+        byteDelta: Int, newSource: String, stats: DocumentStats
+    ) -> QuoinDocument? {
+        let block = previous.blocks[blockIndex]
         let newContentHash = contentHash(for: newKind)
         let oldContentHash = block.id.contentHash
         let oldHashCount = previous.blocks.filter { $0.id.contentHash == oldContentHash }.count
@@ -241,7 +266,7 @@ public enum MarkdownConverter {
         )
         shiftAndReassignIDs(&blocks, from: blockIndex, by: byteDelta)
 
-        let shiftedOutline = previous.outline.map { heading in
+        let shiftedOutline = previous.outline.map { heading -> HeadingInfo in
             guard heading.range.offset > block.range.offset else { return heading }
             return HeadingInfo(
                 id: heading.id,
@@ -252,25 +277,12 @@ public enum MarkdownConverter {
             )
         }
 
-        var stats = previous.stats
-        // Diff, not recount — same reasoning as the paragraph path.
-        stats.characterCount += newSlice.count - oldSlice.count
-        // Only code-block bodies feed the prose word count (mermaid and math
-        // sources are diagrams, not words — see convertCodeBlock).
-        if case .codeBlock(_, let oldCode) = block.kind,
-           case .codeBlock(_, let newCode) = newKind {
-            stats.wordCount += wordCount(in: newCode) - wordCount(in: oldCode)
-        }
-
         return QuoinDocument(
             source: newSource,
             blocks: blocks,
             outline: shiftedOutline,
             stats: stats,
             sourceHash: SHA256Hex.hash(of: newSource),
-            // The edit is strictly inside a fenced body — endmatter is
-            // untouched, so its parsed metadata carries over verbatim
-            // (dropping it made review history vanish per keystroke).
             reviewMetadata: previous.reviewMetadata
         )
     }
@@ -340,49 +352,16 @@ public enum MarkdownConverter {
         else { return nil }
 
         let newKind = newParse.blocks[0].kind
-        let newContentHash = contentHash(for: newKind)
-        let oldContentHash = block.id.contentHash
-        let oldHashCount = previous.blocks.filter { $0.id.contentHash == oldContentHash }.count
-        let newHashAlreadyExists = previous.blocks.enumerated().contains { index, candidate in
-            index != blockIndex && candidate.id.contentHash == newContentHash
-        }
-        guard oldHashCount == 1, !newHashAlreadyExists else { return nil }
-
-        var blocks = previous.blocks
-        blocks[blockIndex] = Block(
-            id: BlockID(contentHash: newContentHash, occurrence: 0),
-            kind: newKind,
-            range: ByteRange(offset: block.range.offset, length: block.range.length + sliceByteDelta)
-        )
-        shiftAndReassignIDs(&blocks, from: blockIndex, by: sliceByteDelta)
-
-        let shiftedOutline = previous.outline.map { heading in
-            guard heading.range.offset > block.range.offset else { return heading }
-            return HeadingInfo(
-                id: heading.id,
-                level: heading.level,
-                title: heading.title,
-                slug: heading.slug,
-                range: ByteRange(offset: heading.range.offset + sliceByteDelta, length: heading.range.length)
-            )
-        }
         var stats = previous.stats
         // Diff, not recount: `newSource.count` walks every grapheme in the
         // document (tens of ms in a novel). The slice boundaries are
         // identical before and after, so the slice-count delta is exact.
         stats.characterCount += newSlice.count - oldSlice.count
         stats.wordCount += wordCount(in: newSlice) - wordCount(in: oldSlice)
-
-        return QuoinDocument(
-            source: newSource,
-            blocks: blocks,
-            outline: shiftedOutline,
-            stats: stats,
-            sourceHash: SHA256Hex.hash(of: newSource),
-            // Same carry-over as the fenced path: the edited block is a
-            // plain paragraph, never the endmatter.
-            reviewMetadata: previous.reviewMetadata
-        )
+        // Same carry-over as the fenced path: the edited block is a plain
+        // paragraph, never the endmatter — the shared rebuild preserves it.
+        return rebuild(previous: previous, blockIndex: blockIndex, newKind: newKind,
+                       byteDelta: sliceByteDelta, newSource: newSource, stats: stats)
     }
 
     private static func contentHash(for kind: BlockKind) -> Int {
