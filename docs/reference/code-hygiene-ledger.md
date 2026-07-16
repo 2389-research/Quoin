@@ -20,6 +20,39 @@ Severity: **H** = structural/risk, **M** = principled cleanup, **L** = polish.
 
 ---
 
+## Status (updated 2026‑07‑15)
+
+**Shipped** (each behind `swift test` — 645 green — and a separate commit):
+
+- All dead code (§4): `plainParagraphInlines`, the unreachable
+  `renderFrontMatter(editable:false)` branch, the unused `intersectsCard`.
+- All comment rot (§3): the two misleading type docs, the spliced
+  typedForm/stringScalar and RenderSpliceHint/RenderedDocument docs, the stale
+  RevealedFragment parenthetical, the forbidden-set comment.
+- All error-handling (§5): audible+traced keystroke-drop instead of silent
+  return; guarded `samePosition`; bound `-->`/`panel` instead of force-unwrap;
+  documented the memcmp `baseAddress!` invariant.
+- Several dedups: `byteDelta`/`makeBlock`-hash (§2), the `caretHint`
+  activation helper (4 sites), `YAMLScalar.unescapeDoubleQuotedBody` (§2), the
+  `renderSuggestion` extraction (§1 secondary).
+- Idiom fixes: `LastFrameReport` enum for the `CGRect??` tri-state; consistent
+  private `onConflict`/`onSaveFailure`; the "Fallback" → native-path renames;
+  the 11 reveal regexes hoisted to compile-once statics (§6).
+
+**Remaining — the structural tier** (each its own careful commit, guarded by
+RevealFidelity / CaretLineAnchor / ProjectorEquivalence):
+
+- §1 god-objects: `updateNSView` (358 lines), `ReaderCoordinator` (5
+  subsystems), `AttributedRenderer` (4-way), `Builder`.
+- §1 secondary: `convertParagraph`, `toggleTask`, `measureVisibleRuns`,
+  `styleLinks`, `spliceChanges` prefix/suffix.
+- §2: `rebuild()` fast-path dedup, `forEachYAMLLine` tokenizer, the
+  renderer/scanner grammar-agreement test, `styleContainerBody` dedup.
+- §6: callback config structs, a real `SeparatorPolicy` type, typed `@objc`
+  payloads, `SegmentCursor`, the `isCode` marker attribute, draw magic numbers.
+
+---
+
 ## 1. Structural decomposition — the giants (H)
 
 The dominant theme. Four units have absorbed too many responsibilities; each has
