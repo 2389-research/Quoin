@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quoin — a native macOS Markdown editor with review inside the file</title>
+<meta name="description" content="A native macOS WYSIWYG Markdown editor with an in-file review loop — suggestions, comments, and tracked changes as plain CriticMarkup bytes. Native LaTeX and Mermaid, byte-lossless, local-only.">
+<style>
+  :root{
+    /* Quoin brand palette */
+    --quoin-slate:#26343D;  /* text and structural chrome */
+    --quoin-paper:#F7F3EA;  /* document canvas */
+    --quoin-brass:#C58B32;  /* primary actions and selection */
+    --quoin-sage:#729486;   /* metadata and secondary accents */
+
+    --bg:var(--quoin-paper); --panel:#EFE9DA; --ink:var(--quoin-slate);
+    --muted:#5f7d70; --line:rgba(38,52,61,.14);
+    --accent:var(--quoin-brass); --accent-ink:#2a1e08;
+    --code-bg:#20303a; --radius:14px; --maxw:1040px;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#1a252c; --panel:#22323c; --ink:#F1EBDD;
+      --muted:#8fb0a2; --line:rgba(247,243,234,.13);
+      --accent:#D69B47; --accent-ink:#1a252c;
+    }
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+       line-height:1.6;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  img{max-width:100%;height:auto;display:block}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  .eyebrow{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
+
+  /* Header */
+  header{border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);z-index:5}
+  .nav{display:flex;align-items:center;justify-content:space-between;height:60px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;font-size:18px;color:var(--ink)}
+  .brand .glyph{width:26px;height:26px;border-radius:7px;background:var(--ink);color:var(--bg);display:grid;place-items:center;font-weight:800;font-size:15px}
+  .nav-links{display:flex;gap:22px;align-items:center;font-size:14px;font-weight:500}
+  .nav-links a{color:var(--muted)}
+  .nav-links a:hover{color:var(--ink);text-decoration:none}
+
+  /* Hero */
+  .hero{padding:72px 0 32px;text-align:center}
+  .hero h1{font-size:clamp(34px,6vw,58px);line-height:1.05;letter-spacing:-.03em;margin:.35em 0 .3em;text-wrap:balance;font-weight:800}
+  .hero p.lede{font-size:clamp(17px,2.4vw,21px);color:var(--muted);max-width:40ch;margin:0 auto 1.6em;text-wrap:balance}
+  .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:11px 20px;border-radius:11px;font-weight:600;font-size:15px;border:1px solid var(--line)}
+  .btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+  .btn.primary:hover{filter:brightness(1.05);text-decoration:none}
+  .btn.ghost{background:var(--panel);color:var(--ink)}
+  .btn.ghost:hover{text-decoration:none;border-color:var(--muted)}
+  .shot{margin:44px auto 0;max-width:960px;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:0 24px 60px -30px rgba(0,0,0,.45)}
+  .shot figcaption{font-size:13px;color:var(--muted);padding:10px 14px;background:var(--panel);border-top:1px solid var(--line)}
+
+  /* Sections */
+  section{padding:56px 0;border-top:1px solid var(--line)}
+  .feature{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+  .feature.rev .copy{order:2}
+  .feature h2{font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .5em;text-wrap:balance}
+  .feature p{color:var(--muted);margin:0 0 1em}
+  .feature figure{margin:0;border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .feature figcaption{font-size:12.5px;color:var(--muted);padding:9px 13px;background:var(--panel);border-top:1px solid var(--line)}
+  ul.ticks{list-style:none;padding:0;margin:0}
+  ul.ticks li{padding-left:26px;position:relative;margin:.4em 0;color:var(--ink)}
+  ul.ticks li::before{content:"";position:absolute;left:0;top:.62em;width:12px;height:7px;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg)}
+  code{font-family:var(--mono);font-size:.9em;background:var(--panel);padding:.12em .4em;border-radius:5px}
+
+  /* Engines row */
+  .engines{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--panel)}
+  .card h3{margin:.1em 0 .3em;font-size:18px}
+  .card p{color:var(--muted);margin:0 0 .6em;font-size:14.5px}
+  .gallery{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+  .gallery figure{margin:0;border:1px solid var(--line);border-radius:12px;overflow:hidden}
+
+  /* Docs grid */
+  .docs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+  .doc{display:block;border:1px solid var(--line);border-radius:12px;padding:18px;background:var(--panel);color:var(--ink)}
+  .doc:hover{border-color:var(--muted);text-decoration:none}
+  .doc b{display:block;margin-bottom:3px}
+  .doc span{color:var(--muted);font-size:13.5px}
+
+  footer{border-top:1px solid var(--line);padding:34px 0 60px;color:var(--muted);font-size:14px}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--ink)}
+
+  @media (max-width:760px){
+    .feature,.engines,.gallery{grid-template-columns:1fr}
+    .feature.rev .copy{order:0}
+    .docs{grid-template-columns:1fr}
+    .nav-links a:not(.gh){display:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap nav">
+    <div class="brand"><span class="glyph">Q</span> Quoin</div>
+    <nav class="nav-links">
+      <a href="#review">Review</a>
+      <a href="#engines">Engines</a>
+      <a href="#docs">Docs</a>
+      <a class="gh" href="https://github.com/2389-research/Quoin">GitHub ↗</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="hero" style="border-top:none">
+    <div class="eyebrow">Native · macOS · zero JavaScript</div>
+    <h1>The review loop lives inside the file.</h1>
+    <p class="lede">A native macOS WYSIWYG Markdown editor. Suggestions, comments, and
+      tracked changes are plain bytes an agent or a person can write — and every
+      untouched byte survives the round-trip.</p>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/2389-research/Quoin">View on GitHub</a>
+      <a class="btn ghost" href="https://github.com/2389-research/Quoin#readme">Read the README</a>
+    </div>
+    <figure class="shot">
+      <img src="images/hero.png" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
+      <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
+    </figure>
+  </section>
+
+  <section id="review">
+    <div class="feature">
+      <div class="copy">
+        <div class="eyebrow">The differentiator</div>
+        <h2>Tracked changes as plain CriticMarkup</h2>
+        <p>Suggestions and comments are <a href="https://github.com/CriticMarkup/CriticMarkup-toolkit">CriticMarkup</a>
+           marks; their metadata rides along as RDFM YAML endmatter that plain
+           renderers ignore. Because the file <em>is</em> the review, it is portable,
+           git-diffable, and agent-readable.</p>
+        <ul class="ticks">
+          <li>Marks render as tracked changes — never raw delimiters</li>
+          <li>A review inspector: Accept / Reject / Dismiss, plus Accept&nbsp;All</li>
+          <li>Every resolution is one atomic, byte-safe edit = one undo</li>
+          <li>Review Mode (<code>⌃⌘R</code>): typing becomes suggestion marks</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/review-panel.png" alt="Review inspector cards beside a marked-up document: suggestion and comment cards with author, timestamp, and Accept / Reject / Dismiss">
+        <figcaption>A spec under review — tracked changes inline, each mark an actionable card.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="engines">
+    <div class="eyebrow">Best-in-class, and fully native</div>
+    <h2 style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .8em">Native math &amp; diagrams — no browser</h2>
+    <div class="engines">
+      <div class="card">
+        <h3>Vinculum · LaTeX</h3>
+        <p>A TeX-quality math typesetter (~400 commands: spacing classes, stacked
+           limits, radicals, auto-sized fences, <code>matrix</code>/<code>cases</code>/<code>aligned</code>),
+           drawn with CoreText. No MathJax, no KaTeX.</p>
+        <a href="https://github.com/2389-research/Vinculum">2389-research/Vinculum ↗</a>
+      </div>
+      <div class="card">
+        <h3>MermaidKit · Diagrams</h3>
+        <p>A native Mermaid engine (Sugiyama layering, orthogonal routing, UML
+           markers, composite states), drawn with CoreGraphics. No Mermaid.js,
+           no headless browser.</p>
+        <a href="https://github.com/2389-research/MermaidKit">2389-research/MermaidKit ↗</a>
+      </div>
+    </div>
+    <div class="gallery">
+      <figure><img src="images/gallery-math.png" alt="A gallery of LaTeX math rendered natively by Vinculum — fractions, integrals, matrices, aligned equations"></figure>
+      <figure><img src="images/gallery-diagrams.png" alt="A gallery of Mermaid diagram types rendered natively by MermaidKit — flowchart, sequence, state, class, and entity-relationship"></figure>
+    </div>
+  </section>
+
+  <section>
+    <div class="feature rev">
+      <div class="copy">
+        <div class="eyebrow">The architecture</div>
+        <h2>The source is the document</h2>
+        <p>The markdown string and its AST are the single source of truth — never an
+           attributed string. The editor is a <em>projection</em>: edits mutate the
+           source through a session actor, and the renderer re-projects.</p>
+        <ul class="ticks">
+          <li>Byte-lossless round-trips for every untouched region</li>
+          <li>Click a block to reveal its literal source, 1:1 with the file</li>
+          <li>The caret line never jumps on a projection change</li>
+          <li><code>QuoinCore</code> is platform-free and builds on Linux</li>
+        </ul>
+      </div>
+      <figure>
+        <img src="images/syntax-reveal.png" alt="A block revealed as its literal Markdown source, character-for-character with the file">
+        <figcaption>Click into a block and it reveals its literal source — hidden delimiters become 1-point clear glyphs.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section id="docs">
+    <div class="eyebrow">Documentation</div>
+    <h2 style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .8em">Learn how it works</h2>
+    <div class="docs">
+      <a class="doc" href="guide/getting-started.md"><b>Getting started</b><span>Open a library, make a first edit, learn the shortcuts.</span></a>
+      <a class="doc" href="guide/features.md"><b>Feature tour</b><span>Everything Quoin does: write, review, organize, read.</span></a>
+      <a class="doc" href="PRODUCT.md"><b>Capability spec</b><span>The reference for exactly what it does.</span></a>
+      <a class="doc" href="design/suggestions.md"><b>The review loop</b><span>CriticMarkup, RDFM, and byte-safe accept/reject.</span></a>
+      <a class="doc" href="reference/architecture.md"><b>Architecture</b><span>Parse → session → project → display, and the engine seams.</span></a>
+      <a class="doc" href="reference/invariants.md"><b>Invariants</b><span>Byte-lossless round-trips and the caret/viewport rule.</span></a>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><strong style="color:var(--ink)">Quoin</strong> — MIT licensed ·
+      <a href="https://github.com/2389-research/Quoin">github.com/2389-research/Quoin</a> ·
+      Engines: <a href="https://github.com/2389-research/Vinculum">Vinculum</a> &amp;
+      <a href="https://github.com/2389-research/MermaidKit">MermaidKit</a></p>
+    <p>Built with Swift, SwiftUI, and TextKit&nbsp;2. No JavaScript at runtime, no web view, local-only.</p>
+  </div>
+</footer>
+</body>
+</html>
