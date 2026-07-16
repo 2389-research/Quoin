@@ -78,27 +78,10 @@ jobs:
       # are dropped so the unsandboxed app can read the fixtures dir. Every
       # shot (name, launch args, purpose, committed path) is catalogued in
       # docs/guide/screenshots.md — the durable record so shots regenerate on push.
-      # XCUIScreenshot captures at the display's backing scale. The runner's
-      # default display is 1x, so shots are low-res and blur when shown large
-      # on Retina. Force a HiDPI (2x-backed) mode so captures are ~2x. Advisory:
-      # if the headless display has no HiDPI mode, capture just stays 1x.
-      - name: Enable HiDPI (Retina) display for crisp screenshots
-        continue-on-error: true
-        run: |
-          brew install displayplacer >/dev/null 2>&1 || true
-          echo "=== display modes (HiDPI candidates) ==="
-          displayplacer list 2>/dev/null | grep -iE "hidpi|scaling:on|Persistent screen id" | head -20 || echo "displayplacer unavailable"
-          ID=$(displayplacer list 2>/dev/null | awk -F': ' '/Persistent screen id/{print $2; exit}')
-          echo "display id: ${ID:-none}"
-          set=0
-          for res in 1920x1080 1728x1080 1512x945 1440x900 1280x800; do
-            if [ -n "$ID" ] && displayplacer "id:${ID} res:${res} scaling:on origin:(0,0) degree:0" >/dev/null 2>&1; then
-              echo "set HiDPI ${res}"; set=1; break
-            fi
-          done
-          [ "$set" = 1 ] || echo "::notice::No HiDPI mode available; screenshots remain 1x."
-          system_profiler SPDisplaysDataType 2>/dev/null | grep -iE "Resolution|UI Looks|Retina" | head
-
+      # Note: XCUIScreenshot captures at the runner's display scale (1x on
+      # GitHub's headless macOS runner — no HiDPI mode is available), so these
+      # shots are 1x. Crisp 2x images for the README/site are curated from a
+      # local Retina capture instead.
       - name: Capture screenshots
         working-directory: App/macOS
         continue-on-error: true
