@@ -129,7 +129,11 @@ read left to right. A keystroke enters at `Display`, becomes a `SourceEdit` at
 `SourceEdit`s, maintains source-level undo/redo, autosaves, watches the file,
 and publishes immutable `QuoinDocument` snapshots. External changes while
 edits are unsaved surface as a non-blocking conflict banner (keep mine / take
-disk); self-inflicted file events are recognised by source hash.
+disk); self-inflicted file events are recognised by source hash. Reads and
+writes go through `FileCoordination` (`NSFileCoordinator`) so a library synced
+through iCloud/Dropbox/Drive doesn't race the sync daemon into "conflicted
+copy" files; a coordinated read also pulls down an undownloaded iCloud
+placeholder before opening rather than failing it as unreadable.
 
 **Session ownership.** `OpenDocumentStore` is an app-global registry: exactly
 ONE `ReaderModel` (and thus one `DocumentSession` / autosaver) per file, keyed

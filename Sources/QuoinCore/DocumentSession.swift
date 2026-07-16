@@ -107,7 +107,7 @@ public actor DocumentSession {
 
     /// Opens a file and starts watching it for external changes.
     public static func open(fileURL: URL) throws -> DocumentSession {
-        guard let data = try? Data(contentsOf: fileURL),
+        guard let data = try? FileCoordination.read(fileURL),
               let decoded = decode(data)
         else { throw SessionError.fileUnreadable(fileURL) }
         return DocumentSession(source: decoded.source, fileURL: fileURL, encoding: decoded.encoding)
@@ -252,7 +252,7 @@ public actor DocumentSession {
     /// check (atomic replaces briefly unlink the path) and then detaches.
     public func reloadFromDisk() {
         guard let fileURL else { return }
-        guard let data = try? Data(contentsOf: fileURL),
+        guard let data = try? FileCoordination.read(fileURL),
               let decoded = Self.decode(data)
         else {
             scheduleVanishCheck(for: fileURL)
@@ -303,7 +303,7 @@ public actor DocumentSession {
     private func confirmVanished(expecting url: URL) {
         vanishCheckTask = nil
         guard fileURL == url, !isDetached else { return }
-        if let data = try? Data(contentsOf: url), Self.decode(data) != nil {
+        if let data = try? FileCoordination.read(url), Self.decode(data) != nil {
             // Transient (mid-replace): route through the normal reload so
             // the hash/conflict logic applies.
             reloadFromDisk()
@@ -680,7 +680,9 @@ public actor DocumentSession {
             // content can't be represented there (e.g. a Latin-1 file that now
             // holds an emoji) fall back to UTF-8 rather than fail the save.
             let data = source.data(using: fileEncoding) ?? Data(source.utf8)
-            try data.write(to: url, options: .atomic)
+            // Coordinated write (#32): serialize against the sync daemon so a
+            // synced library doesn't spawn "conflicted copy" files.
+            try FileCoordination.writeAtomic(data, to: url)
             selfWriteHash = SHA256Hex.hash(of: source)
             lastSaveError = nil
         } catch {
@@ -717,7 +719,7 @@ public actor DocumentSession {
         // Conflict rule: if disk moved under us, re-parse and re-anchor by
         // identity — never by the stale offset.
         if let fileURL,
-           let data = try? Data(contentsOf: fileURL),
+           let data = try? FileCoordination.read(fileURL),
            let diskSource = Self.decode(data)?.source,
            SHA256Hex.hash(of: diskSource) != viewed.sourceHash {
             // Disk moved under us. If we ALSO hold unsaved local edits,
