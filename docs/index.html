@@ -82,6 +82,20 @@
   .bytes p{color:var(--muted);margin:0}
   @media (max-width:760px){.bytes{grid-template-columns:1fr;gap:20px}}
 
+  /* Who it's for + comparison + research */
+  .ctr{text-align:center}
+  .sub{color:var(--muted);max-width:60ch;margin:0 auto}
+  .who-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:26px}
+  @media (max-width:860px){.who-grid{grid-template-columns:1fr 1fr}}
+  @media (max-width:520px){.who-grid{grid-template-columns:1fr}}
+  .cmp-wrap{overflow-x:auto;margin-top:22px}
+  .cmp{border-collapse:collapse;width:100%;font-size:14px;min-width:560px}
+  .cmp th,.cmp td{text-align:left;padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  .cmp thead th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  .cmp thead th:nth-child(2){color:var(--accent)}
+  .cmp tbody td:first-child{color:var(--muted);font-weight:600;white-space:nowrap}
+  .cmp tbody td:nth-child(2){color:var(--ink);font-weight:560}
+
   /* Engines row */
   .engines{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--panel)}
@@ -143,6 +157,18 @@
       <img src="images/hero.png" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
       <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
     </figure>
+  </section>
+
+  <section id="who">
+    <div class="eyebrow ctr">Who it's for</div>
+    <h2 class="ctr" style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .4em">A Markdown editor you can actually review in</h2>
+    <p class="sub ctr">If your words already live in <code>.md</code> files — or you wish they did — Quoin is a fast, native home for writing, reviewing, and reading them.</p>
+    <div class="who-grid">
+      <div class="card"><h3>Writers &amp; editors</h3><p>Draft, suggest, and comment with real tracked changes — then accept or reject, right in the file.</p></div>
+      <div class="card"><h3>Note-takers &amp; thinkers</h3><p>A quick, native editor for a whole folder of notes: outline, search, front-matter, footnotes, code themes.</p></div>
+      <div class="card"><h3>Engineers</h3><p>Plain text under git, no Electron, byte-lossless saves — and an editor an AI agent can safely write into.</p></div>
+      <div class="card"><h3>Teams</h3><p>Propose edits as portable marks anyone (or any tool) can read. The review lives in the document, not a silo.</p></div>
+    </div>
   </section>
 
   <section id="review">
@@ -237,6 +263,37 @@ suggestions:
         <figcaption>Click into a block and it reveals its literal source — hidden delimiters become 1-point clear glyphs.</figcaption>
       </figure>
     </div>
+  </section>
+
+  <section id="compare">
+    <div class="eyebrow">Compared to what you use now</div>
+    <h2 style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .2em">Why file-first is different</h2>
+    <div class="cmp-wrap">
+      <table class="cmp">
+        <thead><tr><th>&nbsp;</th><th>Quoin</th><th>Google&nbsp;Docs / Word</th><th>Obsidian / Typora</th></tr></thead>
+        <tbody>
+          <tr><td>Where files live</td><td>Plain <code>.md</code> on your disk</td><td>Cloud / proprietary <code>.docx</code></td><td>Plain <code>.md</code> on your disk</td></tr>
+          <tr><td>Tracked changes &amp; comments</td><td>In the file, as plain text</td><td>Yes — proprietary format</td><td>No native review</td></tr>
+          <tr><td>Native math &amp; diagrams</td><td>Yes — no web view</td><td>Limited / add-ons</td><td>Via bundled web renderers</td></tr>
+          <tr><td>Works offline, no account</td><td>Always</td><td>No</td><td>Yes</td></tr>
+          <tr><td>An AI agent can edit it</td><td>Yes — it's just text</td><td>No</td><td>Only the raw file</td></tr>
+          <tr><td>Lock-in</td><td>None — it's Markdown</td><td>High</td><td>Low</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="research">
+    <div class="eyebrow">Research &amp; heavy math</div>
+    <h2 style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .4em">Serious LaTeX, honestly scoped</h2>
+    <p class="sub" style="margin:0 0 .9em 0;max-width:68ch">Quoin typesets inline and display LaTeX natively through
+      <a href="https://2389-research.github.io/Vinculum/">Vinculum</a> — ~400 commands, from fractions and
+      integrals to matrices and <code>aligned</code> environments — and exports to
+      <strong>PDF, HTML, Markdown, RTF, and TXT</strong>. Footnotes are click-to-jump with hover previews.</p>
+    <p class="sub" style="max-width:68ch">Being straight about the gaps: there's <strong>no citation / BibTeX manager and no
+      automatic cross-reference or figure numbering yet</strong>. If your work depends on a bibliography or a
+      journal-submission pipeline, Quoin isn't a LaTeX-suite replacement today — it's a fast native editor
+      with real math. <a href="https://github.com/2389-research/Vinculum/blob/main/docs/COMMANDS.md">See the full command coverage →</a></p>
   </section>
 
   <section id="docs">
