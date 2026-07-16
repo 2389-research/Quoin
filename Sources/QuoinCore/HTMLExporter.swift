@@ -1,0 +1,246 @@
+import Foundation
+
+/// Standalone HTML export: one self-contained file, styles inlined from the
+/// design tokens, no external assets (per the export spec).
+public enum HTMLExporter {
+
+    public static func export(_ document: QuoinDocument, title: String = "Document") -> String {
+        var body = ""
+        render(document.blocks, document: document, into: &body)
+
+        if !document.footnotes.isEmpty {
+            body += "<hr>\n<section class=\"footnotes\">\n"
+            for footnote in document.footnotes {
+                body += "<div id=\"fn-\(escape(footnote.id))\"><sup>\(footnote.index)</sup> "
+                var content = ""
+                render(footnote.blocks, document: document, into: &content)
+                body += content + "</div>\n"
+            }
+            body += "</section>\n"
+        }
+
+        return """
+        <!doctype html>
+        <html lang="en">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>\(escape(title))</title>
+        <style>\(stylesheet)</style>
+        </head>
+        <body>
+        <main>
+        \(body)</main>
+        </body>
+        </html>
+        """
+    }
+
+    // MARK: - Blocks
+
+    private static func render(_ blocks: [Block], document: QuoinDocument, into out: inout String) {
+        for block in blocks {
+            switch block.kind {
+            case .heading(let level, let inlines, let slug):
+                let tag = "h\(min(max(level, 1), 6))"
+                out += "<\(tag) id=\"\(escape(slug))\">\(render(inlines))</\(tag)>\n"
+            case .paragraph(let inlines):
+                out += "<p>\(render(inlines))</p>\n"
+            case .codeBlock(let language, let code):
+                let lang = language.map { " class=\"language-\(escape($0))\"" } ?? ""
+                out += "<pre><code\(lang)>\(escape(code))</code></pre>\n"
+            case .mermaid(let source):
+                out += "<pre class=\"mermaid-source\"><code>\(escape(source))</code></pre>\n"
+            case .mathBlock(let latex):
+                out += "<p class=\"math-display\">\\[\(escape(latex))\\]</p>\n"
+            case .table(let header, let rows, let alignments):
+                out += renderTable(header: header, rows: rows, alignments: alignments)
+            case .list(let items, let ordered, let start):
+                let tag = ordered ? "ol" : "ul"
+                let startAttr = ordered && start != 1 ? " start=\"\(start)\"" : ""
+                out += "<\(tag)\(startAttr)>\n"
+                for item in items {
+                    if let task = item.task {
+                        let checked = task == .checked ? " checked" : ""
+                        out += "<li class=\"task\"><input type=\"checkbox\" disabled\(checked)> "
+                    } else {
+                        out += "<li>"
+                    }
+                    var inner = ""
+                    render(item.blocks, document: document, into: &inner)
+                    // Unwrap a single paragraph so simple items stay tight.
+                    if item.blocks.count == 1, inner.hasPrefix("<p>"), inner.hasSuffix("</p>\n") {
+                        inner = String(inner.dropFirst(3).dropLast(5))
+                    }
+                    out += inner + "</li>\n"
+                }
+                out += "</\(tag)>\n"
+            case .blockQuote(let children):
+                var inner = ""
+                render(children, document: document, into: &inner)
+                out += "<blockquote>\n\(inner)</blockquote>\n"
+            case .callout(let kind, let children):
+                var inner = ""
+                render(children, document: document, into: &inner)
+                out += "<aside class=\"callout callout-\(kind.rawValue)\"><p class=\"callout-title\">\(kind.title)</p>\n\(inner)</aside>\n"
+            case .frontMatter(let yaml):
+                out += "<pre class=\"front-matter\"><code>\(escape(yaml))</code></pre>\n"
+            case .reviewEndmatter(let yaml):
+                out += "<pre class=\"review-endmatter\"><code>\(escape(yaml))</code></pre>\n"
+            case .tableOfContents:
+                out += "<nav class=\"toc\">\n<ul>\n"
+                for heading in document.outline {
+                    out += "<li class=\"toc-\(heading.level)\"><a href=\"#\(escape(heading.slug))\">\(escape(heading.title))</a></li>\n"
+                }
+                out += "</ul>\n</nav>\n"
+            case .thematicBreak:
+                out += "<hr>\n"
+            case .htmlBlock(let html):
+                out += html + "\n"
+            }
+        }
+    }
+
+    private static func renderTable(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment]) -> String {
+        func align(_ index: Int) -> String {
+            guard index < alignments.count else { return "" }
+            switch alignments[index] {
+            case .left: return " style=\"text-align:left\""
+            case .center: return " style=\"text-align:center\""
+            case .right: return " style=\"text-align:right\""
+            case .none: return ""
+            }
+        }
+        var out = "<table>\n<thead><tr>"
+        for (i, cell) in header.enumerated() {
+            out += "<th\(align(i))>\(render(cell.inlines))</th>"
+        }
+        out += "</tr></thead>\n<tbody>\n"
+        for row in rows {
+            out += "<tr>"
+            for (i, cell) in row.enumerated() {
+                out += "<td\(align(i))>\(render(cell.inlines))</td>"
+            }
+            out += "</tr>\n"
+        }
+        out += "</tbody>\n</table>\n"
+        return out
+    }
+
+    // MARK: - Inlines
+
+    private static func render(_ inlines: [Inline]) -> String {
+        var out = ""
+        for inline in inlines {
+            switch inline {
+            case .text(let text):
+                out += escape(text)
+            case .code(let code):
+                out += "<code>\(escape(code))</code>"
+            case .emphasis(let children):
+                out += "<em>\(render(children))</em>"
+            case .strong(let children):
+                out += "<strong>\(render(children))</strong>"
+            case .strikethrough(let children):
+                out += "<del>\(render(children))</del>"
+            case .highlight(let children, let color):
+                out += "<mark class=\"hl-\(color.rawValue)\">\(render(children))</mark>"
+            case .link(let destination, let children):
+                let href = destination.map { escapeAttribute($0) } ?? "#"
+                out += "<a href=\"\(href)\">\(render(children))</a>"
+            case .image(let source, let alt):
+                let src = source.map { escapeAttribute($0) } ?? ""
+                out += "<img src=\"\(src)\" alt=\"\(escapeAttribute(alt))\">"
+            case .math(let latex):
+                out += "<span class=\"math-inline\">\\(\(escape(latex))\\)</span>"
+            case .footnoteReference(let id, let index):
+                out += "<sup class=\"fn-ref\"><a href=\"#fn-\(escapeAttribute(id))\">\(index)</a></sup>"
+            case .suggestion(let kind, _, _):
+                // Canonical CriticMarkup HTML (toolkit conventions).
+                switch kind {
+                case .insertion(let children):
+                    out += "<ins>\(render(children))</ins>"
+                case .deletion(let children):
+                    out += "<del>\(render(children))</del>"
+                case .substitution(let old, let new):
+                    out += "<del>\(render(old))</del><ins>\(render(new))</ins>"
+                case .comment(let text):
+                    out += "<span class=\"critic comment\">\(escape(text))</span>"
+                case .highlight(let children):
+                    out += "<mark class=\"critic\">\(render(children))</mark>"
+                }
+            case .softBreak:
+                out += " "
+            case .lineBreak:
+                out += "<br>"
+            case .html(let raw):
+                out += raw
+            }
+        }
+        return out
+    }
+
+    // MARK: - Escaping
+
+    static func escape(_ text: String) -> String {
+        text.replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: ">", with: "&gt;")
+    }
+
+    static func escapeAttribute(_ text: String) -> String {
+        escape(text).replacingOccurrences(of: "\"", with: "&quot;")
+    }
+
+    /// Design-token styles per the element spec (Graphite direction).
+    private static let stylesheet = """
+    :root{color-scheme:light}
+    body{margin:0;background:#fff;color:#333;font:14px/1.7 -apple-system,'SF Pro Text',system-ui,sans-serif}
+    main{max-width:680px;margin:0 auto;padding:48px 24px}
+    h1{font-size:26px;line-height:1.25;font-weight:700;color:#1d1d1f;margin:32px 0 12px}
+    h2{font-size:20px;line-height:1.3;font-weight:700;color:#1d1d1f;margin:28px 0 10px}
+    h3{font-size:16px;line-height:1.35;font-weight:600;color:#1d1d1f;margin:22px 0 8px}
+    h4,h5,h6{font-size:14px;font-weight:600;color:rgba(29,29,31,.55);margin:16px 0 8px}
+    p{margin:0 0 12px}
+    strong{color:#1d1d1f}
+    del{color:rgba(29,29,31,.45)}
+    mark{background:#d9f59b;border-radius:3px;padding:0 2px}
+    mark.hl-pink{background:#f7d9f0}
+    mark.hl-yellow{background:#fdeeaa}
+    mark.hl-blue{background:#cfe6fb}
+    mark.hl-orange{background:#fedbc6}
+    a{color:#2a6fdb;text-decoration:underline;text-decoration-color:rgba(42,111,219,.35)}
+    code{font:12.5px ui-monospace,'SF Mono',monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px}
+    pre{background:#1e2430;border-radius:8px;padding:12px 16px;overflow-x:auto}
+    pre code{background:none;color:#d6dce6;font-size:12px;line-height:1.6;padding:0}
+    blockquote{border-left:3px solid rgba(0,0,0,.15);margin:0 0 12px;padding-left:16px;color:rgba(29,29,31,.55);font-style:italic}
+    .callout{border-radius:8px;padding:10px 14px;margin:0 0 12px;border:1px solid}
+    .callout-title{font-size:12.5px;font-weight:600;margin-bottom:4px}
+    .callout-note{background:rgba(10,132,255,.04);border-color:rgba(10,132,255,.15)}
+    .callout-note .callout-title{color:#0a84ff}
+    .callout-tip{background:rgba(48,209,88,.04);border-color:rgba(48,209,88,.15)}
+    .callout-tip .callout-title{color:#28a745}
+    .callout-important{background:rgba(175,82,222,.04);border-color:rgba(175,82,222,.15)}
+    .callout-important .callout-title{color:#8944ab}
+    .callout-warning{background:rgba(255,159,10,.04);border-color:rgba(255,159,10,.15)}
+    .callout-warning .callout-title{color:#c77c02}
+    .callout-caution{background:rgba(255,69,58,.04);border-color:rgba(255,69,58,.15)}
+    .callout-caution .callout-title{color:#d92d20}
+    .callout-danger{background:rgba(255,69,58,.04);border-color:rgba(255,69,58,.15)}
+    .callout-danger .callout-title{color:#d92d20}
+    table{border-collapse:collapse;margin:0 0 12px;width:100%}
+    th{font-weight:600;border-bottom:1.5px solid rgba(29,29,31,.15);padding:6px 10px;text-align:left}
+    td{border-bottom:1px solid rgba(29,29,31,.07);padding:6px 10px;font-variant-numeric:tabular-nums}
+    ul,ol{margin:0 0 12px;padding-left:24px}
+    li.task{list-style:none;margin-left:-20px}
+    hr{border:none;border-top:1px solid rgba(29,29,31,.12);margin:20px 0}
+    img{max-width:100%;border-radius:8px}
+    .front-matter{background:#f2f2f4;border-radius:6px}
+    .front-matter code{color:rgba(29,29,31,.55);font-size:10.5px}
+    .footnotes{font-size:12px;line-height:1.6;color:rgba(29,29,31,.55)}
+    .fn-ref a{text-decoration:none}
+    .toc ul{list-style:none;padding-left:0}
+    .toc-2{padding-left:16px}.toc-3,.toc-4,.toc-5,.toc-6{padding-left:34px}
+    @media print{pre{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    """
+}

@@ -1,0 +1,245 @@
+<title>Quoin — Technical Requirements</title>
+<style>
+  :root {
+    --ink: #1b1c1e;
+    --graphite: #56575c;
+    --faint: #8b8c91;
+    --ground: #fbfbf9;
+    --panel: #f2f2ee;
+    --hairline: #e2e2dc;
+    --press: #1f4fa3;
+    --press-soft: #e8eef8;
+    --serif: 'Iowan Old Style', 'Palatino Nova', Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  }
+  html { background: var(--ground); }
+  body { font-family: var(--sans); color: var(--ink); line-height: 1.6; font-size: 16px; margin: 0; }
+  .page { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+  .doc-eyebrow {
+    display: flex; align-items: baseline; gap: 0.75rem;
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--graphite);
+    border-bottom: 1px solid var(--hairline); padding-bottom: 0.75rem;
+  }
+  .doc-eyebrow .tag { color: var(--press); font-weight: 600; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: 2.6rem; line-height: 1.15; margin: 1.5rem 0 0.5rem; text-wrap: balance; }
+  .subtitle { font-family: var(--serif); font-size: 1.2rem; color: var(--graphite); margin: 0 0 2.5rem; font-style: italic; }
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.45rem;
+    margin: 3rem 0 0.75rem; padding-top: 1.5rem; border-top: 1px solid var(--hairline); text-wrap: balance;
+  }
+  h2 .num { font-family: var(--mono); font-size: 0.8rem; color: var(--press); vertical-align: 0.35em; margin-right: 0.6rem; letter-spacing: 0.05em; }
+  h3 { font-size: 1.02rem; font-weight: 650; margin: 1.75rem 0 0.5rem; }
+  p { margin: 0.6rem 0; max-width: 65ch; }
+  ul { padding-left: 1.25rem; margin: 0.6rem 0; }
+  li { margin: 0.3rem 0; max-width: 62ch; }
+  strong { font-weight: 650; }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; }
+  pre {
+    font-family: var(--mono); font-size: 0.8rem; line-height: 1.5;
+    background: var(--panel); border: 1px solid var(--hairline); border-radius: 6px;
+    padding: 1rem 1.25rem; overflow-x: auto; margin: 1rem 0;
+  }
+  .callout { background: var(--press-soft); border-left: 3px solid var(--press); padding: 0.85rem 1.1rem; margin: 1.25rem 0; border-radius: 0 4px 4px 0; }
+  .callout p { margin: 0.25rem 0; }
+  .table-wrap { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 0.7rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--graphite); font-weight: 600;
+    padding: 0.5rem 0.9rem 0.5rem 0; border-bottom: 1.5px solid var(--ink);
+  }
+  td { padding: 0.55rem 0.9rem 0.55rem 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  .yes { color: #1a7a3a; font-weight: 600; }
+  .no { color: #a33b2e; font-weight: 600; }
+  .footer { margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--hairline); font-family: var(--mono); font-size: 0.72rem; color: var(--faint); letter-spacing: 0.05em; }
+</style>
+
+<div class="page">
+  <div class="doc-eyebrow">
+    <span class="tag">TRD</span>
+    <span>Quoin · v0.1 draft</span>
+    <span style="margin-left:auto">2026-07-02</span>
+  </div>
+
+  <h1>Quoin — Technical Design</h1>
+  <p class="subtitle">Fully native, zero JavaScript, one shared core — built to grow an editor.</p>
+
+  <div class="callout">
+    <p><strong>Scope update (2026-07-02):</strong> per the design handoff in
+    <code>docs/design/handoff.md</code>, Quoin is now a WYSIWYG editor. The
+    architecture here stands — the editor is a new mutation source feeding
+    the <code>DocumentSession</code> pipeline (§06), exactly as designed.
+    The handoff's constraints (AST as sole source of truth, NSDocument
+    autosave, byte-lossless round-trip) are binding.</p>
+  </div>
+
+  <h2><span class="num">01</span>Architecture at a Glance</h2>
+  <p>Four decisions define the system; everything else follows from them:</p>
+  <ul>
+    <li><strong>Native rendering, not a web view.</strong> The document is displayed with TextKit&nbsp;2 attributed text, not HTML in a WKWebView. This is what makes launch, scroll, and re-render genuinely fast and the app feel native (selection, accessibility, dark mode, Dynamic Type for free).</li>
+    <li><strong>Zero JavaScript, anywhere.</strong> Math and Mermaid are rendered by in-house native engines (<code>QuoinMath</code>, <code>QuoinDiagram</code>, §04) drawing with CoreText/CoreGraphics — no WKWebView, no bundled JS, no runtime it can't account for. Diagram support ships in phases; anything not yet supported degrades to the styled source block, never breaks.</li>
+    <li><strong>One dependency for parsing.</strong> Apple's <code>swift-markdown</code> (which wraps the reference C parser <code>cmark-gfm</code>) provides spec-complete CommonMark + GFM parsing with source ranges. Writing our own spec-complete parser is months of work for a worse result; this is the one dependency that earns its place — Apple-maintained, tiny, no transitive deps.</li>
+    <li><strong>Read-optimized now, edit-ready later.</strong> V1 is a viewer, but the document pipeline is a session that accepts <em>source mutations</em> (today: file changes and checkbox toggles; tomorrow: keystrokes from an edit pane) and emits immutable rendered snapshots. An editor becomes a new input source, not a rewrite (§06).</li>
+  </ul>
+
+<pre>
+┌───────────────────────────────────────────────────────────┐
+│  QuoinApp (macOS · SwiftUI + AppKit)   QuoinApp (iOS)     │
+│  windows/tabs · toolbar · TOC · find bar · export UI      │
+├───────────────────────────────────────────────────────────┤
+│  QuoinRender (Swift package)                              │
+│  AST → AttributedString · TextKit 2 layout · table &      │
+│  code-block layout · attachment providers · themes        │
+├──────────────────────────────┬────────────────────────────┤
+│  QuoinCore (Swift package)   │  QuoinMath   QuoinDiagram  │
+│  document model (AST +       │  native TeX-subset         │
+│  source map) · parser        │  typesetter · native       │
+│  pipeline · file watcher     │  Mermaid engine →          │
+│  · search · TOC · stats      │  CoreGraphics, cached      │
+│  · exporters · write-back    │  by content hash           │
+├──────────────────────────────┴────────────────────────────┤
+│  swift-markdown (cmark-gfm)          — the one dependency │
+└───────────────────────────────────────────────────────────┘
+</pre>
+
+  <h2><span class="num">02</span>Document Model (QuoinCore)</h2>
+  <p>The core type is <code>QuoinDocument</code>: an immutable value holding the source text, the parsed block tree, and a <strong>source map</strong> (every node knows its exact UTF-8 byte range in the source). The source map is load-bearing — it powers checkbox write-back, search-result → scroll mapping, incremental re-render diffing, and stable scroll anchoring across reloads.</p>
+  <pre>
+struct QuoinDocument {
+    let source: String
+    let blocks: [Block]            // stable identity via content hash + position
+    let outline: [Heading]         // TOC, precomputed
+    let stats: DocumentStats       // words, chars, reading time, tasks…
+}
+
+enum Block: Identifiable {
+    case heading(level: Int, inline: [Inline], range: SourceRange, slug: String)
+    case paragraph([Inline], SourceRange)
+    case codeBlock(language: String?, code: String, SourceRange)
+    case mermaid(source: String, SourceRange)          // recognized fence
+    case mathBlock(latex: String, SourceRange)         // $$…$$
+    case table(header: [TableCell], rows: [[TableCell]], alignments: [Alignment], SourceRange)
+    case list(items: [ListItem], ordered: Bool, SourceRange)   // items carry .task(checked:)
+    case blockQuote([Block], SourceRange)
+    case thematicBreak(SourceRange)
+    case htmlBlock(String, SourceRange)                // shown as literal, v1
+}
+</pre>
+  <p><strong>Parse pipeline:</strong> <code>cmark-gfm</code> parse → walk into <code>Block</code> tree → two lightweight post-passes: (1) fence dialect detection (<code>```mermaid</code> → <code>.mermaid</code>), (2) math span extraction (<code>$…$</code>/<code>$$…$$</code> with standard escaping rules) since cmark has no math extension. All pure Swift, all off the main thread.</p>
+  <p><strong>Concurrency:</strong> parsing, stats, and export run on a background actor; the UI receives complete immutable <code>QuoinDocument</code> values. No locks, no partial states on screen.</p>
+
+  <h2><span class="num">03</span>Rendering (QuoinRender)</h2>
+  <p>Each <code>Block</code> renders to an <code>NSAttributedString</code> via a theme (fonts, spacing, colors resolved from the system appearance). The document view is a TextKit&nbsp;2 <code>NSTextLayoutManager</code> stack with <strong>viewport-based layout</strong> — TextKit 2 lays out only what's visible, which is what keeps a 500-page document scrolling at full frame rate.</p>
+  <ul>
+    <li><strong>Tables</strong> get a custom layout pass (attributed-string tables are too limited): measured column widths, header row emphasis, horizontal scroll for wide tables — rendered as an embedded native view attachment.</li>
+    <li><strong>Code blocks</strong> use a small native regex/state-machine highlighter (~15 common languages) — deliberately not a full grammar engine; good-enough highlighting at zero dependency cost.</li>
+    <li><strong>Images</strong> resolve relative to the document, decode async at display size (<code>CGImageSource</code> downsampling), and fill a placeholder attachment sized from image metadata to avoid layout jumps.</li>
+    <li><strong>Math &amp; Mermaid</strong> render as placeholder attachments immediately; QuoinMath/QuoinDiagram fill them in asynchronously (see §04). Cached content appears on first layout with no flash.</li>
+    <li><strong>Checkboxes</strong> are interactive attachments; toggling calls the write-back service (§06).</li>
+  </ul>
+  <p><strong>Live update:</strong> on file change, re-parse (cmark parses 1&nbsp;MB in single-digit ms — full re-parse is simpler and fast enough), then diff old/new block lists by identity. Only changed blocks re-render; unchanged attachment islands (diagrams, images) are reused from cache. Scroll position is re-anchored to the nearest stable block, so a save near the bottom doesn't yank the view.</p>
+
+  <h2><span class="num">04</span>Native Math &amp; Diagram Engines</h2>
+  <p>Both engines are in-house Swift packages that draw with CoreText/CoreGraphics into resolution-independent layers, sit behind a common <code>BlockArtist</code> protocol (<code>(source, theme, width) → CALayer/Path tree</code>), and share a content-hash render cache. They render asynchronously into placeholder attachments; failures and unsupported input always degrade to the styled source block with a caption — a document never breaks.</p>
+  <h3>QuoinMath — TeX-subset typesetter</h3>
+  <ul>
+    <li>Classic TeX <em>boxes-and-glue</em> layout: parse LaTeX math into a node tree (symbols, fractions, scripts, radicals, delimiters, accents, matrices/aligned environments, operators with correct spacing classes), typeset using the math table of a bundled OpenType math font (<strong>STIX Two Math</strong>, OFL — a font asset, not a code dependency).</li>
+    <li>Coverage target: the LaTeX-math subset that covers ~99% of real markdown documents (KaTeX's common set). Unknown commands render as literal code with a subtle marker rather than erroring.</li>
+    <li>Inline math participates in line layout with correct baselines; display math centers as a block.</li>
+  </ul>
+  <h3>QuoinDiagram — native Mermaid engine</h3>
+  <p>A Mermaid-dialect parser plus per-diagram layout engines, shipped in phases; each phase is spec'd against Mermaid's own test corpus for visual fidelity where it matters (topology, labels, direction) rather than pixel parity.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Phase</th><th>Diagram types</th><th>Layout core</th></tr>
+    <tr><td><strong>D1</strong> (v1.0)</td><td>flowchart/graph, sequence, pie</td><td>Layered (Sugiyama) DAG layout with orthogonal/spline edges; lifeline grid for sequence.</td></tr>
+    <tr><td><strong>D2</strong></td><td>state, class, ER</td><td>Reuses the layered engine + compartment nodes.</td></tr>
+    <tr><td><strong>D3</strong></td><td>gantt, gitgraph, journey</td><td>Timeline/axis layouts.</td></tr>
+    <tr><td>—</td><td>Anything else</td><td>Styled source block with "diagram type not yet supported."</td></tr>
+  </table></div>
+  <div class="callout"><p><strong>Scope honesty:</strong> the native Mermaid engine is the single largest engineering line-item in the project (parser + graph layout is real work). It's isolated in its own package with its own milestone (M2b) so it can slip without holding the v1 reading core hostage — the fallback rendering ships in M1.</p></div>
+
+  <h2><span class="num">05</span>File Watching &amp; Live Rendering</h2>
+  <ul>
+    <li><code>DispatchSource.makeFileSystemObjectSource</code> on the open file descriptor (catches writes, renames, atomic-save replace patterns) with an <code>NSFilePresenter</code> fallback for sandbox-mediated coordination on iOS.</li>
+    <li>Change events are debounced (~50&nbsp;ms) and coalesced; reload reads, re-parses, block-diffs, and patches the layout — target &lt;100&nbsp;ms save-to-screen.</li>
+    <li>Follow mode (P1) pins the viewport to the end when the previous scroll position was at the end — the "watch AI output stream in" case.</li>
+  </ul>
+
+  <h2><span class="num">06</span>Document Session &amp; Write-Back (edit-ready)</h2>
+  <p>Each open document is owned by a <code>DocumentSession</code> actor — the single authority over the source text. It accepts <strong>source mutations</strong> from any input and runs each through the same pipeline: apply to source → re-parse → block-diff → publish a new immutable <code>QuoinDocument</code> snapshot.</p>
+  <pre>
+inputs                       DocumentSession                outputs
+─────────                    ───────────────                ────────
+file watcher ─┐              source of truth: text          new QuoinDocument
+checkbox tap ─┼─ mutation →  apply · reparse · diff  ──→    snapshots → UI,
+edit pane*   ─┘              coordinate file I/O            search, stats, TOC
+                                                            (* future)
+</pre>
+  <ul>
+    <li><strong>V1's only user-initiated mutation is the checkbox toggle:</strong> using the task item's <code>SourceRange</code>, replace exactly the <code>[ ]</code>/<code>[x]</code> marker bytes — nothing else in the file is touched, formatting preserved byte-for-byte. Writes go through <code>NSFileCoordinator</code>; the resulting file event is recognized as self-inflicted (content hash) and skipped.</li>
+    <li><strong>Conflict rule:</strong> if the file changed on disk since last parse, re-parse first and re-locate the target node by identity before writing.</li>
+    <li><strong>Future edit mode drops in here:</strong> an editor pane is just another mutation source feeding ranged text edits into the session — the render path, diffing, exports, and file coordination are already built for it. Undo stacks on the mutation log. Nothing in QuoinRender assumes documents are static; it already re-renders diffs continuously for live updates.</li>
+  </ul>
+
+  <h2><span class="num">07</span>Search, TOC, Statistics</h2>
+  <ul>
+    <li><strong>⌘F search:</strong> case/diacritic-insensitive scan over the plain-text projection of the document (precomputed with per-block offsets). Matches map through the source map to layout ranges for highlight overlays and jump-to. Incremental as-you-type; a 1&nbsp;MB doc scans in well under a frame.</li>
+    <li><strong>TOC:</strong> the precomputed <code>outline</code> renders in a collapsible sidebar; scroll-spy via TextKit viewport callbacks; heading slugs (GitHub algorithm) also serve <code>#anchor</code> links.</li>
+    <li><strong>Stats:</strong> computed during the parse pass (words via <code>enumerateSubstrings(.byWords)</code> — Unicode-correct, CJK-aware; reading time at 230&nbsp;wpm; tasks done/total; headings, links, images, code blocks). Live-updates with the document.</li>
+  </ul>
+
+  <h2><span class="num">08</span>Export Pipeline</h2>
+  <p>All exporters are pure functions from <code>QuoinDocument</code> in QuoinCore — the same output on macOS and iOS.</p>
+  <div class="table-wrap"><table>
+    <tr><th>Format</th><th>Path</th></tr>
+    <tr><td><strong>PDF</strong></td><td>The same QuoinRender attributed output flowed through a paginating TextKit layout (page frames + margins + page numbers) into <code>CGContext</code> PDF pages. Links preserved as PDF link annotations; diagrams/math embedded from the island cache at export scale. Print (P1) reuses this pagination.</td></tr>
+    <tr><td><strong>RTF</strong></td><td><code>NSAttributedString → RTF/RTFD</code> data (system converter) from a print-light theme; tables via attributed-string table support in the RTF path.</td></tr>
+    <tr><td><strong>TXT</strong></td><td>AST plain-text renderer: syntax stripped, structure kept readable (indented lists, underlined headings optional).</td></tr>
+    <tr><td><strong>MD</strong></td><td><code>swift-markdown</code>'s formatter emits normalized markdown (consistent bullets, fences, table alignment).</td></tr>
+  </table></div>
+
+  <h2><span class="num">09</span>App Shell</h2>
+  <ul>
+    <li><strong>macOS:</strong> document-based app (<code>NSDocument</code>-backed, read-only document class) — this buys native window <strong>tabs</strong>, Open Recent, restoration, and UTI registration (<code>net.daringfireball.markdown</code>) for free. SwiftUI UI hosted in AppKit windows; the document view itself is an <code>NSTextView</code> (TextKit 2 mode) wrapped for SwiftUI.</li>
+    <li><strong>iOS/iPadOS:</strong> <code>DocumentGroup</code> + the system document browser; same QuoinRender view via <code>UITextView</code>; TOC in a sidebar (iPad) / sheet (iPhone); exports through the share sheet. iPad gets multi-window scenes in place of tabs.</li>
+    <li><strong>Minimalist UI:</strong> one toolbar (TOC toggle · title · search · stats · export). Panels closed by default; everything keyboard-reachable.</li>
+    <li><strong>Sandbox:</strong> full App Sandbox, user-selected-file read access (write only for the checkbox path + security-scoped bookmarks for relative images/links in the document's folder). No network entitlement usage at runtime.</li>
+  </ul>
+
+  <h2><span class="num">10</span>Dependency Policy</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Component</th><th>External?</th><th>Rationale</th></tr>
+    <tr><td>Parsing</td><td class="yes">swift-markdown</td><td>Apple-maintained wrapper over reference cmark-gfm; spec-complete, source ranges, zero transitive deps.</td></tr>
+    <tr><td>Mermaid</td><td class="no">None — QuoinDiagram</td><td>In-house native parser + layout engine (phased coverage, §04).</td></tr>
+    <tr><td>Math</td><td class="no">None — QuoinMath</td><td>In-house TeX-subset typesetter. Bundled STIX Two Math font (OFL asset, not code).</td></tr>
+    <tr><td>Rendering, layout, search, TOC, stats</td><td class="no">None</td><td>TextKit 2 + Foundation.</td></tr>
+    <tr><td>Syntax highlighting</td><td class="no">None</td><td>Small in-house highlighter; ~15 languages.</td></tr>
+    <tr><td>Exports (PDF/RTF/TXT/MD)</td><td class="no">None</td><td>CoreGraphics + AppKit/UIKit converters + swift-markdown formatter.</td></tr>
+    <tr><td>File watching, persistence, UI</td><td class="no">None</td><td>Dispatch, FileCoordination, SwiftUI/AppKit/UIKit.</td></tr>
+  </table></div>
+  <div class="callout"><p><strong>Rule:</strong> a new dependency requires a written justification in this document. The default answer is no.</p></div>
+
+  <h2><span class="num">11</span>Testing &amp; Performance Verification</h2>
+  <ul>
+    <li><strong>Spec conformance:</strong> run the CommonMark spec suite + GFM extension tests against the parse→AST layer; golden-file tests for the math/mermaid post-passes.</li>
+    <li><strong>Render snapshots:</strong> attributed-string snapshot tests per block type and theme (light/dark); image-snapshot suites for QuoinMath (against a LaTeX corpus) and QuoinDiagram (against Mermaid's example corpus).</li>
+    <li><strong>Exports:</strong> golden PDFs/RTF for a corpus of representative documents.</li>
+    <li><strong>Write-back:</strong> property tests — toggling any checkbox changes exactly the marker bytes; round-trip byte equality elsewhere.</li>
+    <li><strong>Performance:</strong> XCTest <code>measure</code> baselines wired to the PRD budgets (cold open, 1&nbsp;MB parse, save-to-screen latency, scroll hitch rate via <code>XCTOSSignpostMetric</code>); CI fails on regression.</li>
+    <li><strong>Corpus:</strong> a checked-in torture-test folder — huge tables, 10k-line files, pathological nesting, emoji/CJK, broken mermaid, missing images.</li>
+  </ul>
+
+  <h2><span class="num">12</span>Risks</h2>
+  <div class="table-wrap"><table>
+    <tr><th>Risk</th><th>Mitigation</th></tr>
+    <tr><td>TextKit 2 table/attachment edge cases (complex nested content in cells)</td><td>Custom table attachment view is isolated behind a protocol; worst case, wide/nested tables fall back to a simpler grid renderer. Prototype in M1.</td></tr>
+    <tr><td><strong>Native Mermaid engine scope</strong> — parser + graph layout is the project's biggest line-item and the dialect evolves upstream</td><td>Own package, own milestone (M2b), phased coverage with a graceful fallback that ships in M1; pin a supported Mermaid dialect version and state it in-app.</td></tr>
+    <tr><td><strong>QuoinMath coverage gaps</strong> vs. real-world LaTeX habits</td><td>Drive coverage from a corpus of real documents; unknown commands render as marked literals, never errors; coverage list published in-app.</td></tr>
+    <tr><td>Atomic-save patterns breaking file watching (editors replace the inode)</td><td>Watch the directory entry + reopen descriptor on rename; covered by the torture corpus with real editor save patterns.</td></tr>
+    <tr><td>iOS sandbox limits relative-image access outside the opened file</td><td>Security-scoped folder access prompt when a document references siblings; degrade to placeholders otherwise.</td></tr>
+  </table></div>
+
+  <div class="footer">QUOIN · TECHNICAL REQUIREMENTS · DRAFT FOR REVIEW · SEE COMPANION PRD FOR SCOPE</div>
+</div>

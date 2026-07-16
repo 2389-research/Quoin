@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics><meta name="design_doc_mode" content="canvas"><style>body{margin:0;background:#eceae5;font-family:system-ui,-apple-system,sans-serif}.dv-turn{padding:44px 48px 36px;border-bottom:1px solid rgba(0,0,0,.08);scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 6px}.dv-tid{font:600 10px ui-monospace,Menlo,monospace;padding:3px 7px;background:#1a1a1a;color:#fff;border-radius:4px;text-decoration:none}.dv-tname{font:700 16px/1.2 system-ui,sans-serif;color:#1a1a1a}.dv-sub{margin:0 0 24px;max-width:720px;font:400 12.5px/1.55 system-ui,sans-serif;color:rgba(0,0,0,.55)}.dv-opts{display:flex;flex-wrap:wrap;gap:28px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:9px;scroll-margin-top:16px}.dv-oid{font:600 10.5px ui-monospace,Menlo,monospace;padding:3px 7px;background:rgba(0,0,0,.08);color:#1a1a1a;border-radius:5px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font:400 11.5px/1.3 system-ui,sans-serif;color:rgba(0,0,0,.6)}.dv-olabel b{color:#1a1a1a;font-weight:600}.dv-card{max-width:100%;background:#fff;border:1px solid rgba(0,0,0,.09);border-radius:10px;box-shadow:0 1px 3px rgba(0,0,0,.07),0 8px 24px rgba(0,0,0,.05);overflow:hidden}.dv-note{max-width:100%;font:400 11px/1.5 system-ui;color:rgba(0,0,0,.5)}.dv-opt:target .dv-oid{background:#2a78d6;color:#fff}.dv-next{margin:24px 0 0;font:12px/1.5 system-ui,sans-serif;color:rgba(0,0,0,.5)}.anno{font:500 10px/1.4 ui-monospace,Menlo,monospace;color:#b3541e}</style></helmet>
+
+<section class="dv-turn" id="t0" data-screen-label="Cover">
+  <div style="max-width:760px">
+    <div style="font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.12em;text-transform:uppercase;color:rgba(0,0,0,.45);margin-bottom:10px">Design Document · v1 · July 2026</div>
+    <h1 style="font:700 34px/1.15 system-ui;color:#1a1a1a;margin:0 0 14px">Markdown Editor for macOS</h1>
+    <p style="font:400 14px/1.6 system-ui;color:rgba(0,0,0,.65);margin:0 0 18px">A minimalist WYSIWYG markdown editor — markdown renders as you type (Typora/Bear model), with a document library sidebar, an outline panel, tabs, and rich export. Built from your four mockups. Audience: developers implementing in SwiftUI; layouts are described in terms of NavigationSplitView / adaptive columns so they port to iPadOS and iOS.</p>
+    <div style="display:flex;gap:32px;flex-wrap:wrap;font:400 12px/1.6 system-ui;color:rgba(0,0,0,.6)">
+      <div style="flex:1;min-width:280px"><b style="color:#1a1a1a">Assumptions</b><br>· App name is a placeholder ("Sample") — chrome shows document names only.<br>· WYSIWYG editing with syntax reveal on cursor focus (source shown for the active span).<br>· Multi-tab; additional windows supported, each with independent panel state.<br>· Content model: CommonMark + GFM tables/task lists, LaTeX math, Mermaid, footnotes, ==highlights==.</div>
+      <div style="flex:1;min-width:280px"><b style="color:#1a1a1a">How to read this doc</b><br>· Sections 01–05 explore options — reference any badge id (e.g. <a class="dv-oid" href="#1a">1a</a>) in chat to pick or remix.<br>· Sections 06–10 are the spec: element sheet, states, flows, responsive rules, and tokens.<br>· All mockups are static hi-fi; annotations in <span class="anno">orange mono</span> are implementation notes.</div>
+    </div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t1" data-screen-label="01 Visual directions">
+  <div class="dv-thd"><a class="dv-tid" href="#t1">01</a><span class="dv-tname">Visual directions</span></div>
+  <p class="dv-sub">Three aesthetic treatments of the same window. <a class="dv-oid" href="#1a">1a</a> stays faithful to your mockups; <a class="dv-oid" href="#1b">1b</a> and <a class="dv-oid" href="#1c">1c</a> push warmer and starker. The structure (sidebar / editor / chrome) is identical — only tokens change.</p>
+  <div class="dv-opts">
+
+    <!-- 1a Graphite -->
+    <div class="dv-opt" id="1a">
+      <div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a><b>Graphite</b> — faithful to mockups · native macOS, system blue, soft grays</div>
+      <div class="dv-card" style="width:640px;background:#fff">
+        <div style="display:flex;height:340px">
+          <div style="width:180px;flex:none;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.07);padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;gap:7px;padding:2px 4px 10px"><span style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></span><span style="width:11px;height:11px;border-radius:50%;background:#febc2e"></span><span style="width:11px;height:11px;border-radius:50%;background:#28c840"></span></div>
+            <div style="font:600 10px system-ui;color:rgba(0,0,0,.4);padding:0 8px 6px">Side Projects iOS</div>
+            <div style="font:400 12px system-ui;color:#333;padding:4px 8px;border-radius:5px">📄 app store notes</div>
+            <div style="font:400 12px system-ui;color:#333;padding:4px 8px;border-radius:5px">📄 changelog</div>
+            <div style="font:400 12px system-ui;color:#fff;background:#2a6fdb;padding:4px 8px;border-radius:5px">📄 architecture</div>
+            <div style="font:400 12px system-ui;color:#333;padding:4px 8px;border-radius:5px">📄 overview</div>
+            <div style="font:400 12px system-ui;color:rgba(0,0,0,.35);padding:4px 8px">🖼 wireframe-home</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(0,0,0,.05)">
+              <span style="font:500 12px system-ui;color:#444">architecture.md</span>
+              <span style="display:flex;gap:6px"><span style="font:600 12px system-ui;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:14px;padding:3px 10px;box-shadow:0 1px 2px rgba(0,0,0,.05)">B <i>I</i> <u>U</u></span></span>
+            </div>
+            <div style="flex:1;padding:22px 28px;overflow:hidden">
+              <div style="font:700 21px system-ui;color:#1d1d1f;margin-bottom:10px">State Management</div>
+              <div style="font:400 12.5px/1.65 system-ui;color:#333">Unidirectional data flow enforced throughout. All session state changes route through a single <span style="font:11px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">SessionStore</span> observable.</div>
+              <div style="font:400 12.5px/1.65 system-ui;color:#333;margin-top:10px"><span style="background:#d9f59b;border-radius:3px;padding:0 2px;font-weight:600">Never mutate session state from a view.</span> All actions go through <span style="font:11px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">store.dispatch()</span>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:640px">System font (SF Pro), pure white canvas, #F5F5F7 sidebar, NSColor.controlAccentColor selection. Zero-risk, fully native feel.</div>
+    </div>
+
+    <!-- 1b Paper -->
+    <div class="dv-opt" id="1b">
+      <div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a><b>Paper</b> — warm ivory canvas, ink text, serif headings, clay accent</div>
+      <div class="dv-card" style="width:640px;background:#faf8f3">
+        <div style="display:flex;height:340px">
+          <div style="width:180px;flex:none;background:#f1ede4;border-right:1px solid rgba(60,50,30,.09);padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+            <div style="display:flex;gap:7px;padding:2px 4px 10px"><span style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></span><span style="width:11px;height:11px;border-radius:50%;background:#febc2e"></span><span style="width:11px;height:11px;border-radius:50%;background:#28c840"></span></div>
+            <div style="font:600 10px system-ui;color:rgba(60,50,30,.45);padding:0 8px 6px">Side Projects iOS</div>
+            <div style="font:400 12px system-ui;color:#3d372c;padding:4px 8px">📄 app store notes</div>
+            <div style="font:400 12px system-ui;color:#3d372c;padding:4px 8px">📄 changelog</div>
+            <div style="font:500 12px system-ui;color:#fff;background:#b3541e;padding:4px 8px;border-radius:5px">📄 architecture</div>
+            <div style="font:400 12px system-ui;color:#3d372c;padding:4px 8px">📄 overview</div>
+            <div style="font:400 12px system-ui;color:rgba(60,50,30,.35);padding:4px 8px">🖼 wireframe-home</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(60,50,30,.07)">
+              <span style="font:500 12px system-ui;color:#5a5142">architecture.md</span>
+              <span style="font:600 12px Georgia,serif;background:#faf8f3;border:1px solid rgba(60,50,30,.14);border-radius:14px;padding:3px 10px">B <i>I</i> <u>U</u></span>
+            </div>
+            <div style="flex:1;padding:22px 28px;overflow:hidden">
+              <div style="font:700 22px Georgia,'Iowan Old Style',serif;color:#26211a;margin-bottom:10px">State Management</div>
+              <div style="font:400 12.5px/1.7 system-ui;color:#3d372c">Unidirectional data flow enforced throughout. All session state changes route through a single <span style="font:11px ui-monospace,Menlo,monospace;background:#ece6d8;border-radius:4px;padding:1px 5px;color:#7a4a1e">SessionStore</span> observable.</div>
+              <div style="font:400 12.5px/1.7 system-ui;color:#3d372c;margin-top:10px"><span style="background:#f0dfa8;border-radius:3px;padding:0 2px;font-weight:600">Never mutate session state from a view.</span> All actions go through <span style="font:11px ui-monospace,Menlo,monospace;background:#ece6d8;border-radius:4px;padding:1px 5px;color:#7a4a1e">store.dispatch()</span>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:640px">New York / Iowan for headings, warm neutrals (oklch hue ≈ 80°), clay accent. Feels like a writing tool, less like an IDE.</div>
+    </div>
+
+    <!-- 1c Mono -->
+    <div class="dv-opt" id="1c">
+      <div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a><b>Mono</b> — stark white, hairline borders, square corners, single ink accent</div>
+      <div class="dv-card" style="width:640px;background:#fff;border-radius:2px">
+        <div style="display:flex;height:340px">
+          <div style="width:180px;flex:none;background:#fff;border-right:1px solid rgba(0,0,0,.12);padding:10px 8px;display:flex;flex-direction:column;gap:1px">
+            <div style="display:flex;gap:7px;padding:2px 4px 10px"><span style="width:11px;height:11px;border-radius:50%;background:#ff5f57"></span><span style="width:11px;height:11px;border-radius:50%;background:#febc2e"></span><span style="width:11px;height:11px;border-radius:50%;background:#28c840"></span></div>
+            <div style="font:600 9.5px ui-monospace,Menlo,monospace;letter-spacing:.08em;color:rgba(0,0,0,.4);padding:0 8px 6px">SIDE-PROJECTS-IOS</div>
+            <div style="font:400 12px system-ui;color:#111;padding:4px 8px">app store notes</div>
+            <div style="font:400 12px system-ui;color:#111;padding:4px 8px">changelog</div>
+            <div style="font:500 12px system-ui;color:#fff;background:#111;padding:4px 8px">architecture</div>
+            <div style="font:400 12px system-ui;color:#111;padding:4px 8px">overview</div>
+            <div style="font:400 12px system-ui;color:rgba(0,0,0,.3);padding:4px 8px">wireframe-home</div>
+          </div>
+          <div style="flex:1;display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(0,0,0,.12)">
+              <span style="font:500 11px ui-monospace,Menlo,monospace;color:#111">architecture.md</span>
+              <span style="font:600 12px system-ui;border:1px solid rgba(0,0,0,.2);padding:3px 10px">B <i>I</i> <u>U</u></span>
+            </div>
+            <div style="flex:1;padding:22px 28px;overflow:hidden">
+              <div style="font:800 21px system-ui;letter-spacing:-.02em;color:#000;margin-bottom:10px">State Management</div>
+              <div style="font:400 12.5px/1.65 system-ui;color:#222">Unidirectional data flow enforced throughout. All session state changes route through a single <span style="font:11px ui-monospace,Menlo,monospace;border:1px solid rgba(0,0,0,.15);padding:0 4px">SessionStore</span> observable.</div>
+              <div style="font:400 12.5px/1.65 system-ui;color:#222;margin-top:10px"><span style="background:#e8ff70;padding:0 2px;font-weight:600">Never mutate session state from a view.</span> All actions go through <span style="font:11px ui-monospace,Menlo,monospace;border:1px solid rgba(0,0,0,.15);padding:0 4px">store.dispatch()</span>.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:640px">No fills — structure from 1px hairlines. Ink-black selection, one acid highlight. Most opinionated; least "native".</div>
+    </div>
+  </div>
+  <p class="dv-next">The rest of this document is rendered in <a class="dv-oid" href="#1a">1a</a> Graphite. Say "reflow in <a class="dv-oid" href="#1b">1b</a>" to switch.</p>
+</section>
+
+
+<section class="dv-turn" id="t2" data-screen-label="02 App anatomy">
+  <div class="dv-thd"><a class="dv-tid" href="#t2">02</a><span class="dv-tname">App anatomy</span></div>
+  <p class="dv-sub">The full window at default size (~1180×760pt) with both panels open. Three-column layout: <b>Library sidebar</b> (collapsible, 200–320pt) · <b>Editor</b> (flexible, content max-width 680pt centered) · <b>Outline</b> (collapsible, 220pt). SwiftUI: <span class="anno">NavigationSplitView + inspector()</span>.</p>
+
+  <div class="dv-opt" id="1d">
+    <div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a><b>Annotated master window</b></div>
+    <div style="position:relative;padding:26px 30px 0 0">
+      <div class="dv-card" style="width:1060px;background:#fff">
+        <div style="display:flex;height:560px">
+          <!-- sidebar -->
+          <div style="width:210px;flex:none;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.07);display:flex;flex-direction:column">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 12px 8px">
+              <span style="display:flex;gap:7px"><span style="width:12px;height:12px;border-radius:50%;background:#ff5f57"></span><span style="width:12px;height:12px;border-radius:50%;background:#febc2e"></span><span style="width:12px;height:12px;border-radius:50%;background:#28c840"></span></span>
+              <span style="display:flex;gap:10px;color:rgba(0,0,0,.55);font:400 15px system-ui"><span>＋</span><span style="font-size:13px">▥</span></span>
+            </div>
+            <div style="padding:6px 10px"><div style="display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.05);border-radius:6px;padding:5px 8px;font:400 11.5px system-ui;color:rgba(0,0,0,.4)">⌕ Search</div></div>
+            <div style="flex:1;padding:6px 8px;display:flex;flex-direction:column;gap:1px;font:400 12.5px system-ui;color:#333">
+              <div style="font:600 10.5px system-ui;color:rgba(0,0,0,.4);padding:2px 8px 6px">Side Projects iOS</div>
+              <div style="padding:4px 8px;border-radius:5px;display:flex;gap:6px"><span>📄</span>app store notes</div>
+              <div style="padding:4px 8px;border-radius:5px;display:flex;gap:6px"><span>📄</span>Claude instructi…</div>
+              <div style="padding:4px 8px;border-radius:5px;display:flex;gap:6px;font-weight:500"><span style="color:#2a6fdb">⌄ 📁</span>FocusDrop</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px"><span>📄</span>api-notes</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px;color:rgba(0,0,0,.35)"><span>🖼</span>app icon sket…</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px;background:#2a6fdb;color:#fff"><span>📄</span>architecture</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px"><span>📄</span>changelog</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px;color:rgba(0,0,0,.35)"><span>🖼</span>diagram</div>
+              <div style="padding:4px 8px 4px 22px;border-radius:5px;display:flex;gap:6px"><span>📄</span>overview</div>
+              <div style="padding:4px 8px;border-radius:5px;display:flex;gap:6px"><span>📄</span>ideas</div>
+              <div style="padding:4px 8px;border-radius:5px;display:flex;gap:6px"><span>📄</span>stack decisions</div>
+            </div>
+            <div style="padding:8px 14px;border-top:1px solid rgba(0,0,0,.06);font:400 10.5px system-ui;color:rgba(0,0,0,.4)">11 documents · synced ✓</div>
+          </div>
+          <!-- editor column -->
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <!-- tab bar -->
+            <div style="display:flex;align-items:stretch;border-bottom:1px solid rgba(0,0,0,.07);background:#fafafa">
+              <div style="display:flex;align-items:center;gap:6px;padding:8px 16px;background:#fff;border-right:1px solid rgba(0,0,0,.07);font:500 12px system-ui;color:#1d1d1f">architecture.md</div>
+              <div style="display:flex;align-items:center;gap:6px;padding:8px 16px;border-right:1px solid rgba(0,0,0,.07);font:400 12px system-ui;color:rgba(0,0,0,.5)">changelog.md <span style="width:6px;height:6px;border-radius:50%;background:#2a6fdb;display:inline-block"></span></div>
+              <div style="flex:1"></div>
+              <div style="display:flex;align-items:center;gap:8px;padding:0 12px;flex:none">
+                <span style="font:600 12px system-ui;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:14px;padding:3px 10px;box-shadow:0 1px 2px rgba(0,0,0,.05);white-space:nowrap;flex:none">B <i>I</i> <u>U</u></span>
+                <span style="font:400 13px system-ui;background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:14px;padding:3px 9px;box-shadow:0 1px 2px rgba(0,0,0,.05)">▤</span>
+              </div>
+            </div>
+            <!-- editor body -->
+            <div style="flex:1;display:flex;justify-content:center;overflow:hidden">
+              <div style="width:520px;padding:26px 0">
+                <div style="font:700 24px system-ui;color:#1d1d1f;margin-bottom:12px">State Management</div>
+                <div style="font:400 13px/1.65 system-ui;color:#333">Unidirectional data flow enforced throughout. All session state changes route through a single <span style="font:11.5px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">SessionStore</span> observable.</div>
+                <div style="font:700 15px system-ui;color:#1d1d1f;margin:18px 0 8px">Key types</div>
+                <div style="font:400 13px/1.8 system-ui;color:#333">
+                  <div style="display:flex;gap:8px"><span style="color:#2a6fdb">•</span><span><span style="font:11.5px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">SessionState</span> — enum covering idle, active, paused</span></div>
+                  <div style="display:flex;gap:8px"><span style="color:#2a6fdb">•</span><span><span style="font:11.5px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">SessionStore</span> — @Observable class, owns all timer logic</span></div>
+                </div>
+                <div style="font:400 13px/1.65 system-ui;color:#333;margin-top:14px"><span style="background:#d9f59b;border-radius:3px;padding:0 2px;font-weight:600">Never mutate session state directly from a view.</span> All actions go through <span style="font:11.5px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">store.dispatch()</span>.</div>
+                <div style="margin-top:16px;background:#f6f8fb;border:1px solid rgba(42,111,219,.15);border-radius:8px;padding:12px 14px">
+                  <div style="font:600 12px system-ui;color:#2a6fdb;margin-bottom:4px">📄 Note</div>
+                  <div style="font:400 12px/1.6 system-ui;color:rgba(0,0,0,.55)"><span style="font:11px ui-monospace,Menlo,monospace">@Observable</span> requires a manual <span style="font:11px ui-monospace,Menlo,monospace">Codable</span> conformance workaround — see api-notes.md.</div>
+                </div>
+              </div>
+            </div>
+            <!-- status bar -->
+            <div style="display:flex;justify-content:space-between;padding:6px 16px;border-top:1px solid rgba(0,0,0,.06);font:400 10.5px ui-monospace,Menlo,monospace;color:rgba(0,0,0,.4)"><span>§ Key types</span><span>412 words · 2,304 chars · 2 min read</span></div>
+          </div>
+          <!-- outline -->
+          <div style="width:190px;flex:none;border-left:1px solid rgba(0,0,0,.07);padding:16px 14px;background:#fff">
+            <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.35);margin-bottom:10px">Outline</div>
+            <div style="display:flex;flex-direction:column;font:400 11.5px system-ui;color:#333">
+              <div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06);font-weight:600">⌄ State Management</div>
+              <div style="padding:6px 0 6px 14px;border-bottom:1px solid rgba(0,0,0,.06);color:#2a6fdb;font-weight:500">Key types</div>
+              <div style="padding:6px 0 6px 14px;border-bottom:1px solid rgba(0,0,0,.06)">Store rules</div>
+              <div style="padding:6px 0;border-bottom:1px solid rgba(0,0,0,.06);font-weight:600">&gt; Persistence</div>
+              <div style="padding:6px 0;font-weight:600">&gt; Open questions</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- callout dots -->
+      <span style="position:absolute;left:196px;top:26px;transform:translate(0,-50%);background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">1</span>
+      <span style="position:absolute;left:330px;top:26px;transform:translate(0,-50%);background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">2</span>
+      <span style="position:absolute;left:860px;top:26px;transform:translate(0,-50%);background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">3</span>
+      <span style="position:absolute;right:12px;top:120px;background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">4</span>
+      <span style="position:absolute;left:600px;bottom:36px;background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">5</span>
+      <span style="position:absolute;left:100px;bottom:8px;background:#b3541e;color:#fff;font:700 10px ui-monospace,monospace;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center">6</span>
+    </div>
+    <div style="width:1060px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 24px;font:400 11px/1.5 system-ui;color:rgba(0,0,0,.6);margin-top:12px">
+      <div><b class="anno">1</b> — <b>Library sidebar.</b> Folders + docs, drag-reorder. Toolbar: ＋ new doc, ▥ toggle sidebar (⌘0 — ⌘1–9 is reserved for tabs). Grayed items are non-md assets (images).</div>
+      <div><b class="anno">2</b> — <b>Tab bar.</b> One tab per open doc; blue dot = unsaved. ⌘T new tab, ⌘W close. Tabs hide when only one doc is open — the chrome row (format pill, outline toggle) persists.</div>
+      <div><b class="anno">3</b> — <b>Format pill + outline toggle (⌥⌘0).</b> Pill shows B/I/U + expands to full format menu on click. Floats over content when scrolled.</div>
+      <div><b class="anno">4</b> — <b>Outline panel.</b> Generated from headings; click scrolls with highlight. Current section in accent. Collapsible per-heading.</div>
+      <div><b class="anno">5</b> — <b>Editor.</b> WYSIWYG; the active line reveals raw markdown syntax. Content column max 680pt, centered, generous margins.</div>
+      <div><b class="anno">6</b> — <b>Status bar.</b> Current section + live statistics (words/chars/read time). Click stats for a detail popover. Hideable in Settings.</div>
+    </div>
+    <div style="width:1060px;font:400 11px/1.5 system-ui;color:rgba(0,0,0,.5);margin-top:12px;border-top:1px solid rgba(0,0,0,.08);padding-top:8px"><b>Glyphs:</b> emoji in these mockups are SF Symbols placeholders — 📄 doc.text · 📁 folder · 🖼 photo · ⌕ magnifyingglass · ▥ sidebar.leading · ▤ sidebar.trailing. Never ship emoji as icons.</div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t3" data-screen-label="03 Sidebar variations">
+  <div class="dv-thd"><a class="dv-tid" href="#t3">03</a><span class="dv-tname">Sidebar treatments</span></div>
+  <p class="dv-sub">Three treatments of the library. All share behavior: drag to reorder/nest, right-click context menu, inline rename, ⌘0 toggle. Widths 200–320pt, user-resizable.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1e">
+      <div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a><b>Classic tree</b> — faithful: icons, filled selection, disclosure chevrons</div>
+      <div class="dv-card" style="width:240px;background:#f5f5f7">
+        <div style="padding:12px 8px;display:flex;flex-direction:column;gap:1px;font:400 12.5px system-ui;color:#333">
+          <div style="font:600 11px system-ui;color:rgba(0,0,0,.4);padding:2px 8px 8px">My blogs</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Ideas</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Publishing checklist</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span style="color:rgba(0,0,0,.4)">›</span><span style="color:#2a6fdb">📁</span>Reviews 2026</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Todo apps review</div>
+          <div style="padding:5px 8px;border-radius:6px;display:flex;gap:7px;background:#2a6fdb;color:#fff;font-weight:500"><span>📄</span>Focus apps review</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Notes apps review</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span style="color:rgba(0,0,0,.4)">›</span><span style="color:#2a6fdb">📁</span>Preview exports</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Style guide</div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:240px">Finder-familiar. Best default; matches your mockups exactly.</div>
+    </div>
+
+    <div class="dv-opt" id="1f">
+      <div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a><b>Quiet list</b> — no icons, tinted-text selection, metadata on hover</div>
+      <div class="dv-card" style="width:240px;background:#fbfbfc">
+        <div style="padding:14px 12px;display:flex;flex-direction:column;font:400 12.5px system-ui;color:#3a3a3c">
+          <div style="font:600 10px ui-monospace,Menlo,monospace;letter-spacing:.1em;color:rgba(0,0,0,.35);padding:0 6px 10px">MY BLOGS</div>
+          <div style="padding:6px 6px;display:flex;justify-content:space-between"><span>Ideas</span></div>
+          <div style="padding:6px 6px">Publishing checklist</div>
+          <div style="padding:6px 6px;display:flex;justify-content:space-between;color:rgba(0,0,0,.55)"><span>Reviews 2026 ›</span><span style="font:400 10.5px ui-monospace,monospace;color:rgba(0,0,0,.3)">4</span></div>
+          <div style="padding:6px 6px">Todo apps review</div>
+          <div style="padding:6px 6px;background:rgba(42,111,219,.09);border-radius:6px;color:#2a6fdb;font-weight:600;display:flex;justify-content:space-between"><span>Focus apps review</span><span style="font:400 10.5px ui-monospace,monospace;color:rgba(42,111,219,.6)">2d</span></div>
+          <div style="padding:6px 6px">Notes apps review</div>
+          <div style="padding:6px 6px;color:rgba(0,0,0,.55);display:flex;justify-content:space-between"><span>Preview exports ›</span><span style="font:400 10.5px ui-monospace,monospace;color:rgba(0,0,0,.3)">7</span></div>
+          <div style="padding:6px 6px">Style guide</div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:240px">Calmer, text-forward. Tinted selection (not filled) keeps focus in the editor. Doc count / edited-ago in muted mono.</div>
+    </div>
+
+    <div class="dv-opt" id="1g">
+      <div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a><b>Sectioned library</b> — pinned area + collapsible groups</div>
+      <div class="dv-card" style="width:240px;background:#f5f5f7">
+        <div style="padding:12px 8px;display:flex;flex-direction:column;gap:1px;font:400 12.5px system-ui;color:#333">
+          <div style="font:600 10.5px system-ui;color:rgba(0,0,0,.4);padding:2px 8px 6px;display:flex;justify-content:space-between"><span>PINNED</span></div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📌</span>Style guide</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📌</span>Publishing checklist</div>
+          <div style="height:10px"></div>
+          <div style="font:600 10.5px system-ui;color:rgba(0,0,0,.4);padding:2px 8px 6px;display:flex;justify-content:space-between"><span>⌄ MY BLOGS</span><span style="font-weight:400">6</span></div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Ideas</div>
+          <div style="padding:5px 8px;border-radius:6px;display:flex;gap:7px;background:#2a6fdb;color:#fff;font-weight:500"><span>📄</span>Focus apps review</div>
+          <div style="padding:5px 8px;border-radius:5px;display:flex;gap:7px"><span>📄</span>Notes apps review</div>
+          <div style="height:10px"></div>
+          <div style="font:600 10.5px system-ui;color:rgba(0,0,0,.4);padding:2px 8px 6px"><span>› REVIEWS 2026</span></div>
+          <div style="font:600 10.5px system-ui;color:rgba(0,0,0,.4);padding:2px 8px"><span>› ARCHIVE</span></div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:240px">Top-level folders become section headers (like Mail/Notes). Pinned docs float above. Scales best for large libraries.</div>
+    </div>
+  </div>
+  <p class="dv-next">Try: "use <a class="dv-oid" href="#1f">1f</a> but keep the filled selection from <a class="dv-oid" href="#1e">1e</a>" · "add pinned from <a class="dv-oid" href="#1g">1g</a> to <a class="dv-oid" href="#1e">1e</a>".</p>
+</section>
+
+<section class="dv-turn" id="t4" data-screen-label="04 Outline panel variations">
+  <div class="dv-thd"><a class="dv-tid" href="#t4">04</a><span class="dv-tname">Outline panel treatments</span></div>
+  <p class="dv-sub">Generated live from the heading tree. Click = scroll to section; current section tracks scroll position. ⌥⌘0 toggles. Same content in all three.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1h">
+      <div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a><b>Ruled tree</b> — faithful: hairline under each row, chevrons</div>
+      <div class="dv-card" style="width:250px;background:#fbfaf9">
+        <div style="padding:18px 16px;font:400 12px system-ui;color:#3a3a3c">
+          <div style="display:flex;flex-direction:column">
+            <div style="padding:8px 0;border-bottom:1px solid rgba(0,0,0,.08);font-weight:700;color:#1d1d1f"><span style="color:rgba(0,0,0,.35);font-weight:400">⌄ </span>Claude setup for personal use</div>
+            <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(0,0,0,.08);font-weight:600"><span style="color:rgba(0,0,0,.35);font-weight:400">› </span>My background</div>
+            <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(0,0,0,.08);font-weight:600"><span style="color:rgba(0,0,0,.35);font-weight:400">⌄ </span>Communication style</div>
+            <div style="padding:8px 0 8px 34px;border-bottom:1px solid rgba(0,0,0,.08);color:#2a6fdb;font-weight:500">Tone and voice</div>
+            <div style="padding:8px 0 8px 34px;border-bottom:1px solid rgba(0,0,0,.08)">Response length</div>
+            <div style="padding:8px 0 8px 34px;border-bottom:1px solid rgba(0,0,0,.08)">Formatting preferences</div>
+            <div style="padding:8px 0 8px 16px;border-bottom:1px solid rgba(0,0,0,.08);font-weight:600"><span style="color:rgba(0,0,0,.35);font-weight:400">⌄ </span>Things I work on</div>
+          </div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:250px">Your mockup. Rules make rows scannable; chevrons collapse H2 subtrees.</div>
+    </div>
+
+    <div class="dv-opt" id="1i">
+      <div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a><b>Type-scale</b> — no rules, hierarchy from size + weight only</div>
+      <div class="dv-card" style="width:250px;background:#fff">
+        <div style="padding:20px 18px;display:flex;flex-direction:column;gap:9px;color:#3a3a3c">
+          <div style="font:700 13px system-ui;color:#1d1d1f">Claude setup for personal use</div>
+          <div style="font:600 12px system-ui;padding-left:12px">My background</div>
+          <div style="font:600 12px system-ui;padding-left:12px">Communication style</div>
+          <div style="font:400 11.5px system-ui;padding-left:24px;color:#2a6fdb;font-weight:600">Tone and voice</div>
+          <div style="font:400 11.5px system-ui;padding-left:24px;color:rgba(0,0,0,.55)">Response length</div>
+          <div style="font:400 11.5px system-ui;padding-left:24px;color:rgba(0,0,0,.55)">Formatting preferences</div>
+          <div style="font:600 12px system-ui;padding-left:12px">Things I work on</div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:250px">Quietest option — reads like a mini table of contents. No chrome at all; hover reveals a subtle row tint.</div>
+    </div>
+
+    <div class="dv-opt" id="1j">
+      <div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a><b>Progress rail</b> — position marker tracks reading position</div>
+      <div class="dv-card" style="width:250px;background:#fff">
+        <div style="padding:20px 18px 20px 14px;display:flex;gap:12px">
+          <div style="width:3px;flex:none;background:rgba(0,0,0,.07);border-radius:2px;position:relative"><span style="position:absolute;left:0;top:34%;width:3px;height:22%;background:#2a6fdb;border-radius:2px"></span></div>
+          <div style="display:flex;flex-direction:column;gap:9px;color:#3a3a3c;flex:1">
+            <div style="font:700 12.5px system-ui;color:#1d1d1f">Claude setup for personal use</div>
+            <div style="font:400 12px system-ui;padding-left:10px;color:rgba(0,0,0,.55)">My background</div>
+            <div style="font:400 12px system-ui;padding-left:10px;color:#1d1d1f;font-weight:600">Communication style</div>
+            <div style="font:400 11.5px system-ui;padding-left:20px;color:#2a6fdb;font-weight:600">Tone and voice</div>
+            <div style="font:400 11.5px system-ui;padding-left:20px;color:rgba(0,0,0,.45)">Response length</div>
+            <div style="font:400 11.5px system-ui;padding-left:20px;color:rgba(0,0,0,.45)">Formatting prefs</div>
+            <div style="font:400 12px system-ui;padding-left:10px;color:rgba(0,0,0,.55)">Things I work on</div>
+          </div>
+        </div>
+      </div>
+      <div class="dv-note" style="width:250px">The rail shows where you are in the document (blue segment = visible viewport span). Good for long docs.</div>
+    </div>
+  </div>
+  <p class="dv-next">Try: "combine the rail from <a class="dv-oid" href="#1j">1j</a> with the ruled rows of <a class="dv-oid" href="#1h">1h</a>".</p>
+</section>
+
+<section class="dv-turn" id="t5" data-screen-label="05 Markdown text styling">
+  <div class="dv-thd"><a class="dv-tid" href="#t5">05</a><span class="dv-tname">Markdown text styling</span></div>
+  <p class="dv-sub">Three type treatments of the same rendered markdown (your Rococo sample): <b>bold</b>, footnote<sup>1</sup>, ==green highlight==, <i>italic + pink highlight</i>, and a spell-check underline. Body max-width 680pt; user-adjustable text size (⌘+/−) scales the whole ramp.</p>
+  <div class="dv-opts">
+
+    <div class="dv-opt" id="1k">
+      <div class="dv-olabel"><a class="dv-oid" href="#1k">1k</a><b>Rounded</b> — faithful: SF Rounded feel, pill highlights, playful</div>
+      <div class="dv-card" style="width:340px;background:#fff">
+        <div style="padding:24px 26px;font:400 14.5px/1.75 ui-rounded,'SF Pro Rounded','Nunito',system-ui;color:#3a3a3c">
+          <div style="font:700 20px/1.3 ui-rounded,'SF Pro Rounded','Nunito',system-ui;color:#1d1d1f;margin-bottom:12px">The Rise and Fall of Rococo</div>
+          Emerging from the grandiosity of <b style="color:#1d1d1f">Baroque</b>, Rococo<sup style="color:#2a6fdb;font-size:10px">1</sup> offered something altogether more <span style="background:#d9f59b;border-radius:4px;padding:0 3px">intimate and playful.</span> Where Baroque demanded awe, Rococo invited you into a world of <i style="background:#f7d9f0;border-radius:4px;padding:0 3px">soft curves, pastel palettes, and lighthearted subjects.</i> Patrons wanted art that felt personal, decorative, and alive with <span style="border-bottom:2px dotted #2a6fdb">formality</span> pleasure.
+        </div>
+      </div>
+      <div class="dv-note" style="width:340px">SF Rounded, 15pt/1.75. Highlight colors: lime #D9F59B, pink #F7D9F0 (add yellow, blue, orange in the palette). Footnote superscript in accent.</div>
+    </div>
+
+    <div class="dv-opt" id="1l">
+      <div class="dv-olabel"><a class="dv-oid" href="#1l">1l</a><b>Reader serif</b> — New York body, bigger measure, muted marks</div>
+      <div class="dv-card" style="width:340px;background:#fffdf9">
+        <div style="padding:24px 26px;font:400 14.5px/1.8 'Iowan Old Style',Georgia,serif;color:#33302a">
+          <div style="font:700 21px/1.3 'Iowan Old Style',Georgia,serif;color:#1f1c17;margin-bottom:12px">The Rise and Fall of Rococo</div>
+          Emerging from the grandiosity of <b style="color:#1f1c17">Baroque</b>, Rococo<sup style="color:#b3541e;font-size:10px">1</sup> offered something altogether more <span style="background:linear-gradient(transparent 55%,#e9f5b5 55%)">intimate and playful.</span> Where Baroque demanded awe, Rococo invited you into a world of <i style="background:linear-gradient(transparent 55%,#f6e0ef 55%)">soft curves, pastel palettes, and lighthearted subjects.</i> Patrons wanted art that felt personal, decorative, and alive with <span style="border-bottom:2px dotted #b3541e">formality</span> pleasure.
+        </div>
+      </div>
+      <div class="dv-note" style="width:340px">Highlights as half-height underpainting instead of full pills — calmer for long reads. Pairs with direction <a class="dv-oid" href="#1b">1b</a>.</div>
+    </div>
+
+    <div class="dv-opt" id="1m">
+      <div class="dv-olabel"><a class="dv-oid" href="#1m">1m</a><b>Technical</b> — compact SF Pro, tight ramp, precise marks</div>
+      <div class="dv-card" style="width:340px;background:#fff">
+        <div style="padding:24px 26px;font:400 13px/1.6 system-ui;color:#333;letter-spacing:-.005em">
+          <div style="font:700 18px/1.3 system-ui;letter-spacing:-.02em;color:#111;margin-bottom:10px">The Rise and Fall of Rococo</div>
+          Emerging from the grandiosity of <b style="color:#111">Baroque</b>, Rococo<sup style="color:#2a6fdb;font-size:9px">[1]</sup> offered something altogether more <span style="background:#eaf7c8;box-shadow:0 0 0 1px #cfe89a inset;border-radius:2px;padding:0 2px">intimate and playful.</span> Where Baroque demanded awe, Rococo invited you into a world of <i style="background:#fbe9f6;box-shadow:0 0 0 1px #efc9e6 inset;border-radius:2px;padding:0 2px">soft curves, pastel palettes, and lighthearted subjects.</i> Patrons wanted art that felt personal, decorative, and alive with <span style="border-bottom:2px dotted #2a6fdb">formality</span> pleasure.
+        </div>
+      </div>
+      <div class="dv-note" style="width:340px">Denser (13pt/1.6), tighter tracking, outlined highlights, bracketed footnote refs. For notes-heavy technical writing.</div>
+    </div>
+  </div>
+  <p class="dv-next">Try: "make <a class="dv-oid" href="#1k">1k</a> the default with <a class="dv-oid" href="#1l">1l</a> as a Reader mode" · "show the full element sheet in <a class="dv-oid" href="#1l">1l</a>".</p>
+</section>
+
+<section class="dv-turn" id="t6" data-screen-label="06 Markdown element spec">
+  <div class="dv-thd"><a class="dv-tid" href="#t6">06</a><span class="dv-tname">Markdown element spec — full sheet</span></div>
+  <p class="dv-sub">Every supported element, rendered in the <a class="dv-oid" href="#1a">1a</a>/<a class="dv-oid" href="#1k">1k</a> default style, with type + spacing tokens in the margin. This is the source of truth for the renderer.</p>
+
+  <div class="dv-opt" id="1n">
+    <div class="dv-olabel"><a class="dv-oid" href="#1n">1n</a><b>Element sheet</b></div>
+    <div class="dv-card" style="width:780px;background:#fff">
+      <div style="display:grid;grid-template-columns:500px 1fr;column-gap:28px;row-gap:0;padding:30px 30px 30px 36px">
+
+        <div style="font:700 26px/1.25 system-ui;color:#1d1d1f;padding:0 0 4px">Heading 1</div>
+        <div class="anno" style="align-self:center"># · 26/1.25 · 700 · space-above 32 / below 12</div>
+
+        <div style="font:700 20px/1.3 system-ui;color:#1d1d1f;padding:14px 0 2px">Heading 2</div>
+        <div class="anno" style="align-self:end;padding-bottom:4px">## · 20/1.3 · 700 · above 28 / below 10</div>
+
+        <div style="font:600 16px/1.35 system-ui;color:#1d1d1f;padding:10px 0 2px">Heading 3</div>
+        <div class="anno" style="align-self:end;padding-bottom:4px">### · 16/1.35 · 600 · above 22 / below 8 · H4–H6 = 14/600, small-caps color .55</div>
+
+        <div style="font:400 14px/1.7 system-ui;color:#333;padding:8px 0">Body paragraph with <b style="color:#1d1d1f">bold</b>, <i>italic</i>, <s style="color:rgba(0,0,0,.45)">strikethrough</s>, a <a href="#t6" style="color:#2a6fdb;text-decoration:underline;text-decoration-color:rgba(42,111,219,.35)">link</a>, <span style="font:12.5px ui-monospace,Menlo,monospace;background:#f2f2f4;border-radius:4px;padding:1px 5px">inline code</span>, a footnote<sup style="color:#2a6fdb;font-size:10px">1</sup>, and ==<span style="background:#d9f59b;border-radius:3px;padding:0 2px">highlight</span>==.</div>
+        <div class="anno" style="align-self:center">body · 14/1.7 · para-gap 12 · link underline 35% alpha · code bg fill-secondary</div>
+
+        <div style="padding:8px 0;display:flex;flex-direction:column;gap:4px;font:400 14px/1.6 system-ui;color:#333">
+          <div style="display:flex;gap:9px"><span style="color:#2a6fdb">•</span><span>Unordered list item</span></div>
+          <div style="display:flex;gap:9px"><span style="color:#2a6fdb;font:500 13px/1.7 system-ui">1.</span><span>Ordered list item — number in accent</span></div>
+          <div style="display:flex;gap:9px;align-items:baseline"><span style="width:15px;height:15px;border:1.5px solid rgba(0,0,0,.25);border-radius:4px;flex:none;transform:translateY(2px)"></span><span>Open task</span></div>
+          <div style="display:flex;gap:9px;align-items:baseline"><span style="width:15px;height:15px;background:#2a6fdb;border-radius:4px;flex:none;transform:translateY(2px);color:#fff;font:700 10px/15px system-ui;text-align:center">✓</span><span style="color:rgba(0,0,0,.4);text-decoration:line-through">Completed task</span></div>
+        </div>
+        <div class="anno" style="align-self:center">lists · marker col 24pt · nested indent +24 · task = interactive checkbox, animates on toggle; done rows strike + fade to .4</div>
+
+        <div style="padding:8px 0"><div style="border-left:3px solid rgba(0,0,0,.15);padding:2px 0 2px 16px;font:400 14px/1.65 system-ui;color:rgba(0,0,0,.55);font-style:italic">Blockquote — secondary color, italic, 3pt rule.</div></div>
+        <div class="anno" style="align-self:center">&gt; · rule fill-tertiary · nested quotes stack rules</div>
+
+        <div style="padding:8px 0"><div style="background:#f6f8fb;border:1px solid rgba(42,111,219,.15);border-radius:8px;padding:12px 14px"><div style="font:600 12.5px system-ui;color:#2a6fdb;margin-bottom:3px">📄 Note</div><div style="font:400 12.5px/1.6 system-ui;color:rgba(0,0,0,.6)">Callout — <span style="font:11.5px ui-monospace,monospace">&gt; [!NOTE]</span> syntax. Variants: Note (blue), Tip (green), Warning (amber), Danger (red).</div></div></div>
+        <div class="anno" style="align-self:center">callout · tint bg 4% + 15% border of semantic color · radius 8</div>
+
+        <div style="padding:8px 0"><div style="background:#1e2430;border-radius:8px;overflow:hidden"><div style="display:flex;justify-content:space-between;padding:7px 12px;background:rgba(255,255,255,.04)"><span style="font:500 10.5px ui-monospace,monospace;color:rgba(255,255,255,.45)">swift</span><span style="font:400 10.5px system-ui;color:rgba(255,255,255,.35)">Copy</span></div><pre style="margin:0;padding:12px 14px;font:400 12px/1.6 ui-monospace,Menlo,monospace;color:#d6dce6"><span style="color:#c792ea">func</span> <span style="color:#82aaff">dispatch</span>(_ action: <span style="color:#ffcb6b">Action</span>) {
+  <span style="color:#697794">// reducers are pure</span>
+  state = reduce(state, action)
+}</pre></div></div>
+        <div class="anno" style="align-self:center">code block · always-dark canvas #1E2430 (both appearances) · 12/1.6 mono · language chip + copy on hover · syntax = one theme, 6 token colors</div>
+
+        <div style="padding:8px 0"><table style="border-collapse:collapse;font:400 13px/1.5 system-ui;color:#333;width:100%"><thead><tr><th style="text-align:left;font-weight:600;color:#1d1d1f;border-bottom:1.5px solid rgba(0,0,0,.15);padding:6px 10px 6px 0">App</th><th style="text-align:left;font-weight:600;color:#1d1d1f;border-bottom:1.5px solid rgba(0,0,0,.15);padding:6px 10px">Model</th><th style="text-align:right;font-weight:600;color:#1d1d1f;border-bottom:1.5px solid rgba(0,0,0,.15);padding:6px 0 6px 10px">Price</th></tr></thead><tbody><tr><td style="border-bottom:1px solid rgba(0,0,0,.07);padding:6px 10px 6px 0">Bear</td><td style="border-bottom:1px solid rgba(0,0,0,.07);padding:6px 10px">Hybrid</td><td style="border-bottom:1px solid rgba(0,0,0,.07);padding:6px 0 6px 10px;text-align:right;font-variant-numeric:tabular-nums">$2.99</td></tr><tr><td style="padding:6px 10px 6px 0">Typora</td><td style="padding:6px 10px">WYSIWYG</td><td style="padding:6px 0 6px 10px;text-align:right;font-variant-numeric:tabular-nums">$14.99</td></tr></tbody></table></div>
+        <div class="anno" style="align-self:center">table · header rule 1.5pt, rows 1pt @7% · cell pad 6×10 · numerics tabular · row/col add-buttons appear on hover at edges</div>
+
+        <div style="padding:8px 0;text-align:center"><span style="font:italic 400 17px Georgia,serif;color:#1d1d1f">E = mc² &nbsp;·&nbsp; ∑<sub style="font-size:10px">i=1</sub> xᵢ / n</span></div>
+        <div class="anno" style="align-self:center">math · $…$ inline, $$…$$ display (centered, above/below 16) · rendered via SwiftMath/KaTeX-equivalent · source revealed on cursor entry</div>
+
+        <div style="padding:8px 0"><div style="border:1px solid rgba(0,0,0,.09);border-radius:8px;background:repeating-linear-gradient(45deg,#fafafa,#fafafa 10px,#f3f3f5 10px,#f3f3f5 20px);height:110px;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:4px"><span style="font:500 10.5px ui-monospace,monospace;color:rgba(0,0,0,.45)">mermaid: stateDiagram</span><span style="font:400 10px ui-monospace,monospace;color:rgba(0,0,0,.3)">rendered inline · click to edit source</span></div></div>
+        <div class="anno" style="align-self:center">mermaid · ```mermaid fence renders inline · double-click flips to source editor · export rasterizes @2x</div>
+
+        <div style="padding:8px 0"><div style="border-radius:8px;background:repeating-linear-gradient(45deg,#f4f7fb,#f4f7fb 10px,#eaf0f8 10px,#eaf0f8 20px);height:90px;display:flex;align-items:center;justify-content:center"><span style="font:500 10.5px ui-monospace,monospace;color:rgba(0,0,0,.4)">inline image · drag-drop or paste</span></div><div style="font:400 11px system-ui;color:rgba(0,0,0,.45);text-align:center;padding-top:5px">Optional caption from alt text</div></div>
+        <div class="anno" style="align-self:center">image · max-width 100%, radius 8 · assets copied into library bundle · grayed in sidebar (non-md)</div>
+
+        <div style="padding:12px 0;display:flex;align-items:center;gap:0"><span style="flex:1;height:1px;background:rgba(0,0,0,.12)"></span></div>
+        <div class="anno" style="align-self:center">--- · hairline, above/below 20</div>
+
+        <div style="padding:8px 0 0"><div style="font:400 12px/1.6 system-ui;color:rgba(0,0,0,.55);border-top:1px solid rgba(0,0,0,.08);padding-top:10px"><sup style="color:#2a6fdb;font-size:9px">1</sup> Footnote body gathers at document end; clicking a ref scrolls here and back.</div></div>
+        <div class="anno" style="align-self:end">footnotes · 12/1.6 secondary · bidirectional jump</div>
+      </div>
+    </div>
+
+    <div style="width:780px;margin-top:16px;display:flex;flex-wrap:wrap;gap:24px">
+      <div class="dv-card" style="flex:1;background:#fff;padding:16px 18px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:8px">Syntax reveal (WYSIWYG core rule)</div>
+        <div style="font:400 13px/1.7 system-ui;color:#333;background:rgba(42,111,219,.05);border-radius:6px;padding:8px 10px"><span style="font:12px ui-monospace,Menlo,monospace;color:rgba(0,0,0,.35)">**</span><b>Never mutate state</b><span style="font:12px ui-monospace,Menlo,monospace;color:rgba(0,0,0,.35)">**</span> from a view<span style="display:inline-block;width:1.5px;height:15px;background:#2a6fdb;transform:translateY(3px);margin-left:1px"></span></div>
+        <div style="font:400 11px/1.55 system-ui;color:rgba(0,0,0,.5);margin-top:8px">When the caret enters a styled span, its markdown delimiters fade in at 35% in mono. Leaving the span hides them. Whole blocks (code, math, mermaid, tables) flip to source on double-click instead.</div>
+      </div>
+      <div class="dv-card" style="flex:1;background:#fff;padding:16px 18px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:8px">Core model note (SwiftUI)</div>
+        <div style="font:400 11.5px/1.65 system-ui;color:rgba(0,0,0,.6)">Source of truth is always the <b>markdown string + AST</b> (swift-markdown / cmark-gfm), never attributed strings. The editor is a projection: edits mutate the AST, renderer re-projects. This is what makes tables, math, footnotes, mermaid, and lossless export possible. Documents are files-on-disk (.md) with an asset folder per library — no proprietary container. NSDocument provides autosave-in-place + version history; FSEvents watches for external edits; sync is plain iCloud Drive or any file provider (hence "synced ✓" in the sidebar footer).</div>
+      </div>
+      <div class="dv-card" style="flex:1 1 100%;background:#fff;padding:16px 18px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:8px">Also specified (not pictured)</div>
+        <div style="font:400 11.5px/1.65 system-ui;color:rgba(0,0,0,.6)"><b>[TOC]</b> block renders an inline linked list mirroring the outline panel · <b>YAML front matter</b> collapses to a compact metadata chip above the H1; click to edit source · <b>smart pairs</b> auto-close <span class="anno">** _ == $ `</span> (suspended inside code spans/fences) · <b>external edits</b> reload silently when the doc is clean, show a non-blocking merge banner when dirty · <b>selection statistics</b>: selecting text swaps the status bar to counts for the selection.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t7" data-screen-label="07 Interaction states">
+  <div class="dv-thd"><a class="dv-tid" href="#t7">07</a><span class="dv-tname">Interaction states</span></div>
+  <p class="dv-sub">Row, tab, and document states. All transitions 150ms ease-out; drag uses the system lift shadow.</p>
+  <div class="dv-opt" id="1o">
+    <div class="dv-olabel"><a class="dv-oid" href="#1o">1o</a><b>State matrix</b></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+
+      <div class="dv-card" style="width:270px;background:#f5f5f7;padding:14px 10px">
+        <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.4);padding:0 8px 10px">Sidebar rows</div>
+        <div style="display:flex;flex-direction:column;gap:3px;font:400 12.5px system-ui;color:#333">
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:5px"><span>📄 Default</span><span class="anno">rest</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:5px;background:rgba(0,0,0,.05)"><span>📄 Hover</span><span class="anno">fill 5%</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:#2a6fdb;color:#fff;font-weight:500"><span>📄 Selected</span><span style="font:500 10px ui-monospace,monospace;color:rgba(255,255,255,.7)">accent</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.18);transform:rotate(-1.5deg)"><span>📄 Dragging</span><span class="anno">lift+tilt</span></div>
+          <div style="position:relative;padding:5px 8px"><span style="position:absolute;left:6px;right:6px;top:-2px;height:2px;background:#2a6fdb;border-radius:2px"></span><span style="position:absolute;left:2px;top:-5px;width:8px;height:8px;border:2px solid #2a6fdb;border-radius:50%;background:#f5f5f7"></span>📄 Drop between<span class="anno" style="float:right">caret line</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;border-radius:6px;box-shadow:0 0 0 2px #2a6fdb inset"><span style="color:#2a6fdb">📁 Drop into folder</span><span class="anno">ring</span></div>
+          <div style="display:flex;align-items:center;gap:6px;padding:4px 8px"><span>📄</span><span style="flex:1;background:#fff;border:1.5px solid #2a6fdb;border-radius:4px;padding:2px 6px;font:400 12px system-ui">architecture<span style="display:inline-block;width:1px;height:12px;background:#2a6fdb;transform:translateY(2px)"></span></span><span class="anno">rename</span></div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:5px 8px;color:rgba(0,0,0,.35)"><span>🖼 Non-md asset</span><span class="anno">35% ink</span></div>
+        </div>
+      </div>
+
+      <div class="dv-card" style="width:300px;background:#fff;padding:14px 16px">
+        <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.4);padding-bottom:10px">Tabs</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div style="display:flex;border:1px solid rgba(0,0,0,.08);border-radius:7px;overflow:hidden;background:#fafafa">
+            <span style="padding:7px 14px;background:#fff;border-right:1px solid rgba(0,0,0,.08);font:500 12px system-ui;color:#1d1d1f">active.md</span>
+            <span style="padding:7px 14px;border-right:1px solid rgba(0,0,0,.08);font:400 12px system-ui;color:rgba(0,0,0,.5)">inactive.md</span>
+            <span style="padding:7px 14px;font:400 12px system-ui;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:6px">unsaved.md<span style="width:6px;height:6px;border-radius:50%;background:#2a6fdb"></span></span>
+          </div>
+          <div style="display:flex;border:1px solid rgba(0,0,0,.08);border-radius:7px;overflow:hidden;background:#fafafa">
+            <span style="padding:7px 14px;font:400 12px system-ui;color:rgba(0,0,0,.6);background:rgba(0,0,0,.04);display:flex;align-items:center;gap:8px"><span style="font:400 10px system-ui;color:rgba(0,0,0,.4)">✕</span>hover shows close</span>
+          </div>
+          <div class="anno">unsaved dot swaps to ✕ on hover · ⌘1–9 jumps · overflow scrolls, never shrinks below 120pt · bar hidden with 1 doc</div>
+        </div>
+        <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.4);padding:16px 0 10px">Quick open (⇧⌘O)</div>
+        <div style="background:#fff;border:1px solid rgba(0,0,0,.1);border-radius:10px;box-shadow:0 12px 32px rgba(0,0,0,.14);overflow:hidden">
+          <div style="padding:10px 12px;border-bottom:1px solid rgba(0,0,0,.06);font:400 13px system-ui;color:#333">⌕ focus<span style="display:inline-block;width:1.5px;height:14px;background:#2a6fdb;transform:translateY(3px)"></span></div>
+          <div style="padding:6px;display:flex;flex-direction:column;gap:1px;font:400 12px system-ui">
+            <div style="padding:5px 8px;border-radius:5px;background:#2a6fdb;color:#fff">📄 <b>Focus</b> apps review <span style="color:rgba(255,255,255,.6)">· My blogs</span></div>
+            <div style="padding:5px 8px;color:#333">📄 FocusDrop / architecture <span style="color:rgba(0,0,0,.4)">· "…<b>focus</b> session…"</span></div>
+          </div>
+        </div>
+        <div class="anno" style="margin-top:8px">fuzzy titles + full-text · ⌘⇧F opens persistent search in sidebar</div>
+      </div>
+
+      <div class="dv-card" style="width:280px;background:#fff;padding:0">
+        <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.4);padding:14px 16px 10px">Empty states</div>
+        <div style="height:170px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;border-top:1px solid rgba(0,0,0,.06)">
+          <span style="font-size:26px;opacity:.35">📄</span>
+          <span style="font:600 13px system-ui;color:rgba(0,0,0,.55)">No document open</span>
+          <span style="font:400 11.5px system-ui;color:rgba(0,0,0,.4)">Select a document, or press ⌘N</span>
+          <span style="font:500 12px system-ui;color:#2a6fdb;border:1px solid rgba(42,111,219,.3);border-radius:14px;padding:4px 12px">New Document</span>
+        </div>
+        <div style="border-top:1px solid rgba(0,0,0,.06);padding:12px 16px">
+          <div style="font:400 13px/1.6 system-ui;color:rgba(0,0,0,.3)">Untitled<span style="display:inline-block;width:1.5px;height:14px;background:#2a6fdb;transform:translateY(3px)"></span></div>
+          <div class="anno" style="margin-top:6px">new doc: ghost "Untitled" H1 placeholder; first H1 becomes the filename until manually renamed; duplicate names get a " 2" suffix, never a modal</div>
+        </div>
+      </div>
+
+      <div class="dv-card" style="width:250px;background:#fff;padding:14px 16px">
+        <div style="font:600 10px system-ui;letter-spacing:.08em;text-transform:uppercase;color:rgba(0,0,0,.4);padding-bottom:10px">Keyboard map (conflict-audited)</div>
+        <div style="font:400 11px/2.1 ui-monospace,Menlo,monospace;color:#333;display:flex;flex-direction:column">
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘N · ⌘T · ⌘W</span><span style="color:rgba(0,0,0,.45)">doc · tab · close</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘1–9</span><span style="color:rgba(0,0,0,.45)">go to tab</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘0 · ⌥⌘0</span><span style="color:rgba(0,0,0,.45)">sidebar · outline</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⇧⌘O</span><span style="color:rgba(0,0,0,.45)">quick open</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘F · ⇧⌘F</span><span style="color:rgba(0,0,0,.45)">find · library search</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘B/I/U · ⌘K</span><span style="color:rgba(0,0,0,.45)">format · link</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⇧⌘H</span><span style="color:rgba(0,0,0,.45)">cycle highlight</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⇧⌘E</span><span style="color:rgba(0,0,0,.45)">export</span></div>
+          <div style="display:flex;justify-content:space-between;gap:10px"><span>⌘＋/−</span><span style="color:rgba(0,0,0,.45)">text size</span></div>
+        </div>
+        <div class="anno" style="margin-top:8px">⌘P stays Print, ⌘E stays "use selection for find" — system defaults are never overridden</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t8" data-screen-label="08 User flows">
+  <div class="dv-thd"><a class="dv-tid" href="#t8">08</a><span class="dv-tname">Key flows</span></div>
+  <p class="dv-sub">Storyboards for the three core journeys. Frames are simplified; interaction details reference section <a class="dv-oid" href="#1o">1o</a>.</p>
+  <div class="dv-opt" id="1p">
+    <div class="dv-olabel"><a class="dv-oid" href="#1p">1p</a><b>Flow storyboards</b></div>
+    <div style="display:flex;flex-direction:column;gap:26px">
+
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="width:92px;flex:none;font:600 11px system-ui;color:#1a1a1a">New document<div style="font:400 10px ui-monospace,monospace;color:rgba(0,0,0,.4);margin-top:2px">⌘N</div></div>
+        <div class="dv-card" style="width:200px;height:130px;background:#fff;padding:12px"><div style="font:400 12px system-ui;color:rgba(0,0,0,.3)">Untitled<span style="display:inline-block;width:1.5px;height:12px;background:#2a6fdb;transform:translateY(2px)"></span></div><div class="anno" style="margin-top:8px">1 · empty tab opens, caret in title</div></div>
+        <span style="color:rgba(0,0,0,.3)">→</span>
+        <div class="dv-card" style="width:200px;height:130px;background:#fff;padding:12px"><div style="font:700 13px system-ui;color:#1d1d1f">Focus apps review</div><div style="font:400 11px system-ui;color:#333;margin-top:4px">Typing the H1…</div><div class="anno" style="margin-top:8px">2 · H1 text becomes doc title live</div></div>
+        <span style="color:rgba(0,0,0,.3)">→</span>
+        <div class="dv-card" style="width:200px;height:130px;background:#f5f5f7;padding:12px"><div style="font:400 11.5px system-ui;color:#fff;background:#2a6fdb;border-radius:5px;padding:4px 8px;display:inline-block">📄 Focus apps review</div><div class="anno" style="margin-top:8px">3 · appears in sidebar at library root (or selected folder); autosaved as .md</div></div>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="width:92px;flex:none;font:600 11px system-ui;color:#1a1a1a">Organize<div style="font:400 10px ui-monospace,monospace;color:rgba(0,0,0,.4);margin-top:2px">drag</div></div>
+        <div class="dv-card" style="width:200px;height:130px;background:#f5f5f7;padding:12px"><div style="font:400 11.5px system-ui;color:#333;padding:3px 6px;background:#fff;border-radius:5px;box-shadow:0 4px 12px rgba(0,0,0,.15);transform:rotate(-2deg);display:inline-block">📄 Todo apps review</div><div class="anno" style="margin-top:10px">1 · pick up row (multi-select with ⌘)</div></div>
+        <span style="color:rgba(0,0,0,.3)">→</span>
+        <div class="dv-card" style="width:200px;height:130px;background:#f5f5f7;padding:12px"><div style="font:400 11.5px system-ui;color:#2a6fdb;padding:3px 6px;border-radius:5px;box-shadow:0 0 0 2px #2a6fdb inset;display:inline-block">📁 Reviews 2026</div><div class="anno" style="margin-top:10px">2 · hover folder 400ms ⇒ spring-opens; ring = drop into</div></div>
+        <span style="color:rgba(0,0,0,.3)">→</span>
+        <div class="dv-card" style="width:200px;height:130px;background:#f5f5f7;padding:12px"><div style="font:400 11.5px system-ui;color:#333">⌄ 📁 Reviews 2026</div><div style="font:400 11.5px system-ui;color:#333;padding-left:16px;margin-top:2px">📄 Todo apps review</div><div class="anno" style="margin-top:10px">3 · file moves on disk too — folder = directory. ⌘Z undoes</div></div>
+      </div>
+
+      <div style="display:flex;gap:14px;align-items:center">
+        <div style="width:92px;flex:none;font:600 11px system-ui;color:#1a1a1a">Export<div style="font:400 10px ui-monospace,monospace;color:rgba(0,0,0,.4);margin-top:2px">⇧⌘E</div></div>
+        <div class="dv-card" style="width:300px;background:#fff;padding:16px">
+          <div style="font:600 13px system-ui;color:#1d1d1f;margin-bottom:10px">Export "Focus apps review"</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">
+            <div style="border:2px solid #2a6fdb;border-radius:7px;padding:8px 6px;text-align:center;background:rgba(42,111,219,.05)"><div style="font:700 12px system-ui;color:#2a6fdb">PDF</div><div style="font:400 9.5px system-ui;color:rgba(0,0,0,.45)">paged, styled</div></div>
+            <div style="border:1px solid rgba(0,0,0,.12);border-radius:7px;padding:8px 6px;text-align:center"><div style="font:600 12px system-ui;color:#333">HTML</div><div style="font:400 9.5px system-ui;color:rgba(0,0,0,.45)">standalone</div></div>
+            <div style="border:1px solid rgba(0,0,0,.12);border-radius:7px;padding:8px 6px;text-align:center"><div style="font:600 12px system-ui;color:#333">MD</div><div style="font:400 9.5px system-ui;color:rgba(0,0,0,.45)">+ assets</div></div>
+            <div style="border:1px solid rgba(0,0,0,.12);border-radius:7px;padding:8px 6px;text-align:center"><div style="font:600 12px system-ui;color:#333">RTF</div><div style="font:400 9.5px system-ui;color:rgba(0,0,0,.45)">rich text</div></div>
+            <div style="border:1px solid rgba(0,0,0,.12);border-radius:7px;padding:8px 6px;text-align:center"><div style="font:600 12px system-ui;color:#333">TXT</div><div style="font:400 9.5px system-ui;color:rgba(0,0,0,.45)">plain</div></div>
+            <div style="border:1px solid rgba(0,0,0,.12);border-radius:7px;padding:8px 6px;text-align:center;color:rgba(0,0,0,.35)"><div style="font:600 12px system-ui">DOCX</div><div style="font:400 9.5px system-ui">later</div></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px">
+            <span style="font:400 11px system-ui;color:rgba(0,0,0,.5)">☑ Include footnotes · Theme: Default ▾</span>
+            <span style="font:500 12px system-ui;color:#fff;background:#2a6fdb;border-radius:6px;padding:5px 14px">Export…</span>
+          </div>
+        </div>
+        <div style="width:260px;font:400 11px/1.6 system-ui;color:rgba(0,0,0,.55)">Sheet slides from titlebar (native <span class="anno">.sheet</span>). PDF uses print stylesheet from the element sheet <a class="dv-oid" href="#1n">1n</a>; mermaid/math rasterized @2x. HTML embeds assets inline. MD export = copy of source + asset folder. Live thumbnail preview on the right edge (omitted here).</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t9" data-screen-label="09 Responsive & platforms">
+  <div class="dv-thd"><a class="dv-tid" href="#t9">09</a><span class="dv-tname">Responsive behavior & platform ports</span></div>
+  <p class="dv-sub">One layout system, three size classes. Panels collapse in priority order (outline first, then sidebar). The editor column never exceeds 680pt of text measure regardless of window width.</p>
+  <div class="dv-opt" id="1q">
+    <div class="dv-olabel"><a class="dv-oid" href="#1q">1q</a><b>Size classes + ports</b></div>
+    <div style="display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start">
+
+      <div style="display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;gap:14px;align-items:flex-end">
+          <div>
+            <div class="dv-card" style="width:420px;height:150px;display:flex;background:#fff">
+              <div style="width:82px;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.07);font:400 8px system-ui;color:rgba(0,0,0,.4);padding:8px">sidebar<br>200–320</div>
+              <div style="flex:1;display:flex;justify-content:center;padding:10px"><div style="width:180px;background:repeating-linear-gradient(#f7f7f9,#f7f7f9 6px,#fff 6px,#fff 12px);border-radius:3px"></div></div>
+              <div style="width:72px;border-left:1px solid rgba(0,0,0,.07);font:400 8px system-ui;color:rgba(0,0,0,.4);padding:8px">outline<br>220</div>
+            </div>
+            <div class="anno" style="margin-top:6px">≥ 900pt · all three columns</div>
+          </div>
+          <div>
+            <div class="dv-card" style="width:280px;height:150px;display:flex;background:#fff">
+              <div style="width:76px;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.07);font:400 8px system-ui;color:rgba(0,0,0,.4);padding:8px">sidebar</div>
+              <div style="flex:1;display:flex;justify-content:center;padding:10px"><div style="width:150px;background:repeating-linear-gradient(#f7f7f9,#f7f7f9 6px,#fff 6px,#fff 12px);border-radius:3px"></div></div>
+            </div>
+            <div class="anno" style="margin-top:6px">560–900pt · outline auto-hides (⌥⌘0 overlays it)</div>
+          </div>
+          <div>
+            <div class="dv-card" style="width:150px;height:150px;background:#fff;position:relative;overflow:hidden">
+              <div style="position:absolute;inset:0;display:flex;justify-content:center;padding:10px"><div style="width:110px;background:repeating-linear-gradient(#f7f7f9,#f7f7f9 6px,#fff 6px,#fff 12px);border-radius:3px"></div></div>
+              <div style="position:absolute;left:0;top:0;bottom:0;width:64px;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.1);box-shadow:6px 0 18px rgba(0,0,0,.1);font:400 8px system-ui;color:rgba(0,0,0,.4);padding:8px">sidebar<br>overlays</div>
+            </div>
+            <div class="anno" style="margin-top:6px">&lt; 560pt · editor only; panels overlay with scrim</div>
+          </div>
+        </div>
+        <div style="font:400 11px/1.6 system-ui;color:rgba(0,0,0,.55);max-width:640px">Format pill collapses to a single <b>Aa</b> button under 700pt. Tab bar switches to a compact popup menu under 560pt. Status bar drops statistics first, section name last. All thresholds are on the <i>editor column</i> width, not the window — so a wide window with both panels open behaves like a narrow one.</div>
+      </div>
+
+      <div style="display:flex;gap:20px;align-items:flex-start">
+        <div>
+          <div class="dv-card" style="width:210px;height:150px;border-radius:12px;display:flex;background:#fff">
+            <div style="width:64px;background:#f5f5f7;border-right:1px solid rgba(0,0,0,.07);font:400 8px system-ui;color:rgba(0,0,0,.4);padding:8px">sidebar (column 1)</div>
+            <div style="flex:1;padding:10px;display:flex;justify-content:center"><div style="width:100px;background:repeating-linear-gradient(#f7f7f9,#f7f7f9 6px,#fff 6px,#fff 12px);border-radius:3px"></div></div>
+          </div>
+          <div class="anno" style="margin-top:6px">iPadOS · same NavigationSplitView; outline via trailing inspector; pencil-friendly 44pt rows</div>
+        </div>
+        <div>
+          <div class="dv-card" style="width:96px;height:170px;border-radius:14px;background:#fff;display:flex;flex-direction:column">
+            <div style="flex:1;padding:8px;display:flex;justify-content:center"><div style="width:64px;background:repeating-linear-gradient(#f7f7f9,#f7f7f9 5px,#fff 5px,#fff 10px);border-radius:3px"></div></div>
+            <div style="height:26px;border-top:1px solid rgba(0,0,0,.08);background:#fafafa;display:flex;align-items:center;justify-content:center;font:600 8px system-ui;color:rgba(0,0,0,.5)">B I U ⌨︎</div>
+          </div>
+          <div class="anno" style="margin-top:6px">iOS · push nav (library → doc); outline = bottom sheet; format bar docks above keyboard</div>
+        </div>
+        <div style="width:220px;font:400 11px/1.6 system-ui;color:rgba(0,0,0,.55)"><b style="color:#1a1a1a">Port rules.</b> All view models are platform-free (the AST + SessionStore core). Only navigation containers and the format-control surface differ per platform. Highlight/callout/code tokens are shared asset-catalog colors, so dark mode + iOS come for free.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="dv-turn" id="t10" data-screen-label="10 Design tokens" style="border-bottom:none">
+  <div class="dv-thd"><a class="dv-tid" href="#t10">10</a><span class="dv-tname">Design tokens — SwiftUI handoff</span></div>
+  <p class="dv-sub">Tokens for the <a class="dv-oid" href="#1a">1a</a> Graphite direction. Name them as asset-catalog colors / a <span class="anno">Theme</span> struct; the <a class="dv-oid" href="#1b">1b</a>/<a class="dv-oid" href="#1c">1c</a> directions are alternate values for the same keys.</p>
+  <div class="dv-opt" id="1r">
+    <div class="dv-olabel"><a class="dv-oid" href="#1r">1r</a><b>Token sheet</b></div>
+    <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+
+      <div class="dv-card" style="width:330px;background:#fff;padding:18px 20px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:12px">Color</div>
+        <div style="display:flex;flex-direction:column;gap:7px;font:400 11px ui-monospace,Menlo,monospace;color:#333">
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#1d1d1f;flex:none"></span>ink <span style="color:rgba(0,0,0,.4);margin-left:auto">#1D1D1F</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#333;flex:none"></span>ink.body <span style="color:rgba(0,0,0,.4);margin-left:auto">#333333</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:rgba(0,0,0,.5);flex:none"></span>ink.secondary <span style="color:rgba(0,0,0,.4);margin-left:auto">55% ink</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#fff;border:1px solid rgba(0,0,0,.1);flex:none"></span>canvas <span style="color:rgba(0,0,0,.4);margin-left:auto">#FFFFFF</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#f5f5f7;border:1px solid rgba(0,0,0,.06);flex:none"></span>surface.sidebar <span style="color:rgba(0,0,0,.4);margin-left:auto">#F5F5F7</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#f2f2f4;flex:none"></span>fill.code-inline <span style="color:rgba(0,0,0,.4);margin-left:auto">#F2F2F4</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#1e2430;flex:none"></span>surface.code <span style="color:rgba(0,0,0,.4);margin-left:auto">#1E2430</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#2a6fdb;flex:none"></span>accent <span style="color:rgba(0,0,0,.4);margin-left:auto">#2A6FDB*</span></div>
+        </div>
+        <div style="font:400 10px/1.5 system-ui;color:rgba(0,0,0,.45);margin-top:10px">* defer to <span class="anno">controlAccentColor</span> on macOS; #2A6FDB is the marketing/default value. Dark mode: invert ink/canvas, keep surface.code, drop highlight saturation ~15%.</div>
+      </div>
+
+      <div class="dv-card" style="width:330px;background:#fff;padding:18px 20px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:12px">Highlights & semantics</div>
+        <div style="display:flex;gap:8px;margin-bottom:10px">
+          <span style="flex:1;height:30px;border-radius:6px;background:#d9f59b"></span>
+          <span style="flex:1;height:30px;border-radius:6px;background:#f7d9f0"></span>
+          <span style="flex:1;height:30px;border-radius:6px;background:#fdeeaa"></span>
+          <span style="flex:1;height:30px;border-radius:6px;background:#cfe6fb"></span>
+          <span style="flex:1;height:30px;border-radius:6px;background:#fedbc6"></span>
+        </div>
+        <div style="font:400 10.5px ui-monospace,monospace;color:rgba(0,0,0,.5);display:flex;justify-content:space-between"><span>lime</span><span>pink</span><span>yellow</span><span>blue</span><span>orange</span></div>
+        <div style="font:400 10px/1.5 system-ui;color:rgba(0,0,0,.45);margin:6px 0 14px">==text== defaults to lime; ⌘⇧H cycles. All ≥ 4.5:1 against ink.body.</div>
+        <div style="display:flex;flex-direction:column;gap:7px;font:400 11px ui-monospace,monospace;color:#333">
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#f6f8fb;border:1px solid rgba(42,111,219,.3);flex:none"></span>callout.note <span style="color:rgba(0,0,0,.4);margin-left:auto">blue</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#f3faf3;border:1px solid rgba(40,150,60,.3);flex:none"></span>callout.tip <span style="color:rgba(0,0,0,.4);margin-left:auto">green</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#fdf8ee;border:1px solid rgba(200,140,20,.35);flex:none"></span>callout.warning <span style="color:rgba(0,0,0,.4);margin-left:auto">amber</span></div>
+          <div style="display:flex;align-items:center;gap:10px"><span style="width:26px;height:26px;border-radius:6px;background:#fdf1f0;border:1px solid rgba(210,60,50,.3);flex:none"></span>callout.danger <span style="color:rgba(0,0,0,.4);margin-left:auto">red</span></div>
+        </div>
+      </div>
+
+      <div class="dv-card" style="width:340px;background:#fff;padding:18px 20px">
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin-bottom:12px">Type ramp (editor @ default size)</div>
+        <div style="display:flex;flex-direction:column;gap:6px;font:400 11px ui-monospace,monospace;color:rgba(0,0,0,.45)">
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:700 26px system-ui;color:#1d1d1f">H1</span><span>26 / 1.25 / 700</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:700 20px system-ui;color:#1d1d1f">H2</span><span>20 / 1.3 / 700</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:600 16px system-ui;color:#1d1d1f">H3</span><span>16 / 1.35 / 600</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 14px system-ui;color:#333">Body</span><span>14 / 1.7 / 400</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12.5px ui-monospace,monospace;color:#333">Code</span><span>12.5 / 1.6 mono</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12px system-ui;color:rgba(0,0,0,.55)">Caption/footnote</span><span>12 / 1.6 / 400</span></div>
+          <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font:400 12.5px system-ui;color:#333">UI (sidebar/outline)</span><span>12.5–13 / system</span></div>
+        </div>
+        <div style="font:600 11px system-ui;letter-spacing:.06em;text-transform:uppercase;color:rgba(0,0,0,.4);margin:16px 0 10px">Spacing & radii</div>
+        <div style="font:400 10.5px/1.7 ui-monospace,monospace;color:rgba(0,0,0,.55)">space: 4 · 8 · 12 · 16 · 24 · 32<br>radius: 4 (inline code) · 6 (rows/buttons) · 8 (blocks) · 10 (window panels)<br>editor measure: max 680pt · gutter min 48pt<br>sidebar row: 26pt (44pt touch) · hit targets ≥ 28pt mac / 44pt touch</div>
+      </div>
+    </div>
+    <p class="dv-next">Next steps: pick a direction from 01 + one option each from 03/04/05 (e.g. "<a class="dv-oid" href="#1a">1a</a> + <a class="dv-oid" href="#1e">1e</a> + <a class="dv-oid" href="#1h">1h</a> + <a class="dv-oid" href="#1k">1k</a>") and I'll produce the consolidated master mockups, dark mode, and a clickable prototype · or ask for "more variations of ‹section›".</p>
+  </div>
+</section>
+</x-dc>
+</body>
+</html>

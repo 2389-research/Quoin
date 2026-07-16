@@ -1,0 +1,23 @@
+name: Issue Triage
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "37 14 * * 1"
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  check:
+    name: open issue metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check open issue triage metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/check-issue-triage.sh

@@ -1,0 +1,216 @@
+<title>Quoin — Product Requirements</title>
+<style>
+  :root {
+    --ink: #1b1c1e;
+    --graphite: #56575c;
+    --faint: #8b8c91;
+    --ground: #fbfbf9;
+    --panel: #f2f2ee;
+    --hairline: #e2e2dc;
+    --press: #1f4fa3;
+    --press-soft: #e8eef8;
+    --serif: 'Iowan Old Style', 'Palatino Nova', Palatino, Georgia, serif;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+  }
+  html { background: var(--ground); }
+  body {
+    font-family: var(--sans);
+    color: var(--ink);
+    line-height: 1.6;
+    font-size: 16px;
+    margin: 0;
+  }
+  .page { max-width: 46rem; margin: 0 auto; padding: 3.5rem 1.5rem 6rem; }
+  .doc-eyebrow {
+    display: flex; align-items: baseline; gap: 0.75rem;
+    font-family: var(--mono); font-size: 0.75rem; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--graphite);
+    border-bottom: 1px solid var(--hairline); padding-bottom: 0.75rem;
+  }
+  .doc-eyebrow .tag { color: var(--press); font-weight: 600; }
+  h1 {
+    font-family: var(--serif); font-weight: 500; font-size: 2.6rem;
+    line-height: 1.15; margin: 1.5rem 0 0.5rem; text-wrap: balance;
+  }
+  .subtitle { font-family: var(--serif); font-size: 1.2rem; color: var(--graphite); margin: 0 0 2.5rem; font-style: italic; }
+  h2 {
+    font-family: var(--serif); font-weight: 600; font-size: 1.45rem;
+    margin: 3rem 0 0.75rem; padding-top: 1.5rem; border-top: 1px solid var(--hairline);
+    text-wrap: balance;
+  }
+  h2 .num { font-family: var(--mono); font-size: 0.8rem; color: var(--press); vertical-align: 0.35em; margin-right: 0.6rem; letter-spacing: 0.05em; }
+  h3 { font-size: 1.02rem; font-weight: 650; margin: 1.75rem 0 0.5rem; }
+  p { margin: 0.6rem 0; max-width: 65ch; }
+  ul { padding-left: 1.25rem; margin: 0.6rem 0; }
+  li { margin: 0.3rem 0; max-width: 62ch; }
+  strong { font-weight: 650; }
+  .lede { font-size: 1.05rem; }
+  .callout {
+    background: var(--press-soft); border-left: 3px solid var(--press);
+    padding: 0.85rem 1.1rem; margin: 1.25rem 0; border-radius: 0 4px 4px 0;
+  }
+  .callout p { margin: 0.25rem 0; }
+  .table-wrap { overflow-x: auto; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th {
+    text-align: left; font-family: var(--mono); font-size: 0.7rem;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--graphite);
+    font-weight: 600; padding: 0.5rem 0.9rem 0.5rem 0; border-bottom: 1.5px solid var(--ink);
+  }
+  td { padding: 0.55rem 0.9rem 0.55rem 0; border-bottom: 1px solid var(--hairline); vertical-align: top; }
+  td:first-child { white-space: nowrap; }
+  .rid { font-family: var(--mono); font-size: 0.78rem; color: var(--press); font-weight: 600; }
+  .pri { font-family: var(--mono); font-size: 0.72rem; padding: 0.1rem 0.45rem; border-radius: 3px; white-space: nowrap; }
+  .p0 { background: var(--ink); color: var(--ground); }
+  .p1 { background: var(--panel); color: var(--ink); border: 1px solid var(--hairline); }
+  .p2 { background: transparent; color: var(--faint); border: 1px solid var(--hairline); }
+  .perf { font-variant-numeric: tabular-nums; }
+  .footer {
+    margin-top: 4rem; padding-top: 1rem; border-top: 1px solid var(--hairline);
+    font-family: var(--mono); font-size: 0.72rem; color: var(--faint); letter-spacing: 0.05em;
+  }
+  code { font-family: var(--mono); font-size: 0.88em; background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; }
+</style>
+
+<div class="page">
+  <div class="doc-eyebrow">
+    <span class="tag">PRD</span>
+    <span>Quoin · v0.1 draft</span>
+    <span style="margin-left:auto">2026-07-02</span>
+  </div>
+
+  <h1>Quoin</h1>
+  <p class="subtitle">A fast, native markdown viewer for macOS and iOS.</p>
+
+  <div class="callout">
+    <p><strong>Superseded (2026-07-02):</strong> the product scope is now a
+    <em>WYSIWYG markdown editor</em> per the design handoff in
+    <code>docs/design/handoff.md</code>, which is canonical for scope, UI, and
+    interaction. This PRD remains valid for performance budgets (§05),
+    privacy stance (§06), and the reading-feature requirements the editor
+    inherits.</p>
+  </div>
+
+  <p class="lede">A <em>quoin</em> is the wedge a letterpress printer uses to lock type into the chase — the small, precise tool that makes the whole page hold. Quoin the app does the same for markdown: it takes plain text and locks it into a beautifully set, instantly rendered page, with no ceremony and no weight.</p>
+
+  <h2><span class="num">01</span>Problem &amp; Vision</h2>
+  <p>Markdown is the default format for notes, docs, READMEs, and AI-generated output — but viewing it well on Apple platforms means choosing between Electron-based apps (slow, 200&nbsp;MB+, memory-hungry), editors that bury reading under editing chrome, or bare Quick Look previews that can't handle tables, math, or diagrams.</p>
+  <p><strong>Vision:</strong> the markdown equivalent of Preview.app — instant to open, gorgeous to read, complete in its format support, and invisible as software. Local-only, private by construction, and light enough that you never think about it running.</p>
+
+  <h2><span class="num">02</span>Goals &amp; Non-Goals</h2>
+  <h3>Goals</h3>
+  <ul>
+    <li><strong>Fast above all.</strong> Cold open to rendered document in under 400&nbsp;ms; re-render on file change imperceptible; 60/120&nbsp;fps scrolling on any document.</li>
+    <li><strong>Complete markdown.</strong> Full CommonMark + GFM: tables, task lists, footnotes, strikethrough, autolinks — plus math (LaTeX) and Mermaid diagrams.</li>
+    <li><strong>Native and lean.</strong> Swift/SwiftUI throughout, <strong>zero JavaScript</strong> — math and Mermaid render through in-house native engines. No Electron, no web views, no runtime downloads.</li>
+    <li><strong>One core, two platforms.</strong> A shared document engine powers the macOS app first and an iOS/iPadOS app from the same code.</li>
+    <li><strong>Local-only.</strong> No accounts, no sync, no telemetry, no network access at runtime.</li>
+  </ul>
+  <h3>Non-Goals (v1)</h3>
+  <ul>
+    <li>Not a markdown <em>editor</em> in v1 — Quoin is reader-first. (The one exception: toggling task-list checkboxes writes back to the file.) The architecture is explicitly designed to grow an edit mode later, but it doesn't ship in v1.</li>
+    <li>No sync, cloud storage, or collaboration.</li>
+    <li>No plugin system or custom JS extensions.</li>
+    <li>No note-management/library features — Quoin opens files, it doesn't own them.</li>
+  </ul>
+
+  <h2><span class="num">03</span>Users &amp; Core Use Cases</h2>
+  <ul>
+    <li><strong>Developers &amp; technical writers</strong> reading READMEs, design docs, and specs — often with tables, code, and diagrams.</li>
+    <li><strong>AI-tool users</strong> reviewing generated markdown (reports, plans, transcripts) that updates on disk while they watch.</li>
+    <li><strong>Note-takers</strong> who keep plain <code>.md</code> files in folders and want a beautiful reading surface plus quick task-checking.</li>
+    <li><strong>Anyone exporting</strong> — turning a markdown file into a clean PDF or RTF to share with people who don't speak markdown.</li>
+  </ul>
+
+  <h2><span class="num">04</span>Feature Requirements</h2>
+  <p>Priorities: <span class="pri p0">P0</span> ships in v1.0 (macOS) · <span class="pri p1">P1</span> fast-follow / v1.x · <span class="pri p2">P2</span> considered, not committed.</p>
+
+  <h3>Rendering</h3>
+  <div class="table-wrap"><table>
+    <tr><th>ID</th><th>Pri</th><th>Requirement</th></tr>
+    <tr><td class="rid">R-01</td><td><span class="pri p0">P0</span></td><td>Full CommonMark + GFM rendering: headings, emphasis, lists, block quotes, code blocks, links, <strong>tables</strong>, <strong>task lists</strong>, strikethrough, footnotes, autolinks.</td></tr>
+    <tr><td class="rid">R-02</td><td><span class="pri p0">P0</span></td><td>Native text rendering (TextKit 2) — selectable, accessible, crisp at any size; light &amp; dark mode with system appearance.</td></tr>
+    <tr><td class="rid">R-03</td><td><span class="pri p0">P0</span></td><td>Inline images: local relative/absolute paths render inline, scaled to layout width, async-loaded and cached. Remote image URLs show a placeholder by default (local-only policy) with per-document opt-in.</td></tr>
+    <tr><td class="rid">R-04</td><td><span class="pri p0">P0</span></td><td>Syntax highlighting for fenced code blocks (common languages, native highlighter).</td></tr>
+    <tr><td class="rid">R-05</td><td><span class="pri p0">P0</span></td><td>Math: inline <code>$…$</code> and block <code>$$…$$</code> LaTeX typeset natively (in-house TeX-subset engine) as crisp vector output; unknown commands degrade to marked literals.</td></tr>
+    <tr><td class="rid">R-06</td><td><span class="pri p0">P0</span></td><td>Mermaid diagrams in <code>```mermaid</code> fences rendered by a native engine, phased by type: flowchart, sequence, and pie in v1.0; state/class/ER, then gantt/gitgraph/journey in updates. Unsupported types show the styled source with a notice — never an error.</td></tr>
+    <tr><td class="rid">R-07</td><td><span class="pri p1">P1</span></td><td>Adjustable reading theme: type size, line width, serif/sans body, custom accent.</td></tr>
+  </table></div>
+
+  <h3>Live behavior</h3>
+  <div class="table-wrap"><table>
+    <tr><th>ID</th><th>Pri</th><th>Requirement</th></tr>
+    <tr><td class="rid">L-01</td><td><span class="pri p0">P0</span></td><td><strong>Live rendering:</strong> the document re-renders automatically when the file changes on disk, preserving scroll position. Target &lt;100&nbsp;ms from file-save to updated view for typical documents.</td></tr>
+    <tr><td class="rid">L-02</td><td><span class="pri p0">P0</span></td><td><strong>Interactive task lists:</strong> clicking a checkbox toggles it and writes the change back to the source file safely (no reformatting of untouched content).</td></tr>
+    <tr><td class="rid">L-03</td><td><span class="pri p1">P1</span></td><td>Follow mode: auto-scroll to the newest content when a file is being appended to (AI output, logs).</td></tr>
+  </table></div>
+
+  <h3>Navigation &amp; insight</h3>
+  <div class="table-wrap"><table>
+    <tr><th>ID</th><th>Pri</th><th>Requirement</th></tr>
+    <tr><td class="rid">N-01</td><td><span class="pri p0">P0</span></td><td><strong>Table of contents</strong> sidebar built from the heading tree; click to jump; tracks scroll position; collapsible.</td></tr>
+    <tr><td class="rid">N-02</td><td><span class="pri p0">P0</span></td><td><strong>Quick search</strong> (⌘F): instant as-you-type in-document search with match highlighting, count, and next/previous navigation.</td></tr>
+    <tr><td class="rid">N-03</td><td><span class="pri p0">P0</span></td><td><strong>Statistics:</strong> word/character/heading counts, reading time, link &amp; image counts, task progress (3 of 7 done) — in a summary popover, live-updating.</td></tr>
+    <tr><td class="rid">N-04</td><td><span class="pri p0">P0</span></td><td><strong>Tabs:</strong> multiple documents in one window via native macOS window tabs (⌘T, drag to merge/split).</td></tr>
+    <tr><td class="rid">N-05</td><td><span class="pri p1">P1</span></td><td>Quick open (⌘O / ⌘P): fuzzy-find across recently opened files.</td></tr>
+    <tr><td class="rid">N-06</td><td><span class="pri p1">P1</span></td><td>Internal anchor links (<code>#heading</code>) and relative links to other <code>.md</code> files open in a new tab.</td></tr>
+  </table></div>
+
+  <h3>Export</h3>
+  <div class="table-wrap"><table>
+    <tr><th>ID</th><th>Pri</th><th>Requirement</th></tr>
+    <tr><td class="rid">E-01</td><td><span class="pri p0">P0</span></td><td><strong>PDF</strong> export: paginated, styled like the on-screen rendering, with working links and embedded images/diagrams.</td></tr>
+    <tr><td class="rid">E-02</td><td><span class="pri p0">P0</span></td><td><strong>RTF</strong> export with formatting (headings, emphasis, lists, tables) for pasting into word processors.</td></tr>
+    <tr><td class="rid">E-03</td><td><span class="pri p0">P0</span></td><td><strong>Plain text</strong> export: markdown syntax stripped, structure preserved.</td></tr>
+    <tr><td class="rid">E-04</td><td><span class="pri p0">P0</span></td><td><strong>Markdown</strong> export: normalized/pretty-printed copy of the source.</td></tr>
+    <tr><td class="rid">E-05</td><td><span class="pri p1">P1</span></td><td>Print (⌘P) via the same pagination engine as PDF.</td></tr>
+  </table></div>
+
+  <h3>Platform</h3>
+  <div class="table-wrap"><table>
+    <tr><th>ID</th><th>Pri</th><th>Requirement</th></tr>
+    <tr><td class="rid">P-01</td><td><span class="pri p0">P0</span></td><td>macOS app (macOS 14+): document-based, opens <code>.md .markdown .txt</code>, registered as a viewer for markdown UTIs, Quick Look-fast startup.</td></tr>
+    <tr><td class="rid">P-02</td><td><span class="pri p0">P0</span></td><td>Minimalist UI: content-first window, one slim toolbar, everything else behind keyboard shortcuts and menus. No panels open by default.</td></tr>
+    <tr><td class="rid">P-03</td><td><span class="pri p1">P1</span></td><td>iOS/iPadOS app from the same core: document browser (Files integration), full rendering parity, TOC, search, stats, share-sheet exports.</td></tr>
+    <tr><td class="rid">P-04</td><td><span class="pri p2">P2</span></td><td>Quick Look extension so Finder previews use Quoin's renderer.</td></tr>
+  </table></div>
+
+  <h2><span class="num">05</span>Performance Budgets</h2>
+  <p>These are requirements, not aspirations — regressions block release.</p>
+  <div class="table-wrap"><table class="perf">
+    <tr><th>Scenario</th><th>Budget</th></tr>
+    <tr><td>Cold launch → first document rendered (50&nbsp;KB file)</td><td>&lt; 400 ms</td></tr>
+    <tr><td>Open additional document in running app</td><td>&lt; 150 ms</td></tr>
+    <tr><td>Re-render after external file change (typical doc)</td><td>&lt; 100 ms</td></tr>
+    <tr><td>Parse + layout, 1 MB markdown file</td><td>&lt; 1 s to interactive</td></tr>
+    <tr><td>Scrolling, any document size</td><td>display refresh rate, no hitches</td></tr>
+    <tr><td>Idle memory, one typical document</td><td>&lt; 100 MB</td></tr>
+    <tr><td>App download size</td><td>&lt; 25 MB</td></tr>
+  </table></div>
+
+  <h2><span class="num">06</span>Privacy &amp; Data</h2>
+  <div class="callout">
+    <p><strong>Everything stays on device.</strong> No network calls at runtime (remote images are opt-in per document), no analytics, no accounts. The only files Quoin writes are exports the user asks for and checkbox toggles in files the user opened.</p>
+  </div>
+
+  <h2><span class="num">07</span>Release Plan</h2>
+  <ul>
+    <li><strong>M1 — Reading core (macOS):</strong> parse + render CommonMark/GFM natively, tabs, TOC, search, stats, live file watching. Math/Mermaid show styled source fallback.</li>
+    <li><strong>M2a — Rich content:</strong> native math typesetting, syntax highlighting, inline images, checkbox write-back.</li>
+    <li><strong>M2b — Diagrams:</strong> native Mermaid engine, phase D1 (flowchart, sequence, pie). Runs parallel to M3; can slip without blocking it thanks to the fallback.</li>
+    <li><strong>M3 — Output:</strong> PDF/RTF/TXT/MD export, print. → <strong>v1.0 macOS</strong></li>
+    <li><strong>M4 — iOS:</strong> document browser app on the shared core, share-sheet exports. → <strong>v1.0 iOS</strong></li>
+    <li><strong>Later:</strong> diagram phases D2/D3 (state/class/ER, gantt/gitgraph/journey); edit mode on the session architecture already in place.</li>
+  </ul>
+
+  <h2><span class="num">08</span>Success Criteria</h2>
+  <ul>
+    <li>All performance budgets met on a base-model M1 Mac and A15 iPhone.</li>
+    <li>100% of CommonMark spec tests and GFM extension tests pass in the core engine.</li>
+    <li>A 500-page markdown book scrolls at full frame rate.</li>
+    <li>Zero runtime network connections observed under instrumentation.</li>
+  </ul>
+
+  <div class="footer">QUOIN · PRODUCT REQUIREMENTS · DRAFT FOR REVIEW · SEE COMPANION TRD FOR ARCHITECTURE</div>
+</div>

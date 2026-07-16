@@ -1,0 +1,145 @@
+{
+  "01-headings.md" : {
+    "blocks" : 36,
+    "codeBlocks" : 0,
+    "diagrams" : 0,
+    "headings" : 15,
+    "images" : 0,
+    "links" : 1,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "02-inline-and-links.md" : {
+    "blocks" : 46,
+    "codeBlocks" : 0,
+    "diagrams" : 0,
+    "headings" : 14,
+    "images" : 3,
+    "links" : 12,
+    "math" : 3,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "03-lists-and-tasks.md" : {
+    "blocks" : 30,
+    "codeBlocks" : 1,
+    "diagrams" : 0,
+    "headings" : 10,
+    "images" : 0,
+    "links" : 1,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 9
+  },
+  "04-blockquotes-callouts.md" : {
+    "blocks" : 13,
+    "codeBlocks" : 1,
+    "diagrams" : 0,
+    "headings" : 3,
+    "images" : 0,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "05-code-blocks.md" : {
+    "blocks" : 21,
+    "codeBlocks" : 12,
+    "diagrams" : 0,
+    "headings" : 7,
+    "images" : 0,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "06-tables.md" : {
+    "blocks" : 14,
+    "codeBlocks" : 0,
+    "diagrams" : 0,
+    "headings" : 7,
+    "images" : 0,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 5,
+    "tasks" : 0
+  },
+  "07-html-and-footnotes.md" : {
+    "blocks" : 35,
+    "codeBlocks" : 3,
+    "diagrams" : 0,
+    "headings" : 10,
+    "images" : 0,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "08-unicode-edge-cases.md" : {
+    "blocks" : 52,
+    "codeBlocks" : 2,
+    "diagrams" : 0,
+    "headings" : 17,
+    "images" : 1,
+    "links" : 3,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "09-math.md" : {
+    "blocks" : 100,
+    "codeBlocks" : 2,
+    "diagrams" : 1,
+    "headings" : 29,
+    "images" : 0,
+    "links" : 0,
+    "math" : 65,
+    "tables" : 1,
+    "tasks" : 0
+  },
+  "10-diagrams.md" : {
+    "blocks" : 90,
+    "codeBlocks" : 1,
+    "diagrams" : 40,
+    "headings" : 44,
+    "images" : 0,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 1,
+    "tasks" : 0
+  },
+  "11-extensions.md" : {
+    "blocks" : 13,
+    "codeBlocks" : 0,
+    "diagrams" : 0,
+    "headings" : 5,
+    "images" : 1,
+    "links" : 0,
+    "math" : 0,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "11-suggestions.md" : {
+    "blocks" : 14,
+    "codeBlocks" : 1,
+    "diagrams" : 0,
+    "headings" : 5,
+    "images" : 0,
+    "links" : 1,
+    "math" : 2,
+    "tables" : 0,
+    "tasks" : 0
+  },
+  "12-torture.md" : {
+    "blocks" : 58,
+    "codeBlocks" : 5,
+    "diagrams" : 3,
+    "headings" : 16,
+    "images" : 0,
+    "links" : 12,
+    "math" : 5,
+    "tables" : 7,
+    "tasks" : 0
+  }
+}

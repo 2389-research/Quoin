@@ -1,0 +1,62 @@
+name: QuoinIOS
+options:
+  bundleIdPrefix: ai.2389
+  deploymentTarget:
+    iOS: "17.0"
+
+packages:
+  QuoinPackages:
+    path: ../..
+
+targets:
+  QuoinIOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    dependencies:
+      - package: QuoinPackages
+        product: QuoinCore
+      - package: QuoinPackages
+        product: QuoinRender
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: Quoin
+        CFBundleDisplayName: Quoin
+        UILaunchScreen: {}
+        UISupportsDocumentBrowser: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Markdown Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - net.daringfireball.markdown
+          - CFBundleTypeName: Plain Text Document
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown Document
+            UTTypeConformsTo:
+              - public.plain-text
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - md
+                - markdown
+                - mdown
+                - mkd
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        GENERATE_INFOPLIST_FILE: false

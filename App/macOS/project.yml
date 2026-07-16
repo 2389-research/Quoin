@@ -1,0 +1,108 @@
+name: Quoin
+options:
+  bundleIdPrefix: ai.2389
+  deploymentTarget:
+    macOS: "14.0"
+
+packages:
+  QuoinPackages:
+    path: ../..
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: "2.6.0"
+
+schemes:
+  Quoin:
+    build:
+      targets:
+        Quoin: all
+        QuoinUITests: [test]
+    test:
+      targets:
+        - QuoinUITests
+
+targets:
+  QuoinUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - UITests
+    dependencies:
+      - target: Quoin
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        TEST_TARGET_NAME: Quoin
+
+  Quoin:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+      - path: Resources
+        type: folder
+        buildPhase: resources
+    dependencies:
+      - package: QuoinPackages
+        product: QuoinCore
+      - package: QuoinPackages
+        product: QuoinRender
+      - package: Sparkle
+        product: Sparkle
+    entitlements:
+      path: Quoin.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        # Sparkle's update check is the app's only network traffic.
+        com.apple.security.network.client: true
+    info:
+      path: Info.plist
+      properties:
+        CFBundleName: Quoin
+        CFBundleDisplayName: Quoin
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        LSMinimumSystemVersion: "14.0"
+        NSHumanReadableCopyright: "© 2026 Clint Ecker"
+        # Sparkle auto-update. SUFeedURL and SUPublicEDKey are PLACEHOLDERS —
+        # replace before the first public release (see docs/reference/distribution.md):
+        #   • SUFeedURL   → where you host appcast.xml (e.g. GitHub Releases).
+        #   • SUPublicEDKey → the EdDSA public key printed by Sparkle's
+        #     `generate_keys`; the private half stays in your keychain.
+        SUFeedURL: "https://github.com/2389-research/Quoin/releases/latest/download/appcast.xml"
+        SUPublicEDKey: "REPLACE_WITH_YOUR_SPARKLE_EDDSA_PUBLIC_KEY"
+        SUEnableAutomaticChecks: true
+        SUScheduledCheckInterval: 86400
+        # Sandboxed apps must let Sparkle launch its installer via XPC.
+        SUEnableInstallerLauncherService: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Markdown Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - net.daringfireball.markdown
+          - CFBundleTypeName: Plain Text Document
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.plain-text
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: net.daringfireball.markdown
+            UTTypeDescription: Markdown Document
+            UTTypeConformsTo:
+              - public.plain-text
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - md
+                - markdown
+                - mdown
+                - mkd
+    settings:
+      base:
+        SWIFT_VERSION: "5.10"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: true
+        GENERATE_INFOPLIST_FILE: false

@@ -1,0 +1,83 @@
+name: Bug report
+description: Report a Quoin behavior that is broken, unsafe, or inconsistent.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for regressions, crashes, data-loss risk, rendering errors, or behavior that contradicts Quoin's design. Priority is assigned during triage; hints here are context only.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What went wrong, and what did you expect instead?
+      placeholder: "Opening a document with ... causes ..."
+    validations:
+      required: true
+  - type: textarea
+    id: target-user
+    attributes:
+      label: Target user
+      description: Who is affected by this bug?
+      placeholder: "Writers editing local markdown libraries; keyboard-only users; users exporting PDFs ..."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Reproduction steps, sample markdown, screenshots, logs, or links to fixtures.
+      placeholder: |
+        1. Open ...
+        2. Click ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      description: Pick the closest area hint. Maintainers apply the final area labels during triage.
+      options:
+        - Core parsing, sessions, editing, search, or filesystem model
+        - Rendering, TextKit projection, math, diagrams, images, or decorations
+        - macOS app shell, menus, windowing, sidebar, or platform UI
+        - iOS/iPadOS app shell or reader behavior
+        - Library tree, quick open, folder scanning, search, or file moves
+        - Export, print, sharing, or generated output
+        - Tests, benchmarks, fixtures, snapshots, or CI verification
+        - System integration
+        - Repository workflow or documentation
+        - Security or privacy
+        - Unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: priority-hint
+    attributes:
+      label: Priority hint
+      description: This does not assign a priority label; it helps maintainers triage intentionally.
+      options:
+        - P1 - data loss, correctness, crash, or major UX risk
+        - P2 - important product or platform gap
+        - P3 - cleanup, hardening, or polish
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: milestone-hint
+    attributes:
+      label: Milestone hint
+      description: Optional release, roadmap milestone, or "unsure".
+      placeholder: "Data Safety & Correctness, System Integration, unsure ..."
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance-tests
+    attributes:
+      label: Acceptance and test ideas
+      description: What should be true when this is fixed? Include fixture, snapshot, performance, or UI verification ideas where useful.
+      placeholder: "Add a QuoinCore test for ...; verify swift test; capture screenshot if ..."
+    validations:
+      required: true

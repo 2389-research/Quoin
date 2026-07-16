@@ -1,0 +1,186 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://roughdraft.md/spec/roughdraft-flavored-markdown.schema.json",
+  "title": "Roughdraft Flavored Markdown Review Index",
+  "description": "A JSON review index for comments and suggestions parsed from Roughdraft Flavored Markdown. The Markdown source remains the normative storage format.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "source", "comments", "suggestions"],
+  "properties": {
+    "format": {
+      "const": "roughdraft-flavored-markdown"
+    },
+    "version": {
+      "const": "0.2"
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["markdown"],
+      "properties": {
+        "markdown": {
+          "type": "string",
+          "description": "The complete Markdown source that produced this review index."
+        },
+        "frontmatter": {
+          "type": ["string", "null"],
+          "description": "YAML frontmatter content when exposed separately by the parser."
+        },
+        "endmatter": {
+          "type": ["string", "null"],
+          "description": "YAML endmatter content when exposed separately by the parser."
+        }
+      }
+    },
+    "comments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/comment"
+      }
+    },
+    "suggestions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/suggestion"
+      }
+    }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Unknown metadata attributes preserved from the source document."
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": {
+          "type": "string",
+          "description": "The highlighted anchor text from {==...==}."
+        },
+        "markdown": {
+          "type": "string",
+          "description": "The highlighted anchor content before inline Markdown rendering, when available."
+        }
+      }
+    },
+    "comment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "body", "by", "at"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "body": {
+          "type": "string"
+        },
+        "by": {
+          "$ref": "#/$defs/author"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "re": {
+          "$ref": "#/$defs/id"
+        },
+        "anchor": {
+          "$ref": "#/$defs/anchor"
+        },
+        "targetSuggestionId": {
+          "$ref": "#/$defs/id"
+        },
+        "status": {
+          "enum": ["resolved"]
+        },
+        "resolved": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      }
+    },
+    "suggestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "by", "at"],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": ["addition", "deletion", "substitution"]
+        },
+        "by": {
+          "$ref": "#/$defs/author"
+        },
+        "at": {
+          "$ref": "#/$defs/timestamp"
+        },
+        "text": {
+          "type": "string",
+          "description": "The inserted or deleted text for addition and deletion suggestions."
+        },
+        "oldText": {
+          "type": "string",
+          "description": "The replaced text for substitution suggestions."
+        },
+        "newText": {
+          "type": "string",
+          "description": "The replacement text for substitution suggestions."
+        },
+        "commentIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "status": {
+          "enum": ["resolved"]
+        },
+        "resolved": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/metadata"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "substitution"
+              }
+            },
+            "required": ["kind"]
+          },
+          "then": {
+            "required": ["oldText", "newText"]
+          },
+          "else": {
+            "required": ["text"]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,159 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # QuoinCore is platform-free (parsing, sessions, search, review, exporters,
+  # re-exported math/diagram layout). This job proves it — and the whole
+  # package — builds and its tests pass on Linux, so the engine stays honest
+  # for non-Apple hosts. QuoinRender is fully canImport(AppKit)-guarded, so it
+  # compiles to a near-empty module here. Wall-clock latency budgets and the
+  # Darwin-only file watcher self-skip off Darwin (see EditingLatencyTests).
+  test-linux:
+    name: swift test (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: swift:6.2
+    steps:
+      - uses: actions/checkout@v7
+      - name: Swift version
+        run: swift --version
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+
+  test:
+    name: swift test (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    outputs:
+      has_screenshots: ${{ steps.screenshot-output.outputs.has_screenshots }}
+    steps:
+      - uses: actions/checkout@v7
+
+      # Quoin's toolchain floor is Swift 6.2 (MermaidKit 0.12.0 declares
+      # swift-tools 6.2). Select the newest Xcode on the runner regardless of
+      # major version — pinning to Xcode_16* selected Swift 6.1 and failed
+      # package resolution.
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -print | sort -V | tail -n 1)"
+
+      - name: Swift version
+        run: swift --version
+
+      - name: Dependency policy
+        run: bash scripts/check-dependency-policy.sh
+
+      - name: Generated project policy
+        run: bash scripts/check-generated-projects.sh
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      # The app target lives outside the package; generate and build it so
+      # the SwiftUI/AppKit shell is compile-verified too.
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build macOS app
+        working-directory: App/macOS
+        run: |
+          set -o pipefail
+          xcodegen
+          xcodebuild -project Quoin.xcodeproj -scheme Quoin -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -60
+
+      # Screenshot pipeline: UI test launches the app against the fixture
+      # library and captures window PNGs, uploaded as artifacts. Entitlements
+      # are dropped so the unsandboxed app can read the fixtures dir. Every
+      # shot (name, launch args, purpose, committed path) is catalogued in
+      # docs/guide/screenshots.md — the durable record so shots regenerate on push.
+      - name: Capture screenshots
+        working-directory: App/macOS
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          echo "::notice::Screenshot capture is advisory; failures here do not block CI."
+          mkdir -p /tmp/quoin-fixtures /tmp/quoin-shots
+          cp ../../Fixtures/*.md /tmp/quoin-fixtures/
+          # TEST_RUNNER_ vars must be real environment variables of
+          # xcodebuild, not build-setting arguments.
+          export TEST_RUNNER_QUOIN_SCREENSHOT_DIR=/tmp/quoin-shots
+          export TEST_RUNNER_QUOIN_FIXTURES=/tmp/quoin-fixtures
+          xcodebuild -project Quoin.xcodeproj -scheme Quoin -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" CODE_SIGN_ENTITLEMENTS="" \
+            test 2>&1 | tail -25
+          ls -la /tmp/quoin-shots
+
+      - name: Check screenshot output
+        id: screenshot-output
+        if: always()
+        run: |
+          if ls /tmp/quoin-shots/*.png >/dev/null 2>&1; then
+            echo "has_screenshots=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_screenshots=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No screenshots were captured for this run."
+          fi
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: screenshots
+          path: /tmp/quoin-shots
+          if-no-files-found: ignore
+
+      - name: Build iOS app
+        working-directory: App/iOS
+        run: |
+          set -o pipefail
+          xcodegen
+          xcodebuild -project QuoinIOS.xcodeproj -scheme QuoinIOS \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGN_IDENTITY="" build 2>&1 | tail -60
+
+  publish-screenshots:
+    name: publish screenshots branch
+    runs-on: ubuntu-latest
+    needs: test
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.test.outputs.has_screenshots == 'true' }}
+    permissions:
+      contents: write
+    steps:
+      - name: Download screenshots
+        uses: actions/download-artifact@v8
+        with:
+          name: screenshots
+          path: /tmp/quoin-shots
+
+      # Also publish to a branch: artifact downloads go through Azure blob
+      # storage, which restricted environments can't always reach; a git
+      # branch is fetchable anywhere the repo is.
+      - name: Publish screenshots branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! ls /tmp/quoin-shots/*.png >/dev/null 2>&1; then
+            echo "no screenshots to publish"; exit 0
+          fi
+          dir=$(mktemp -d)
+          cd "$dir"
+          git init -q -b ci-screenshots
+          cp /tmp/quoin-shots/*.png .
+          git add .
+          git -c user.name="quoin-ci" -c user.email="ci@quoin.invalid" \
+            commit -q -m "Screenshots from $GITHUB_SHA"
+          git push -q --force \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            ci-screenshots

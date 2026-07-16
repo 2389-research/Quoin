@@ -1,0 +1,80 @@
+name: Enhancement or design issue
+description: Propose product, design, documentation, workflow, or architecture work.
+title: "[Enhancement]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for new capabilities, design refinements, repo hygiene, docs, and architecture work. Priority is assigned during triage; hints here are context only.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or maintainer problem should this solve?
+      placeholder: "Users currently cannot ...; contributors lack ..."
+    validations:
+      required: true
+  - type: textarea
+    id: target-user
+    attributes:
+      label: Target user
+      description: Who benefits from this change?
+      placeholder: "Markdown writers; keyboard-only users; maintainers; release operators ..."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Design references, observed behavior, user reports, comparable native behavior, or implementation notes.
+      placeholder: "Handoff section, screenshot, fixture, linked discussion, or local reproduction notes ..."
+    validations:
+      required: true
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      description: Pick the closest area hint. Maintainers apply the final area labels during triage.
+      options:
+        - Core parsing, sessions, editing, search, or filesystem model
+        - Rendering, TextKit projection, math, diagrams, images, or decorations
+        - macOS app shell, menus, windowing, sidebar, or platform UI
+        - iOS/iPadOS app shell or reader behavior
+        - Library tree, quick open, folder scanning, search, or file moves
+        - Export, print, sharing, or generated output
+        - Tests, benchmarks, fixtures, snapshots, or CI verification
+        - System integration
+        - Repository workflow or documentation
+        - Security or privacy
+        - Unsure
+    validations:
+      required: true
+  - type: dropdown
+    id: priority-hint
+    attributes:
+      label: Priority hint
+      description: This does not assign a priority label; it helps maintainers triage intentionally.
+      options:
+        - P1 - data loss, correctness, crash, or major UX risk
+        - P2 - important product or platform gap
+        - P3 - cleanup, hardening, or polish
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: milestone-hint
+    attributes:
+      label: Milestone hint
+      description: Optional release, roadmap milestone, or "unsure".
+      placeholder: "Data Safety & Correctness, System Integration, Repository Hygiene, unsure ..."
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance-tests
+    attributes:
+      label: Acceptance and test ideas
+      description: What should be true when this ships? Include fixture, snapshot, performance, or UI verification ideas where useful.
+      placeholder: "Update docs/design if needed; add a fixture for ...; verify ..."
+    validations:
+      required: true
