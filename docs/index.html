@@ -74,6 +74,14 @@
   ul.ticks li::before{content:"";position:absolute;left:0;top:.62em;width:12px;height:7px;border-left:2px solid var(--accent);border-bottom:2px solid var(--accent);transform:rotate(-45deg)}
   code{font-family:var(--mono);font-size:.9em;background:var(--panel);padding:.12em .4em;border-radius:5px}
 
+  .status{font-size:13.5px;color:var(--muted);margin:18px auto 0;max-width:52ch;line-height:1.55}
+  .bytes{display:grid;grid-template-columns:1fr 1fr;gap:30px;align-items:center;margin-top:36px;padding-top:30px;border-top:1px solid var(--line)}
+  .bytes .kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:10px}
+  .bytes pre{margin:0;background:var(--code-bg);color:#e9edf2;border-radius:12px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65}
+  .bytes pre code{background:none;padding:0;color:inherit;font-size:inherit}
+  .bytes p{color:var(--muted);margin:0}
+  @media (max-width:760px){.bytes{grid-template-columns:1fr;gap:20px}}
+
   /* Engines row */
   .engines{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--panel)}
@@ -129,6 +137,8 @@
       <a class="btn primary" href="https://github.com/2389-research/Quoin">View on GitHub</a>
       <a class="btn ghost" href="https://github.com/2389-research/Quoin#readme">Read the README</a>
     </div>
+    <p class="status">Free &amp; open source (MIT) · macOS&nbsp;14+ · no account, no cloud, no telemetry.<br>
+      Build from source today — a notarized download is on the way.</p>
     <figure class="shot">
       <img src="images/hero.png" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
       <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
@@ -141,9 +151,11 @@
         <div class="eyebrow">The differentiator</div>
         <h2>Tracked changes as plain CriticMarkup</h2>
         <p>Suggestions and comments are <a href="https://github.com/CriticMarkup/CriticMarkup-toolkit">CriticMarkup</a>
-           marks; their metadata rides along as RDFM YAML endmatter that plain
-           renderers ignore. Because the file <em>is</em> the review, it is portable,
-           git-diffable, and agent-readable.</p>
+           marks, and their metadata is just a small block of YAML at the end of
+           the file that ordinary Markdown renderers ignore. Because the file
+           <em>is</em> the review, it's portable, shows up in <code>git diff</code>,
+           and anything that can write text — a teammate or an AI agent — can
+           propose a durable edit.</p>
         <ul class="ticks">
           <li>Marks render as tracked changes — never raw delimiters</li>
           <li>A review inspector: Accept / Reject / Dismiss, plus Accept&nbsp;All</li>
@@ -155,6 +167,26 @@
         <img src="images/review-panel.png" alt="Review inspector cards beside a marked-up document: suggestion and comment cards with author, timestamp, and Accept / Reject / Dismiss">
         <figcaption>A spec under review — tracked changes inline, each mark an actionable card.</figcaption>
       </figure>
+    </div>
+
+    <div class="bytes">
+      <div>
+        <div class="kicker">It's just text — what a person or an agent writes</div>
+        <pre><code>Sign-in takes {~~90s~&gt;under 30s~~} today.
+Add a {++one-time-code++} fallback. {&gt;&gt;Does this cover SSO?&lt;&lt;}
+
+---
+suggestions:
+  s1: { by: priya, at: "2026-07-14" }</code></pre>
+      </div>
+      <div>
+        <div class="kicker">What you see &amp; resolve</div>
+        <p>Quoin renders those marks as the tracked-changes and comment cards
+           above — you Accept or Reject, and it rewrites the source in one
+           byte-safe edit. The YAML block records who suggested what, and when.
+           Run <code>git diff</code> and you see exactly these bytes: no sidecar
+           database, no proprietary format, nothing to lock you in.</p>
+      </div>
     </div>
   </section>
 
@@ -186,17 +218,19 @@
   <section>
     <div class="feature rev">
       <div class="copy">
-        <div class="eyebrow">The architecture</div>
+        <div class="eyebrow">Your files, always</div>
         <h2>The source is the document</h2>
-        <p>The markdown string and its AST are the single source of truth — never an
-           attributed string. The editor is a <em>projection</em>: edits mutate the
-           source through a session actor, and the renderer re-projects.</p>
+        <p>What's on disk is always plain Markdown — Quoin edits the real file, not
+           a hidden copy. So it opens and saves without silently reformatting your
+           text, an AI agent can safely rewrite a file you have open, and there's
+           nothing proprietary to get locked into.</p>
         <ul class="ticks">
-          <li>Byte-lossless round-trips for every untouched region</li>
-          <li>Click a block to reveal its literal source, 1:1 with the file</li>
-          <li>The caret line never jumps on a projection change</li>
-          <li><code>QuoinCore</code> is platform-free and builds on Linux</li>
+          <li>Edit one paragraph, save — every untouched line stays byte-for-byte identical</li>
+          <li>Click any block to see its real Markdown source, 1:1 with the file</li>
+          <li>The line you're editing never jumps on screen</li>
+          <li>Fully offline — your files never leave your Mac</li>
         </ul>
+        <p style="margin-top:14px"><a href="https://github.com/2389-research/Quoin/blob/main/docs/reference/architecture.md">How it works under the hood →</a></p>
       </div>
       <figure>
         <img src="images/syntax-reveal.png" alt="A block revealed as its literal Markdown source, character-for-character with the file">
