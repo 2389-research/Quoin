@@ -518,8 +518,6 @@ extension FrontMatterEditing {
         return parts.allSatisfy { $0.allSatisfy { $0.isASCII && $0.isWholeNumber } }
     }
 
-    /// The typed form `raw` parses CLEANLY as, or nil (= plain string).
-    /// Bool is lowercase `true`/`false` ONLY — `True`/`yes` are strings.
     /// The bytes to write for a value the user typed in a STRING field.
     /// A value whose bare form would infer as a non-string type
     /// (`true`, `123`, `2026-07-15`, `[a, b]`) is FORCE-QUOTED so it stays
@@ -535,6 +533,8 @@ extension FrontMatterEditing {
         return ReviewEndmatter.fieldValue(value)
     }
 
+    /// The type `raw` parses CLEANLY as, or nil (= plain string). Bool is
+    /// lowercase `true`/`false` ONLY — `True`/`yes` are strings.
     static func typedForm(of raw: String) -> FieldType? {
         if raw == "true" || raw == "false" { return .bool }
         if isNumberLiteral(raw) { return .number }

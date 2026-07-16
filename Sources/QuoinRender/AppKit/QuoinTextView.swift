@@ -187,13 +187,18 @@ final class QuoinTextView: NSTextView {
     /// report. Panel-content changes with an unchanged frame are covered
     /// by the coordinator's projection-change refresh.
     var onEditingFrameGeometry: ((CGRect?) -> Void)?
-    /// Outer nil = nothing reported yet; `.some(nil)` = reported "no
-    /// open block".
-    private var lastReportedEditingFrame: CGRect??
+    /// The last geometry pushed to the coordinator, so an unchanged frame
+    /// isn't re-reported. `.unreported` distinguishes "nothing sent yet"
+    /// from `.reported(nil)` ("sent: no open block").
+    private enum LastFrameReport: Equatable {
+        case unreported
+        case reported(CGRect?)
+    }
+    private var lastReportedEditingFrame: LastFrameReport = .unreported
 
     private func reportEditingFrameGeometry(_ rect: CGRect?) {
-        guard onEditingFrameGeometry != nil, lastReportedEditingFrame != .some(rect) else { return }
-        lastReportedEditingFrame = .some(rect)
+        guard onEditingFrameGeometry != nil, lastReportedEditingFrame != .reported(rect) else { return }
+        lastReportedEditingFrame = .reported(rect)
         // Mutating the view hierarchy mid-draw is illegal — next turn.
         DispatchQueue.main.async { [weak self] in
             self?.onEditingFrameGeometry?(rect)

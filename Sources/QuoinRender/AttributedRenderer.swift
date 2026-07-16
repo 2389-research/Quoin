@@ -11,9 +11,9 @@ import AppKit
 import UIKit
 #endif
 
-/// A rendered document: one attributed string for the whole document plus
-/// the character range of every top-level block, which powers TOC jumps,
-/// search navigation, and scroll anchoring across live reloads.
+/// The old/new character ranges of a single incremental storage splice —
+/// what changed between two renders, so the view can replace one span
+/// instead of the whole attributed string.
 public struct RenderSpliceHint: Sendable {
     public let oldRange: NSRange
     public let replacementRange: NSRange
@@ -49,6 +49,9 @@ public struct RevealStylerConfig: Equatable, Sendable {
         collapsesNonLiteralSpans: true, treatsSourceAsVerbatimCode: false)
 }
 
+/// A rendered document: one attributed string for the whole document plus
+/// the character range of every top-level block, which powers TOC jumps,
+/// search navigation, and scroll anchoring across live reloads.
 public struct RenderedDocument {
     public let attributed: NSAttributedString
     public let blockRanges: [BlockID: NSRange]
@@ -645,8 +648,7 @@ public struct AttributedRenderer {
                   current.activeBlockID == oldID,
                   let blockIndex = document.blocks.firstIndex(where: { $0.id == oldID }),
                   let oldBlockRange = current.blockRanges[oldID],
-                  // The editable source sits INSIDE the block's fragment
-                  // (offset from its start when a preview leads it).
+                  // The editable source sits INSIDE the block's fragment.
                   editableRange.location >= oldBlockRange.location,
                   NSMaxRange(editableRange) <= NSMaxRange(oldBlockRange)
             else { return nil }
@@ -1515,9 +1517,6 @@ public struct AttributedRenderer {
         var cardRanges: [NSRange] = []
         output.enumerateAttribute(QuoinAttribute.blockDecoration, in: full) { value, range, _ in
             if value != nil { cardRanges.append(range) }
-        }
-        func intersectsCard(_ range: NSRange) -> Bool {
-            cardRanges.contains { NSIntersectionRange($0, range).length > 0 }
         }
         output.enumerateAttribute(.paragraphStyle, in: full) { value, range, _ in
             let style = (value as? NSParagraphStyle)?.mutableCopy() as? NSMutableParagraphStyle ?? paragraphStyle()

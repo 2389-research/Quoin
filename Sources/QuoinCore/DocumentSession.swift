@@ -24,10 +24,13 @@ public actor DocumentSession {
 
     public private(set) var document: QuoinDocument
     public private(set) var fileURL: URL?
-    /// Set when an external change lands while local edits are unsaved;
-    /// the UI shows a non-blocking merge banner (handoff rule) instead of
-    /// silently replacing.
-    public var onConflict: (@Sendable (String) -> Void)?
+    /// Set (via `setConflictHandler`) when an external change lands while
+    /// local edits are unsaved; the UI shows a non-blocking merge banner
+    /// (handoff rule) instead of silently replacing.
+    private var onConflict: (@Sendable (String) -> Void)?
+    /// Set (via `setSaveFailureHandler`) — a silent save failure in an app
+    /// with no Save button is data loss on a timer (launch audit BLOCKER #2).
+    private var onSaveFailure: (@Sendable (String) -> Void)?
     public private(set) var lastSaveError: SessionError?
     private var isDirty = false
     public var hasUnsavedChanges: Bool { isDirty }
@@ -114,7 +117,6 @@ public actor DocumentSession {
     public func setSaveFailureHandler(_ handler: @escaping @Sendable (String) -> Void) {
         onSaveFailure = handler
     }
-    private var onSaveFailure: (@Sendable (String) -> Void)?
 
     /// Follows a file rename (first-H1-renames-file): future saves and
     /// watching target the new URL. Also re-attaches a detached session.

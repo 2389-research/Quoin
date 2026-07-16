@@ -348,14 +348,13 @@ public enum MarkdownConverter {
         }
         guard oldHashCount == 1, !newHashAlreadyExists else { return nil }
 
-        let byteDelta = edit.replacement.utf8.count - edit.range.length
         var blocks = previous.blocks
         blocks[blockIndex] = Block(
             id: BlockID(contentHash: newContentHash, occurrence: 0),
             kind: newKind,
-            range: ByteRange(offset: block.range.offset, length: block.range.length + byteDelta)
+            range: ByteRange(offset: block.range.offset, length: block.range.length + sliceByteDelta)
         )
-        shiftAndReassignIDs(&blocks, from: blockIndex, by: byteDelta)
+        shiftAndReassignIDs(&blocks, from: blockIndex, by: sliceByteDelta)
 
         let shiftedOutline = previous.outline.map { heading in
             guard heading.range.offset > block.range.offset else { return heading }
@@ -364,7 +363,7 @@ public enum MarkdownConverter {
                 level: heading.level,
                 title: heading.title,
                 slug: heading.slug,
-                range: ByteRange(offset: heading.range.offset + byteDelta, length: heading.range.length)
+                range: ByteRange(offset: heading.range.offset + sliceByteDelta, length: heading.range.length)
             )
         }
         var stats = previous.stats
@@ -395,10 +394,12 @@ public enum MarkdownConverter {
     private static func isSafePlainParagraphSource(_ source: String) -> Bool {
         guard !source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
         guard !source.contains("\n\n"), !source.contains("\r") else { return false }
-        // `{`/`}`: typing a CriticMarkup mark into a plain paragraph must
-        // take the full parse — the slice re-parse would stamp the new
-        // mark's inline range SLICE-relative instead of document-absolute
-        // (panel review, HIGH).
+        // Any character that could introduce inline structure or an
+        // offset-carrying span forces the full parse: emphasis/code/link/
+        // image markers (`*_`[]!`), block sigils (`#>|=`), math (`$`), HTML
+        // (`<>&`), escapes (`\`), and CriticMarkup braces (`{}`). A slice
+        // re-parse of any of these would stamp the new inline's range
+        // SLICE-relative instead of document-absolute (panel review, HIGH).
         let forbidden = CharacterSet(charactersIn: "#>*_`[]!$=|<>&\\{}")
         guard source.rangeOfCharacter(from: forbidden) == nil else { return false }
 
@@ -607,9 +608,9 @@ public enum MarkdownConverter {
         // MARK: Identity
 
         mutating func makeBlock(kind: BlockKind, range: ByteRange) -> Block {
-            var hasher = Hasher()
-            hasher.combine(kind)
-            let contentHash = hasher.finalize()
+            // One identity rule, shared with the fast paths' hash-uniqueness
+            // gate — see `MarkdownConverter.contentHash(for:)`.
+            let contentHash = MarkdownConverter.contentHash(for: kind)
             let occurrence = occurrences[contentHash, default: 0]
             occurrences[contentHash] = occurrence + 1
             return Block(id: BlockID(contentHash: contentHash, occurrence: occurrence), kind: kind, range: range)
