@@ -1,0 +1,105 @@
+name: Release
+
+# Tag-driven releases: pushing a v* tag archives Release, signs with
+# Developer ID, notarizes + staples, signs the Sparkle appcast, and publishes
+# a GitHub Release carrying Quoin-<version>.zip + appcast.xml.
+#
+# scripts/release.sh is the single source of truth for the pipeline (the same
+# command works on a laptop); this workflow only supplies credentials and does
+# the publishing. Runbook: docs/reference/distribution.md.
+#
+# Repo secrets it expects:
+#   DEVELOPER_ID_P12           Developer ID Application identity (.p12, base64)
+#   DEVELOPER_ID_P12_PASSWORD  password for that .p12
+#   NOTARY_KEY_P8              App Store Connect API key (AuthKey_*.p8 contents)
+#   NOTARY_KEY_ID              that key's ID
+#   NOTARY_ISSUER_ID           App Store Connect issuer UUID
+#   SPARKLE_ED_PRIVATE_KEY     Sparkle EdDSA private key (generate_keys -x)
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: notarized release
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Full history: CFBundleVersion is the commit count.
+          fetch-depth: 0
+
+      # Same selection as ci.yml: the toolchain floor is Swift 6.2, so take
+      # the newest Xcode on the runner rather than pinning a major version.
+      - name: Select newest Xcode
+        run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -print | sort -V | tail -n 1)"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      # Ephemeral keychain holding the Developer ID identity. The .p12 carries
+      # only the leaf certificate, so Apple's Developer ID G2 intermediate
+      # (committed at scripts/certs/, fingerprint-verified against
+      # https://www.apple.com/certificateauthority/) is imported alongside —
+      # without it codesign would emit an incomplete chain and notarization
+      # would reject the signature.
+      - name: Import Developer ID identity
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          keychain="$RUNNER_TEMP/quoin-release.keychain-db"
+          keychain_pw="$(uuidgen)"
+          security create-keychain -p "$keychain_pw" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_pw" "$keychain"
+          echo "$DEVELOPER_ID_P12" | base64 -d > "$RUNNER_TEMP/devid.p12"
+          security import "$RUNNER_TEMP/devid.p12" -k "$keychain" \
+            -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/devid.p12"
+          security import scripts/certs/apple-developer-id-g2-ca.pem -k "$keychain"
+          security set-key-partition-list -S "apple-tool:,apple:" \
+            -s -k "$keychain_pw" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" login.keychain-db
+          security find-identity -v -p codesigning "$keychain"
+
+      - name: Version from tag
+        id: version
+        run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "build=$(git rev-list --count HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build, sign, notarize, staple, appcast
+        env:
+          QUOIN_VERSION: ${{ steps.version.outputs.version }}
+          QUOIN_BUILD: ${{ steps.version.outputs.build }}
+          QUOIN_NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          QUOIN_NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          umask 077
+          printf '%s\n' "$NOTARY_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          # The Sparkle key is one base64 line; strip whitespace so a stray
+          # trailing newline in the secret can't corrupt the decode.
+          printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | tr -d '[:space:]' \
+            > "$RUNNER_TEMP/sparkle_ed25519.key"
+          export QUOIN_NOTARY_KEY="$RUNNER_TEMP/AuthKey.p8"
+          export SPARKLE_ED_KEY_FILE="$RUNNER_TEMP/sparkle_ed25519.key"
+          scripts/release.sh "Developer ID Application: 2389 Research, Inc (HD9NM9NSMK)"
+
+      # Prerelease tags (any hyphen: v1.2.3-rc.1) never become "latest", so
+      # the live appcast at releases/latest/download stays untouched by them.
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          args=(--verify-tag --title "Quoin $GITHUB_REF_NAME" --generate-notes)
+          case "$GITHUB_REF_NAME" in *-*) args+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" "${args[@]}" \
+            build/release/Quoin-*.zip build/release/appcast.xml

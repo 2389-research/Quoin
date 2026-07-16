@@ -23,6 +23,13 @@ set -euo pipefail
 #                           (e.g. https://github.com/2389-research/Quoin/releases/latest/download).
 #   SPARKLE_BIN             Directory holding Sparkle's `generate_appcast`
 #                           tool (auto-discovered under DerivedData if unset).
+#   SPARKLE_ED_KEY_FILE     Path to the exported EdDSA private key. Set in CI;
+#                           when unset the key is read from the keychain.
+#   SPARKLE_ACCOUNT         Keychain account holding the key (default Quoin);
+#                           ignored when SPARKLE_ED_KEY_FILE is set.
+#
+# Notary auth + version stamping env is documented in notarize.sh
+# (QUOIN_NOTARY_*, QUOIN_VERSION, QUOIN_BUILD) and passes straight through.
 #
 # Output: build/release/ containing Quoin-<version>.zip (notarized, stapled)
 # and appcast.xml (EdDSA-signed). Upload BOTH to your release host.
@@ -51,9 +58,16 @@ fi
 }
 
 # 3. Sign every archive in the folder and (re)write appcast.xml. The private
-#    EdDSA key is read from the keychain; the tool refuses if it's missing.
+#    EdDSA key comes from a file in CI, from the keychain locally; the tool
+#    refuses if it's missing.
 echo "==> Generating EdDSA-signed appcast"
-"$generate_appcast" "$releases" --download-url-prefix "$appcast_base/"
+if [ -n "${SPARKLE_ED_KEY_FILE:-}" ]; then
+  "$generate_appcast" "$releases" --download-url-prefix "$appcast_base/" \
+    --ed-key-file "$SPARKLE_ED_KEY_FILE"
+else
+  "$generate_appcast" "$releases" --download-url-prefix "$appcast_base/" \
+    --account "${SPARKLE_ACCOUNT:-Quoin}"
+fi
 
 echo "DONE. Upload to $appcast_base :"
 ls -1 "$releases"/*.zip "$releases"/appcast.xml

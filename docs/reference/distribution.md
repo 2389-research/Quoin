@@ -31,13 +31,27 @@ flowchart LR
 ```
 
 The blue steps are automated by `scripts/release.sh` (which calls
-`scripts/notarize.sh` for the archive→staple half). You run one command; the
-prerequisites below are what make that command succeed.
+`scripts/notarize.sh` for the archive→staple half). Two ways to run it:
 
-## What you need to do (human-only prerequisites)
+- **CI (the normal path):** push a `v*` tag and
+  `.github/workflows/release.yml` runs the same script on a macOS runner,
+  then publishes a GitHub Release carrying `Quoin-<version>.zip` +
+  `appcast.xml`. The marketing version is stamped from the tag
+  (`v1.2.3 → 1.2.3`) and `CFBundleVersion` from the commit count, so Sparkle
+  always sees a growing build number. Tags containing a hyphen
+  (`v1.2.3-rc.1`) become **prereleases**, which GitHub excludes from
+  `releases/latest` — so a test tag never touches the live appcast.
+- **Locally:** run the script yourself (see "Cutting a release locally"
+  below) with the same prerequisites.
 
-None of these can be scripted — they require your Apple identity and your
-private keys. Do them once; after that, releasing is a single command.
+## One-time provisioning (done for 2389 Research)
+
+These required a human with the Apple identity; they are **done** — recorded
+here for whoever re-provisions (new team, expired cert, lost key). The
+private material lives in the team key stash and in the repo's GitHub Actions
+secrets (`DEVELOPER_ID_P12`, `DEVELOPER_ID_P12_PASSWORD`, `NOTARY_KEY_P8`,
+`NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`, `SPARKLE_ED_PRIVATE_KEY` — the names
+`release.yml` reads).
 
 1. **Apple Developer Program membership** — $99/year at
    [developer.apple.com](https://developer.apple.com/programs/). This is the
@@ -52,35 +66,38 @@ private keys. Do them once; after that, releasing is a single command.
    `Developer ID Application: Your Name (TEAMID)`. That string is the argument
    to the release script.
 
-3. **Notary credentials, stored once.** Create an app-specific password at
-   [account.apple.com](https://account.apple.com) (Sign-In & Security →
-   App-Specific Passwords), then:
+3. **Notary credentials.** CI authenticates with an App Store Connect API
+   key (`notarytool --key/--key-id/--issuer`, fed by the `NOTARY_*` secrets).
+   For local runs you can either export the same trio
+   (`QUOIN_NOTARY_KEY`/`QUOIN_NOTARY_KEY_ID`/`QUOIN_NOTARY_ISSUER`) or store
+   an app-specific password once:
    ```sh
    xcrun notarytool store-credentials quoin-notary \
      --apple-id you@example.com --team-id TEAMID
    ```
-   The profile name `quoin-notary` is what `notarize.sh` expects (override with
-   `QUOIN_NOTARY_PROFILE`).
+   The profile name `quoin-notary` is what `notarize.sh` defaults to
+   (override with `QUOIN_NOTARY_PROFILE`).
 
-4. **A Sparkle EdDSA signing key pair.** Run Sparkle's `generate_keys` once (it
-   ships in the Sparkle SPM artifact — see below). It prints a **public** key
-   and stores the **private** key in your keychain:
-   - Paste the public key into `App/macOS/project.yml` as `SUPublicEDKey`,
-     replacing the `REPLACE_WITH_YOUR_SPARKLE_EDDSA_PUBLIC_KEY` placeholder,
-     then `xcodegen`. The app will only install updates signed by the matching
-     private key.
-   - **Never** put the private key in the repo. If it leaks, an attacker can
-     sign malware your users' Quoin will trust.
+4. **The Sparkle EdDSA signing key pair.** Generated with Sparkle's
+   `generate_keys --account Quoin` (a Quoin-dedicated keychain account, so
+   the key isn't shared with other apps' default entry). The public half is
+   committed in `App/macOS/project.yml` as `SUPublicEDKey`; the private half
+   lives in the keychain, the key stash, and the `SPARKLE_ED_PRIVATE_KEY`
+   secret. The app only installs updates signed by it. **Never** put the
+   private key in the repo — if it leaks, an attacker can sign malware your
+   users' Quoin will trust. If it's ever lost, shipped apps can't verify new
+   updates: guard it.
 
-5. **A place to host the appcast + downloads.** Any static host works;
-   **GitHub Releases** is the simplest and is what `SUFeedURL` currently points
-   at (`…/releases/latest/download/appcast.xml`). Upload `appcast.xml` and each
-   `Quoin-<version>.zip` there. If you host elsewhere, update `SUFeedURL` in
-   `project.yml` and pass `QUOIN_APPCAST_BASE_URL` to the release script.
+5. **Hosting.** GitHub Releases, which `SUFeedURL` points at
+   (`…/releases/latest/download/appcast.xml`). CI uploads `appcast.xml` and
+   `Quoin-<version>.zip` to each release. If you ever host elsewhere, update
+   `SUFeedURL` in `project.yml` and pass `QUOIN_APPCAST_BASE_URL` to the
+   release script.
 
-Until steps 1–4 are done, the Sparkle code is wired but inert: the app builds,
-launches, and shows "Check for Updates…", but the placeholder key and feed mean
-no real update can be served yet. That is the intended pre-release state.
+One repo-side artifact supports this: `scripts/certs/apple-developer-id-g2-ca.pem`
+is Apple's public Developer ID G2 intermediate (fingerprint-verified against
+apple.com/certificateauthority). The CI keychain needs it because the `.p12`
+secret carries only the leaf certificate.
 
 ## Finding Sparkle's command-line tools
 
@@ -96,20 +113,30 @@ its directory to skip the search. Run `generate_keys` from the same directory.
 
 ## Cutting a release
 
-Once the prerequisites are in place:
+The normal path is a tag:
 
 ```sh
-# Bump the version first (marketing version in project.yml):
-#   CFBundleShortVersionString: "1.0.1"
+git tag v1.0.1 && git push origin v1.0.1     # real release
+git tag v1.0.1-rc.1 && git push origin v1.0.1-rc.1   # prerelease dry run
+```
 
-scripts/release.sh "Developer ID Application: Clint Ecker (TEAMID)"
+CI does the rest and the release appears on GitHub with the notarized zip and
+signed appcast attached. Existing installs pick up a non-prerelease on their
+next Sparkle check.
+
+## Cutting a release locally (fallback)
+
+```sh
+QUOIN_VERSION=1.0.1 QUOIN_BUILD=$(git rev-list --count HEAD) \
+  scripts/release.sh "Developer ID Application: 2389 Research, Inc (TEAMID)"
 ```
 
 That archives Release with the hardened runtime, signs with your Developer ID
 and a secure timestamp, submits to Apple's notary service and waits, staples the
-ticket, then signs and regenerates `appcast.xml`. Output lands in
-`build/release/`. Upload the `.zip` and `appcast.xml` to your host, and existing
-installs pick up the update on their next check.
+ticket, then signs and regenerates `appcast.xml` (add
+`SPARKLE_ED_KEY_FILE=/path/to/key` if the EdDSA key isn't in your keychain
+under account `Quoin`). Output lands in `build/release/`. Upload the `.zip`
+and `appcast.xml` to the GitHub Release yourself.
 
 Verify a build is Gatekeeper-clean before announcing it:
 ```sh
