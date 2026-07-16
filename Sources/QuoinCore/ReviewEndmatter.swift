@@ -135,6 +135,24 @@ public enum ReviewEndmatter {
     ///
     /// Returns nil unless at least one `comments:`/`suggestions:` section
     /// exists — the caller's ordinary-`---` disambiguator.
+    /// The endmatter YAML split the way our strict subset reads it — the ONE
+    /// place the line/indent rules live, so the parser and the two edit passes
+    /// can't disagree (they shipped a bug when they did: `\r\n` is one grapheme,
+    /// so an unnormalized split never splits CRLF lines). Each physical line is
+    /// CRLF-normalized, stripped of a stray lone `\r`, and paired with its
+    /// `trimmed` form and `indent` (leading spaces). Callers keep their own
+    /// per-line control flow.
+    static func yamlLines(_ yaml: String) -> [(line: String, trimmed: String, indent: Int)] {
+        let normalized = yaml.replacingOccurrences(of: "\r\n", with: "\n")
+        return normalized.split(separator: "\n", omittingEmptySubsequences: false).map { rawLine in
+            var line = String(rawLine)
+            if line.hasSuffix("\r") { line.removeLast() } // stray lone \r
+            return (line: line,
+                    trimmed: line.trimmingCharacters(in: .whitespaces),
+                    indent: line.prefix(while: { $0 == " " }).count)
+        }
+    }
+
     public static func parse(yaml: String) -> ReviewMetadata? {
         var comments: [String: ReviewEntry] = [:]
         var suggestions: [String: ReviewEntry] = [:]
@@ -151,16 +169,8 @@ public enum ReviewEndmatter {
             return section == "comments" ? comments[id] : suggestions[id]
         }
 
-        // CRLF tolerance: Swift's "\r\n" is ONE grapheme cluster, so a
-        // Character-based split on "\n" never splits CRLF lines at all —
-        // the whole yaml read as one line and the strict rule nil'd it.
-        let normalized = yaml.replacingOccurrences(of: "\r\n", with: "\n")
-        for rawLine in normalized.split(separator: "\n", omittingEmptySubsequences: false) {
-            var line = String(rawLine)
-            if line.hasSuffix("\r") { line.removeLast() } // stray lone \r
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
+        for (_, trimmed, indent) in Self.yamlLines(yaml) {
             if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-            let indent = line.prefix(while: { $0 == " " }).count
 
             if indent == 0 {
                 currentID = nil
@@ -302,12 +312,7 @@ extension ReviewEndmatter {
         var keptLines: [String] = []
         var pendingHeader: String?
         var skippingEntry = false
-        let normalizedYAML = detected.yaml.replacingOccurrences(of: "\r\n", with: "\n")
-        for rawLine in normalizedYAML.split(separator: "\n", omittingEmptySubsequences: false) {
-            var line = String(rawLine)
-            if line.hasSuffix("\r") { line.removeLast() } // CRLF tolerance
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let indent = line.prefix(while: { $0 == " " }).count
+        for (line, trimmed, indent) in Self.yamlLines(detected.yaml) {
             if indent == 0 {
                 skippingEntry = false
                 if trimmed == "comments:" || trimmed == "suggestions:" {
@@ -394,13 +399,7 @@ extension ReviewEndmatter {
             wroteRecord = true
             inTargetEntry = false
         }
-        // CRLF tolerance: Swift's "\r\n" is one grapheme, so an unnormalized
-        // split never splits CRLF lines (same rule as parse()).
-        let normalizedYAML = detected.yaml.replacingOccurrences(of: "\r\n", with: "\n")
-        for rawLine in normalizedYAML.split(separator: "\n", omittingEmptySubsequences: false) {
-            let line = String(rawLine)
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            let indent = line.prefix(while: { $0 == " " }).count
+        for (line, trimmed, indent) in Self.yamlLines(detected.yaml) {
             if indent == 0 {
                 emitRecord()
                 keptLines.append(line)
