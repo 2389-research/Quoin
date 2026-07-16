@@ -98,7 +98,7 @@
 
   /* Demo video */
   .video{margin:26px auto 0;max-width:900px}
-  .video video{width:100%;display:block;border-radius:var(--radius);border:1px solid var(--line);background:#000;box-shadow:0 24px 60px -30px rgba(38,52,61,.55)}
+  .video video{width:100%;height:auto;display:block;border-radius:var(--radius);border:1px solid var(--line);background:#000;box-shadow:0 24px 60px -30px rgba(38,52,61,.55)}
   .video figcaption{font-size:13px;color:var(--muted);text-align:center;margin-top:12px}
 
   /* Engines row */
@@ -169,7 +169,7 @@
     <h2 class="ctr" style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .4em">Suggest, comment, accept — all in the file</h2>
     <p class="sub ctr">A real review pass in Quoin: writing tracked-change suggestions and comments, then resolving them from the inspector — the marks live in the Markdown the whole time.</p>
     <figure class="video">
-      <video controls muted playsinline preload="none" poster="media/review-loop-poster.jpg" width="1280" height="696">
+      <video controls muted playsinline preload="none" poster="media/review-loop-poster.jpg" width="1220" height="672">
         <source src="media/review-loop.mp4" type="video/mp4">
         Your browser can't play embedded video — <a href="media/review-loop.mp4">download the clip</a>.
       </video>
@@ -350,5 +350,17 @@ suggestions:
     <p>Built with Swift, SwiftUI, and TextKit&nbsp;2. No JavaScript at runtime, no web view, local-only.</p>
   </div>
 </footer>
+<script>
+  // Pause any video once it scrolls mostly out of view (mobile + desktop).
+  (function () {
+    if (!('IntersectionObserver' in window)) return;
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting && !e.target.paused) e.target.pause();
+      });
+    }, { threshold: 0.2 });
+    document.querySelectorAll('video').forEach(function (v) { io.observe(v); });
+  })();
+</script>
 </body>
 </html>
