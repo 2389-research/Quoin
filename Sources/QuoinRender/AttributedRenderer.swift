@@ -2097,65 +2097,7 @@ public struct AttributedRenderer {
             return NSAttributedString(string: "\(index)", attributes: attrs)
 
         case .suggestion(let kind, let markRange, _):
-            // CriticMarkup marks (docs/design/suggestions.md, S1 read-only):
-            // pending suggestions render as tracked changes — never silently
-            // collapsed (RDFM normative rule). Accept/reject chips arrive in
-            // S2; the reveal shows the literal mark syntax.
-            func tagged(_ rendered: NSAttributedString) -> NSAttributedString {
-                let output = NSMutableAttributedString(attributedString: rendered)
-                output.addAttribute(
-                    QuoinAttribute.suggestionRange,
-                    value: NSValue(range: NSRange(location: markRange.offset, length: markRange.length)),
-                    range: NSRange(location: 0, length: output.length))
-                return output
-            }
-            switch kind {
-            case .insertion(let children):
-                var attrs = attributes
-                attrs[.backgroundColor] = theme.suggestionInsertFill
-                attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                attrs[.underlineColor] = theme.suggestionInsertInk.withAlphaComponent(0.5)
-                return tagged(renderInlines(children, base: attrs))
-            case .deletion(let children):
-                var attrs = attributes
-                attrs[.backgroundColor] = theme.suggestionDeleteFill
-                attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                attrs[.foregroundColor] = theme.ink.withAlphaComponent(0.55)
-                return tagged(renderInlines(children, base: attrs))
-            case .substitution(let old, let new):
-                let output = NSMutableAttributedString()
-                var oldAttrs = attributes
-                oldAttrs[.backgroundColor] = theme.suggestionDeleteFill
-                oldAttrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
-                oldAttrs[.foregroundColor] = theme.ink.withAlphaComponent(0.55)
-                output.append(renderInlines(old, base: oldAttrs))
-                var arrowAttrs = attributes
-                arrowAttrs[.foregroundColor] = theme.secondaryTextColor
-                output.append(NSAttributedString(string: " → ", attributes: arrowAttrs))
-                var newAttrs = attributes
-                newAttrs[.backgroundColor] = theme.suggestionInsertFill
-                newAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
-                newAttrs[.underlineColor] = theme.suggestionInsertInk.withAlphaComponent(0.5)
-                output.append(renderInlines(new, base: newAttrs))
-                return tagged(output)
-            case .comment(let text):
-                // Annotation, not document text: a compact bubble chip. The
-                // full comment shows in the tooltip; S2 gives it a real UI.
-                var attrs = attributes
-                attrs[.font] = PlatformFont.systemFont(ofSize: theme.bodySize * 0.8)
-                attrs[.foregroundColor] = theme.suggestionCommentInk
-                attrs[.backgroundColor] = theme.suggestionCommentFill
-                #if canImport(AppKit)
-                attrs[.toolTip] = text as NSString
-                #endif
-                let label = text.count <= 24 ? text : String(text.prefix(23)) + "…"
-                return tagged(NSAttributedString(string: " 💬 \(label) ", attributes: attrs))
-            case .highlight(let children):
-                var attrs = attributes
-                attrs[.backgroundColor] = theme.suggestionHighlightFill
-                attrs[.foregroundColor] = theme.textColor
-                return tagged(renderInlines(children, base: attrs))
-            }
+            return renderSuggestion(kind: kind, markRange: markRange, attributes: attributes)
 
         case .softBreak:
             return NSAttributedString(string: " ", attributes: attributes)
@@ -2168,6 +2110,71 @@ public struct AttributedRenderer {
             attrs[.font] = theme.inlineCodeFont()
             attrs[.foregroundColor] = theme.secondaryTextColor
             return NSAttributedString(string: raw, attributes: attrs)
+        }
+    }
+
+    /// A CriticMarkup mark rendered as a tracked change (docs/design/
+    /// suggestions.md, S1 read-only): pending suggestions render inline —
+    /// never silently collapsed (RDFM normative rule). The whole run is
+    /// tagged with `suggestionRange` so the click plumbing can resolve it.
+    private func renderSuggestion(
+        kind: SuggestionKind, markRange: ByteRange,
+        attributes: [NSAttributedString.Key: Any]
+    ) -> NSAttributedString {
+        func tagged(_ rendered: NSAttributedString) -> NSAttributedString {
+            let output = NSMutableAttributedString(attributedString: rendered)
+            output.addAttribute(
+                QuoinAttribute.suggestionRange,
+                value: NSValue(range: NSRange(location: markRange.offset, length: markRange.length)),
+                range: NSRange(location: 0, length: output.length))
+            return output
+        }
+        switch kind {
+        case .insertion(let children):
+            var attrs = attributes
+            attrs[.backgroundColor] = theme.suggestionInsertFill
+            attrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            attrs[.underlineColor] = theme.suggestionInsertInk.withAlphaComponent(0.5)
+            return tagged(renderInlines(children, base: attrs))
+        case .deletion(let children):
+            var attrs = attributes
+            attrs[.backgroundColor] = theme.suggestionDeleteFill
+            attrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            attrs[.foregroundColor] = theme.ink.withAlphaComponent(0.55)
+            return tagged(renderInlines(children, base: attrs))
+        case .substitution(let old, let new):
+            let output = NSMutableAttributedString()
+            var oldAttrs = attributes
+            oldAttrs[.backgroundColor] = theme.suggestionDeleteFill
+            oldAttrs[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            oldAttrs[.foregroundColor] = theme.ink.withAlphaComponent(0.55)
+            output.append(renderInlines(old, base: oldAttrs))
+            var arrowAttrs = attributes
+            arrowAttrs[.foregroundColor] = theme.secondaryTextColor
+            output.append(NSAttributedString(string: " → ", attributes: arrowAttrs))
+            var newAttrs = attributes
+            newAttrs[.backgroundColor] = theme.suggestionInsertFill
+            newAttrs[.underlineStyle] = NSUnderlineStyle.single.rawValue
+            newAttrs[.underlineColor] = theme.suggestionInsertInk.withAlphaComponent(0.5)
+            output.append(renderInlines(new, base: newAttrs))
+            return tagged(output)
+        case .comment(let text):
+            // Annotation, not document text: a compact bubble chip. The
+            // full comment shows in the tooltip; S2 gives it a real UI.
+            var attrs = attributes
+            attrs[.font] = PlatformFont.systemFont(ofSize: theme.bodySize * 0.8)
+            attrs[.foregroundColor] = theme.suggestionCommentInk
+            attrs[.backgroundColor] = theme.suggestionCommentFill
+            #if canImport(AppKit)
+            attrs[.toolTip] = text as NSString
+            #endif
+            let label = text.count <= 24 ? text : String(text.prefix(23)) + "…"
+            return tagged(NSAttributedString(string: " 💬 \(label) ", attributes: attrs))
+        case .highlight(let children):
+            var attrs = attributes
+            attrs[.backgroundColor] = theme.suggestionHighlightFill
+            attrs[.foregroundColor] = theme.textColor
+            return tagged(renderInlines(children, base: attrs))
         }
     }
 
