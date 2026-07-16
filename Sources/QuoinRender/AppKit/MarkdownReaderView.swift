@@ -194,6 +194,12 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// outside the styler — screenshots 2026-07-14).
     public var activeFragmentProvider: ((_ caretOffset: Int) -> NSAttributedString?)? = nil
 
+    /// ⌘V of a clipboard image (screenshot, copied bitmap, or copied image
+    /// file). The app writes the image into the library's `assets/` folder and
+    /// inserts `![](assets/…)` at the caret; returning true means the image was
+    /// handled so the plain-text paste is skipped. nil = read-only reader.
+    public var onPasteImage: (() -> Bool)? = nil
+
     public init(
         rendered: RenderedDocument,
         theme: Theme = Theme(),
@@ -235,7 +241,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         annotationGeneration: Int = 0,
         onSuggestionCaretLink: ((ByteRange?) -> Void)? = nil,
         onOpenReview: (() -> Void)? = nil,
-        activeFragmentProvider: ((_ caretOffset: Int) -> NSAttributedString?)? = nil
+        activeFragmentProvider: ((_ caretOffset: Int) -> NSAttributedString?)? = nil,
+        onPasteImage: (() -> Bool)? = nil
     ) {
         self.rendered = rendered
         self.theme = theme
@@ -278,6 +285,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.onSuggestionCaretLink = onSuggestionCaretLink
         self.onOpenReview = onOpenReview
         self.activeFragmentProvider = activeFragmentProvider
+        self.onPasteImage = onPasteImage
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -369,6 +377,9 @@ public struct MarkdownReaderView: NSViewRepresentable {
         }
         textView.onEditingFrameGeometry = { [weak coordinator = context.coordinator] frameBox in
             coordinator?.updatePreviewPanel(editingFrame: frameBox)
+        }
+        textView.onPasteImage = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onPasteImage?() ?? false
         }
         textView.onSmartPaste = { [weak coordinator = context.coordinator] in
             coordinator?.handleSmartPaste() ?? false

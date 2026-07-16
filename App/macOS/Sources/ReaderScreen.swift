@@ -187,7 +187,8 @@ struct ReaderScreen: View {
                     inspectorMode = .review
                     userPickedInspectorMode = true
                 },
-                activeFragmentProvider: { caret in model.restyledActiveFragment(caretOffset: caret) }
+                activeFragmentProvider: { caret in model.restyledActiveFragment(caretOffset: caret) },
+                onPasteImage: { model.insertPastedImage() }
             )
             // Dropping an image file copies it into assets/ and inserts
             // the markdown reference at the caret.

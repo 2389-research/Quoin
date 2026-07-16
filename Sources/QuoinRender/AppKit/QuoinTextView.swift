@@ -128,7 +128,14 @@ final class QuoinTextView: NSTextView {
     /// through to the ordinary paste pipeline.
     var onSmartPaste: (() -> Bool)?
 
+    /// Image paste (#24): a clipboard image (screenshot, copied bitmap, or
+    /// copied image file) is written into the library and referenced with
+    /// `![](assets/…)`. Returning true means the image was handled, so the
+    /// plain-text paste (which would drop nothing useful) is skipped.
+    var onPasteImage: (() -> Bool)?
+
     override func paste(_ sender: Any?) {
+        if onPasteImage?() == true { return }
         if onSmartPaste?() == true { return }
         super.paste(sender)
     }

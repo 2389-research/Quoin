@@ -1082,18 +1082,10 @@ final class ReaderModel {
     /// can fail; a failure is surfaced as a banner rather than swallowed, so
     /// the user never believes an image landed when it didn't.
     func insertImage(from sourceURL: URL) {
-        guard let session,
-              let docURL = fileURL,
-              Self.imageExtensions.contains(sourceURL.pathExtension.lowercased())
+        guard session != nil,
+              Self.imageExtensions.contains(sourceURL.pathExtension.lowercased()),
+              let assetsFolder = ensureAssetsFolder()
         else { return }
-
-        let assetsFolder = docURL.deletingLastPathComponent().appendingPathComponent("assets", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: assetsFolder, withIntermediateDirectories: true)
-        } catch {
-            reportFailure("Couldn't create the assets folder for the image.")
-            return
-        }
 
         // Silent-suffix collision handling, same rule as document names.
         let destination = Library.uniqueURL(
@@ -1106,7 +1098,61 @@ final class ReaderModel {
             reportFailure("Couldn't copy “\(sourceURL.lastPathComponent)” into the library.")
             return
         }
+        insertAssetReference(to: destination)
+    }
 
+    /// Clipboard image paste (#24): a screenshot / copied bitmap / copied image
+    /// file on the pasteboard is written into `assets/` and referenced inline.
+    /// Returns true if an image was found and handled (so the caller can skip
+    /// the plain-text paste). Screenshots and copied bitmaps normalize to PNG;
+    /// a copied image FILE reuses the drag-drop path to keep its own format.
+    @discardableResult
+    func insertPastedImage(from pasteboard: NSPasteboard = .general) -> Bool {
+        guard session != nil, fileURL != nil else { return false }
+
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
+           let imageURL = urls.first(where: { Self.imageExtensions.contains($0.pathExtension.lowercased()) }) {
+            insertImage(from: imageURL)
+            return true
+        }
+
+        guard let png = ClipboardImage.pngData(from: pasteboard),
+              let assetsFolder = ensureAssetsFolder()
+        else { return false }
+        let destination = Library.uniqueURL(baseName: "pasted-image", extension: "png", in: assetsFolder)
+        do {
+            try png.write(to: destination)
+        } catch {
+            reportFailure("Couldn't save the pasted image into the library.")
+            return false
+        }
+        insertAssetReference(to: destination)
+        return true
+    }
+
+    /// The library `assets/` folder beside the current document, created on
+    /// demand; nil (with a banner) when it can't be made.
+    private func ensureAssetsFolder() -> URL? {
+        guard let docURL = fileURL else { return nil }
+        let folder = docURL.deletingLastPathComponent().appendingPathComponent("assets", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        } catch {
+            reportFailure("Couldn't create the assets folder for the image.")
+            return nil
+        }
+        return folder
+    }
+
+    /// Insert `![](assets/<name>)` for an asset ALREADY written to `destination`,
+    /// at the caret (or document end). Routed through the FIFO edit pipeline
+    /// like every other mutation (review HIGH: a bare Task computed the offset
+    /// against the model projection and applied it OUT OF BAND, so an image
+    /// dropped while a keystroke was still round-tripping spliced at a stale
+    /// offset and landed in the wrong place — a well-formed but wrong document
+    /// that autosave then persisted). On failure the orphaned asset is removed
+    /// so a retry doesn't accumulate copies.
+    private func insertAssetReference(to destination: URL) {
         let markdown = "\n\n![](assets/\(destination.lastPathComponent))\n"
         let offset: Int
         if let activeBlockID,
@@ -1119,13 +1165,6 @@ final class ReaderModel {
             offset = document.source.utf8.count
         }
 
-        // Route through the FIFO edit pipeline like every other mutation
-        // (review HIGH: a bare Task computed the offset against the model
-        // projection and applied it OUT OF BAND, so an image dropped while
-        // a keystroke was still round-tripping spliced at a stale offset
-        // and landed in the wrong place — a well-formed but wrong document
-        // that autosave then persisted). On failure the orphaned asset is
-        // removed so a retry doesn't accumulate copies.
         let edit = SourceEdit(range: ByteRange(offset: offset, length: 0), replacement: markdown)
         applyAbsolute(edit, caretUTF8: offset + markdown.utf8.count) {
             try? FileManager.default.removeItem(at: destination)

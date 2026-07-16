@@ -73,6 +73,10 @@ the file on disk stays clean markdown you own.
   item ends the list. All as byte-exact source edits.
 - **Task lists** — click a checkbox; it toggles and writes `- [x]` back to the
   file.
+- **Images** — drag an image file in, or **paste** a screenshot / copied image
+  (⌘V). Quoin copies it into an `assets/` folder beside your document and
+  inserts `![](assets/…)` at the caret — the file stays a plain `.md` you can
+  move as a folder.
 - **Word-granular undo** — typing coalesces into word-sized undo steps, so `⌘Z`
   removes a word (or a backspaced run), not one letter at a time.
 - **Block operations** — right-click any block for **Duplicate Block**,
