@@ -39,25 +39,44 @@ Severity: **H** = structural/risk, **M** = principled cleanup, **L** = polish.
   private `onConflict`/`onSaveFailure`; the "Fallback" → native-path renames;
   the 11 reveal regexes hoisted to compile-once statics (§6).
 
-**Structural tier — shipped so far** (each its own commit, all 647 tests green):
+**Structural tier — shipped** (each its own commit, all 647 tests green):
 
 - ✅ The renderer/scanner **grammar-agreement test** — `criticMarkRanges`
   seam + `RevealCriticAgreementTests` pins the reveal styler and
   `CriticScanner` to the same mark spans (the highest-risk latent bug).
 - ✅ **`updateNSView`** (358 lines) → a ~15-line orchestration over
   `applyProjection` / `restoreActiveCaret` / `applyPendingCommands`.
+- ✅ **`Builder` → `FootnoteCollector`** (footnote state + pure parsing, the
+  one clean seam; the missing-note placeholder is injected as a closure).
+- ✅ **`convertParagraph`** early-exits split into `[Block]?` helpers.
+- ✅ **`rebuild()`** hoisted from the two near-twin incremental fast paths.
+- ✅ **`ReviewEndmatter.yamlLines`** — one line/indent walker for all three
+  YAML passes (also fixed a real lone-`\r` inconsistency).
+- ✅ **`containerCardsAndGaps`** shared by the callout/blockquote bodies.
 
-**Structural tier — remaining** (each its own careful commit, guarded by
-RevealFidelity / CaretLineAnchor / ProjectorEquivalence):
+**Structural tier — evaluated and DECLINED** (with reason — forcing these would
+violate "the most sane way"):
 
-- §1 god-objects: `ReaderCoordinator` (5 subsystems), `AttributedRenderer`
-  (4-way), `Builder`.
-- §1 secondary: `convertParagraph`, `toggleTask`, `measureVisibleRuns`,
-  `styleLinks`, `spliceChanges` prefix/suffix.
-- §2: `rebuild()` fast-path dedup, `forEachYAMLLine` tokenizer,
-  `styleContainerBody` dedup.
-- §6: callback config structs, a real `SeparatorPolicy` type, typed `@objc`
-  payloads, `SegmentCursor`, the `isCode` marker attribute, draw magic numbers.
+- **`AttributedRenderer` 4-way type-split** and a standalone **`SeparatorPolicy`
+  type**: the separator methods (and every render method) depend on the
+  renderer's shared attribute helpers (`bodyAttributes`, `isCard`,
+  `mutateParagraphStyles`, `theme`) and mutually recurse. Carving out types
+  cascades those dependencies out as threaded context and forces file-private
+  methods to `internal`, adding ceremony and access-widening without reducing
+  real complexity. `separator()` is already THE single funnel. Left cohesive.
+- **`ReaderCoordinator` 5-subsystem split**: each subsystem's *state* is
+  separable, but its *methods* need coordinator context (`textView`, `parent`,
+  `theme`, `nsTextRange`, the storage-attr helpers) — extraction means each
+  collaborator holds a back-reference to that context. A real refactor with
+  real ceremony, and the riskiest file in the app; warrants its own dedicated
+  session, not the tail of a long one.
+- **`Builder` → `InlineAssembler`**: the inline methods share `stats.mathCount`,
+  the macro table, and mutual recursion through `convertInline`. Same reason.
+
+**Structural tier — remaining, genuinely clean** (optional polish; no shared-
+state entanglement): §1 secondary `toggleTask` / `measureVisibleRuns` /
+`styleLinks` / `spliceChanges` prefix-suffix; §6 typed `@objc` payloads,
+`SegmentCursor`, `isCode` marker attribute, draw magic numbers, config structs.
 
 ---
 

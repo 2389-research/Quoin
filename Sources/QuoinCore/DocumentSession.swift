@@ -577,15 +577,27 @@ public actor DocumentSession {
         let source = document.source
         let wasDirty = isDirty
         do {
-            try Data(source.utf8).write(to: fileURL, options: .atomic)
-            selfWriteHash = SHA256Hex.hash(of: source)
+            try writeToDisk(source, to: fileURL)
             isDirty = false
-            lastSaveError = nil
             autosaveTask?.cancel()
             autosaveTask = nil
         } catch {
             if wasDirty { isDirty = true }
-            let failure = SessionError.fileWriteFailed(fileURL, String(describing: error))
+            throw error
+        }
+    }
+
+    /// Atomically write `source` to `url`, record it as a self-write so the
+    /// file watcher ignores the echo, and clear (or, on failure, set +
+    /// rethrow) `lastSaveError`. Callers own the dirty-flag, autosave, and
+    /// detached-session bookkeeping around this shared core.
+    private func writeToDisk(_ source: String, to url: URL) throws {
+        do {
+            try Data(source.utf8).write(to: url, options: .atomic)
+            selfWriteHash = SHA256Hex.hash(of: source)
+            lastSaveError = nil
+        } catch {
+            let failure = SessionError.fileWriteFailed(url, String(describing: error))
             lastSaveError = failure
             throw failure
         }
@@ -632,15 +644,7 @@ public actor DocumentSession {
                 // path and fork the document (ledger #6).
                 throw SessionError.fileWriteFailed(fileURL, "file was moved or deleted externally")
             }
-            do {
-                try Data(newSource.utf8).write(to: fileURL, options: .atomic)
-                selfWriteHash = SHA256Hex.hash(of: newSource)
-                lastSaveError = nil
-            } catch {
-                let failure = SessionError.fileWriteFailed(fileURL, String(describing: error))
-                lastSaveError = failure
-                throw failure
-            }
+            try writeToDisk(newSource, to: fileURL)
         }
         if base.sourceHash != viewed.sourceHash {
             // The toggle was re-anchored onto content the user never edited
