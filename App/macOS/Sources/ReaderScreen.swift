@@ -85,6 +85,8 @@ struct ReaderScreen: View {
     /// Menu actions must land in the KEY window only (launch ledger
     /// BLOCKER: with two windows, ⌘Z used to undo in both documents).
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     private var isKeyWindow: Bool { controlActiveState == .key }
 
@@ -707,7 +709,7 @@ struct ReaderScreen: View {
             )
             .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
             .transition(.opacity.combined(with: .move(edge: .top)))
-            .animation(.easeInOut(duration: 0.15), value: isEditingBlock)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.15), value: isEditingBlock)
         }
     }
 
@@ -955,7 +957,9 @@ struct ReaderScreen: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(.bar)
+        .background(reduceTransparency
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+            : AnyShapeStyle(Material.bar))
     }
 
     private func replaceCurrent() {
@@ -1004,7 +1008,9 @@ struct ReaderScreen: View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
         .padding(.vertical, 7)
-        .background(.bar)
+        .background(reduceTransparency
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+            : AnyShapeStyle(Material.bar))
     }
 
     private func openFind() {
@@ -1052,6 +1058,7 @@ struct OutlinePanel: View {
     let outline: [HeadingInfo]
     let currentSectionID: BlockID?
     let onSelect: (BlockID) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Collapsed heading subtrees (session-scoped). A heading hides when
     /// any ancestor — the nearest preceding heading of a shallower level —
@@ -1103,7 +1110,7 @@ struct OutlinePanel: View {
                         isCollapsed: collapsed.contains(heading.id),
                         onSelect: onSelect,
                         onToggle: {
-                            withAnimation(.easeOut(duration: 0.15)) {
+                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
                                 if collapsed.contains(heading.id) {
                                     collapsed.remove(heading.id)
                                 } else {

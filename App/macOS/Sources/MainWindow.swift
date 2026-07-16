@@ -35,6 +35,7 @@ struct MainWindow: View {
     /// below guards on this (launch ledger BLOCKER: two windows used to
     /// both undo/export on one menu click).
     @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var isKeyWindow: Bool { controlActiveState == .key }
 
@@ -110,7 +111,8 @@ struct MainWindow: View {
         // ⌘0 / View ▸ Show/Hide Sidebar (handoff keyboard map).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleSidebarNotification)) { _ in
             guard isKeyWindow else { return }
-            withAnimation {
+            // Reduce Motion (#28): apply the sidebar change instantly.
+            withAnimation(reduceMotion ? nil : .default) {
                 columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
             }
         }

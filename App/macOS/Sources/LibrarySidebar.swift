@@ -312,6 +312,7 @@ struct QuickOpenPanel: View {
 
     @State private var highlighted = 0
     @FocusState private var fieldFocused: Bool
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
 
     var body: some View {
         VStack(spacing: 0) {
@@ -371,7 +372,10 @@ struct QuickOpenPanel: View {
             }
         }
         .frame(width: 480)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .background(reduceTransparency
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+            : AnyShapeStyle(Material.regularMaterial),
+            in: RoundedRectangle(cornerRadius: 10))
         .shadow(color: .black.opacity(0.14), radius: 32, y: 12)
         .onAppear { fieldFocused = true }
         .onChange(of: library.quickOpenQuery) { _, _ in
