@@ -397,7 +397,7 @@ struct ReaderScreen: View {
                 } label: {
                     Label("Focus", systemImage: isFocusMode ? "scope" : "circle.dashed")
                 }
-                .help(isFocusMode ? "Leave focus mode (⌥⌘F)" : "Focus mode: dim everything but the current paragraph (⌥⌘F)")
+                .help(isFocusMode ? "Leave focus mode" : "Focus mode: dim everything but the current paragraph")
                 Button {
                     isExportVisible = true
                 } label: {

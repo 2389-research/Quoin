@@ -53,8 +53,9 @@ struct SettingsView: View {
             AdvancedSettings()
                 .tabItem { Label("Advanced", systemImage: "slider.horizontal.3") }
         }
-        // A fixed width keeps the window from resizing as you switch tabs.
-        .frame(width: 480)
+        // A fixed width and a common minimum height keep the window from
+        // resizing as you switch between the differently-tall tabs.
+        .frame(width: 480, height: 460)
     }
 }
 

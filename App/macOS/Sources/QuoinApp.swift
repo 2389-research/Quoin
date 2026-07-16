@@ -15,6 +15,10 @@ struct QuoinApp: App {
         // the picked folder (#61).
         WindowGroup(id: "main", for: String.self) { $rootPath in
             MainWindow(requestedRootPath: rootPath)
+                // Floor the window so the sidebar + editor + inspector triad
+                // can't be crushed to a sliver (the split-view column mins
+                // don't floor the whole window).
+                .frame(minWidth: 720, minHeight: 480)
         }
         .defaultSize(width: 1280, height: 800) // 16:10 — room for sidebar + editor + outline/inspector
         .commands {
@@ -212,11 +216,12 @@ private struct ViewCommands: Commands {
                 .keyboardShortcut("0", modifiers: [.command, .option])
             Toggle("Status Bar", isOn: $showStatusBar)
             Divider()
+            // No key equivalent: every F chord is taken (⌘F Find, ⌥⌘F
+            // Replace, ⇧⌘F Search Library) and ⌃⌘F is the SYSTEM's Enter Full
+            // Screen — binding it there produced two menu items on one chord.
+            // Focus Mode stays reachable via this menu + the toolbar button;
+            // a deliberate chord can be assigned from the keyboard map later.
             Toggle("Focus Mode", isOn: $isFocusMode)
-                // ⌃⌘F — ⌥⌘F is the Find & Replace convention, which wins
-                // the F chord; Focus Mode (app-specific, no convention)
-                // takes control-command instead.
-                .keyboardShortcut("f", modifiers: [.command, .control])
             Toggle("Sentence Focus", isOn: $isSentenceFocus)
                 .disabled(!isFocusMode)
             Toggle("Typewriter Scrolling", isOn: $isTypewriter)
@@ -406,6 +411,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.systemUptime - launchUptime < 5
     }
     private static let launchUptime = ProcessInfo.processInfo.systemUptime
+
+    /// Opt into secure state restoration (the modern default); without this
+    /// macOS logs "does not implement… returning NO" and opts the app out.
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Quoin has its own document tabs; the system window-tab items
