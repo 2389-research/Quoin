@@ -63,7 +63,10 @@ struct MainWindow: View {
             }
         } detail: {
             VStack(spacing: 0) {
-                if !library.hasLibrary {
+                // A library is NOT required to edit: opening a file (⌘O / Finder
+                // / Open Recent) builds a standalone tab with no rootURL (#18).
+                // Onboard only when there is genuinely nothing to show.
+                if openTabs.isEmpty && !library.hasLibrary {
                     chooseLibraryPrompt
                 } else {
                     DocumentTabBar(tabs: openTabs, activeTabID: $activeTabID) { tab in
@@ -478,27 +481,33 @@ struct MainWindow: View {
                 .background(Color.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
                 .padding(.bottom, 8)
             }
-            Image(systemName: "folder.badge.plus")
+            Image(systemName: "doc.text")
                 .font(.system(size: 36))
                 .foregroundStyle(.primary.opacity(0.35))
-            Text("Where should your documents live?")
+            Text("Open a file, or set up a library")
                 .font(.system(size: 13, weight: .semibold))
             Text("Your documents stay plain .md files on disk.\nQuoin never converts or moves your files.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            // Just edit a file — no library required (#18). First-class path,
+            // so a single-file user is never forced to create a folder.
+            Button("Open a File…") {
+                presentOpenPanel()
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 6)
             // First frame of the real app should be a beautiful rendered
             // document, not an empty tree (launch ledger L1).
             Button("Create a Starter Library") {
                 if let welcome = library.createStarterLibrary() { open(welcome) }
             }
-            .buttonStyle(.borderedProminent)
-            .padding(.top, 6)
+            .buttonStyle(.bordered)
             Button("Choose an Existing Folder…") {
                 library.chooseLibraryFolder()
             }
             .buttonStyle(.bordered)
-            Text("A library is just a folder — every document stays a plain file you can open anywhere.")
+            Text("A library is just a folder Quoin watches — optional. Every document is a plain file you can open anywhere.")
                 .font(.system(size: 10.5))
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
