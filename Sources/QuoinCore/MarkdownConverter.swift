@@ -559,8 +559,7 @@ public enum MarkdownConverter {
         var stats = DocumentStats()
         var occurrences: [Int: Int] = [:]
         var proseBuffer = ""
-        var footnoteOrdinals: [String: Int] = [:]
-        var footnoteDefinitions: [String: [Block]] = [:]
+        var footnotes = FootnoteCollector()
         /// Document-scoped math macros (`\newcommand`/`\def`), collected
         /// from the whole source before block conversion so a use resolves
         /// regardless of whether its definition came earlier or later.
@@ -714,7 +713,7 @@ public enum MarkdownConverter {
         mutating func postProcess(_ inlines: [Inline], math: Bool = true) -> [Inline] {
             var out = math ? spliceInlineMath(into: inlines) : inlines
             out = InlinePostPasses.spliceHighlights(into: out, stats: &stats)
-            out = InlinePostPasses.spliceFootnoteReferences(into: out, ordinals: &footnoteOrdinals)
+            out = InlinePostPasses.spliceFootnoteReferences(into: out, ordinals: &footnotes.ordinals)
             return out
         }
 
@@ -782,7 +781,7 @@ public enum MarkdownConverter {
         /// slice can hold several), or nil when it is ordinary prose.
         private mutating func footnoteDefinitionBlocks(slice: String?, range: ByteRange) -> [Block]? {
             guard let slice else { return nil }
-            let definitions = parseFootnoteDefinitions(slice)
+            let definitions = FootnoteCollector.parseDefinitions(slice)
             guard !definitions.isEmpty else { return nil }
             for definition in definitions {
                 let fragment = Markdown.Document(parsing: definition.content)
@@ -793,50 +792,9 @@ public enum MarkdownConverter {
                         blocks.append(makeBlock(kind: .paragraph(inlines: inlines), range: range))
                     }
                 }
-                footnoteDefinitions[definition.id] = blocks
+                footnotes.definitions[definition.id] = blocks
             }
             return []
-        }
-
-        /// Parses `[^id]: content` at the start of a paragraph slice.
-        func parseFootnoteDefinition(_ slice: String) -> (id: String, content: String)? {
-            guard slice.hasPrefix("[^"),
-                  let close = slice.firstIndex(of: "]"),
-                  slice.index(after: close) < slice.endIndex,
-                  slice[slice.index(after: close)] == ":"
-            else { return nil }
-            let id = String(slice[slice.index(slice.startIndex, offsetBy: 2)..<close])
-            guard !id.isEmpty, !id.contains(where: \.isWhitespace) else { return nil }
-            let content = String(slice[slice.index(close, offsetBy: 2)...])
-                .trimmingCharacters(in: .whitespaces)
-            return (id: id, content: content)
-        }
-
-        /// Every definition in a paragraph slice that OPENS with one:
-        /// adjacent `[^id]:` lines share a single cmark paragraph, so each
-        /// definition line starts a new entry and other lines continue the
-        /// current one. Empty when the slice isn't a definition paragraph.
-        func parseFootnoteDefinitions(_ slice: String) -> [(id: String, content: String)] {
-            guard parseFootnoteDefinition(slice) != nil else { return [] }
-            var definitions: [(id: String, content: String)] = []
-            var current: (id: String, lines: [String])?
-            // `\r\n` is one grapheme: split(separator: "\n") would keep CRLF
-            // lines glued (line-walker rule).
-            for line in slice.replacingOccurrences(of: "\r\n", with: "\n")
-                .split(separator: "\n", omittingEmptySubsequences: false) {
-                if let next = parseFootnoteDefinition(String(line)) {
-                    if let current {
-                        definitions.append((current.id, current.lines.joined(separator: "\n")))
-                    }
-                    current = (next.id, [next.content])
-                } else {
-                    current?.lines.append(String(line))
-                }
-            }
-            if let current {
-                definitions.append((current.id, current.lines.joined(separator: "\n")))
-            }
-            return definitions
         }
 
         /// Detects a design-spec callout: block quote whose first paragraph
@@ -873,19 +831,12 @@ public enum MarkdownConverter {
         /// Footnotes in reference order; referenced-but-undefined ids get a
         /// placeholder, defined-but-unreferenced ids are appended after.
         mutating func gatherFootnotes() -> [Footnote] {
-            var footnotes: [Footnote] = []
-            for (id, index) in footnoteOrdinals.sorted(by: { $0.value < $1.value }) {
-                let blocks = footnoteDefinitions[id]
-                    ?? [makeBlock(kind: .paragraph(inlines: [.text("Missing footnote: \(id)")]), range: ByteRange(offset: 0, length: 0))]
-                footnotes.append(Footnote(id: id, index: index, blocks: blocks))
+            let gathered = footnotes.gather { id in
+                [makeBlock(kind: .paragraph(inlines: [.text("Missing footnote: \(id)")]),
+                           range: ByteRange(offset: 0, length: 0))]
             }
-            var nextIndex = footnoteOrdinals.count + 1
-            for (id, blocks) in footnoteDefinitions.sorted(by: { $0.key < $1.key }) where footnoteOrdinals[id] == nil {
-                footnotes.append(Footnote(id: id, index: nextIndex, blocks: blocks))
-                nextIndex += 1
-            }
-            stats.footnoteCount = footnotes.count
-            return footnotes
+            stats.footnoteCount = gathered.count
+            return gathered
         }
 
         /// Slice re-parsing is only safe when the paragraph's raw lines are not
