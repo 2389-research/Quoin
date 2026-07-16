@@ -417,20 +417,6 @@ public enum MarkdownConverter {
         return true
     }
 
-    private static func plainParagraphInlines(from source: String) -> [Inline] {
-        var inlines: [Inline] = []
-        let lines = source.split(separator: "\n", omittingEmptySubsequences: false)
-        for (index, line) in lines.enumerated() {
-            if !line.isEmpty {
-                inlines.append(.text(String(line)))
-            }
-            if index < lines.count - 1 {
-                inlines.append(.softBreak)
-            }
-        }
-        return inlines
-    }
-
     private static func wordCount(in text: String) -> Int {
         WordCounting.count(in: text)
     }

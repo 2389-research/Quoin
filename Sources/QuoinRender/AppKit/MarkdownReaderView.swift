@@ -47,8 +47,11 @@ public struct ViewportSnapshot: Equatable, Sendable {
 ///
 /// TextKit 2 does viewport-based layout — only visible content is laid out —
 /// which is what keeps very large documents scrolling at full frame rate.
-/// The view is read-only and selectable; interaction happens through link
-/// plumbing (web links, internal anchors, task checkboxes).
+/// The view is an editable projection: `isEditable` follows whether an
+/// `onEditIntent` callback was supplied, so it is read-only only when hosted
+/// without editing wired up. Keystrokes become source edits and non-text
+/// interaction (web links, internal anchors, task checkboxes, edit chips)
+/// flows through link plumbing.
 public struct MarkdownReaderView: NSViewRepresentable {
 
     public let rendered: RenderedDocument

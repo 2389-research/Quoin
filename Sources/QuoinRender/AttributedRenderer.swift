@@ -151,11 +151,11 @@ public struct RenderedDocument {
 
 /// Renders a `QuoinDocument` into attributed text for TextKit 2.
 ///
-/// M1 scope: full native text rendering for all block types. Math and
-/// mermaid render as styled source (their runs are tagged with
-/// `QuoinAttribute` keys so QuoinMath/QuoinDiagram can replace them in
-/// M2a/M2b without touching this pipeline). Tables use measured tab stops;
-/// the richer table attachment view is a later refinement.
+/// Full native text rendering for all block types. Math typesets natively via
+/// `MathImageRenderer` (Vinculum) and Mermaid via `MermaidRenderer`
+/// (MermaidKit), each drawn as an attachment behind a theme seam, with a
+/// styled source-card only as the failure fallback. Tables use measured tab
+/// stops; the richer table attachment view is a later refinement.
 public struct AttributedRenderer {
 
     public let theme: Theme
@@ -1207,7 +1207,7 @@ public struct AttributedRenderer {
         case .callout(let kind, let children):
             content = renderCallout(kind: kind, children: children, depth: depth, document: document)
         case .frontMatter(let yaml):
-            content = renderFrontMatter(yaml: yaml)
+            content = renderFrontMatterFields(yaml: yaml)
         case .reviewEndmatter:
             // The endmatter is NOT rendered at all: the Review panel (tab,
             // badge, cards, history) is its entire UI. v1 rendered the
@@ -1394,68 +1394,11 @@ public struct AttributedRenderer {
         return output
     }
 
-    private func renderFrontMatter(yaml: String, editable: Bool = true) -> NSAttributedString {
-        // Front matter renders as a FIELD GRID (redlined 2026-07-15: the
-        // one-line "a · b · c" soup was unreadable): one row per top-level
-        // key — key in small caps at a fixed column, value in ink beside
-        // it. Nested/indented lines render as raw continuations under
-        // their key. Clicking still reveals the full YAML 1:1 (activation).
-        if editable {
-            return renderFrontMatterFields(yaml: yaml)
-        }
-        let condensed = yaml
-            .split(separator: "\n")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "   ·   ")
-        var attributes = bodyAttributes()
-        attributes[.font] = theme.captionFont()
-        attributes[.foregroundColor] = theme.secondaryTextColor
-        let style = paragraphStyle()
-        style.lineHeightMultiple = 1.4
-        style.lineBreakMode = .byTruncatingTail
-        style.paragraphSpacing = 4
-        style.paragraphSpacingBefore = 2
-        style.firstLineHeadIndent = 8
-        style.headIndent = 8
-        style.tailIndent = -8
-        attributes[.paragraphStyle] = style
-        attributes[QuoinAttribute.blockDecoration] = BlockDecoration(kind: .chip(fill: theme.inlineCodeFill))
-        var chipAttributes = attributes
-        if !editable {
-            // The review endmatter is machinery; its UI is the Review
-            // panel — the affordance opens the panel, never inline YAML.
-            // Only the trailing verb carries the link: linkTextAttributes
-            // would paint a whole-chip link solid accent (panel review).
-            let output = NSMutableAttributedString(string: condensed, attributes: chipAttributes)
-            var review = attributes
-            if let url = QuoinLink.reviewURL {
-                review[.link] = url
-            }
-            #if canImport(AppKit)
-            review[.toolTip] = "Open Review" as NSString
-            #endif
-            output.append(NSAttributedString(string: "   ·   Open Review", attributes: review))
-            return output
-        }
-        let output = NSMutableAttributedString(string: condensed, attributes: chipAttributes)
-        // Trailing `· ‹/› edit` inside the chip: front matter's condensed
-        // line gives no hint it's editable YAML.
-        var edit = attributes
-        if let url = QuoinLink.editURL {
-            edit[.link] = url
-        }
-        #if canImport(AppKit)
-        edit[.toolTip] = "Edit Source (⌘↩)" as NSString
-        #endif
-        output.append(NSAttributedString(string: "   ·   ‹/› edit", attributes: edit))
-        return output
-    }
-
-    /// The #59 field grid. Key column at a fixed tab stop; values wrap
-    /// aligned under themselves; nested YAML lines render as raw mono
-    /// continuations. The trailing `‹/› edit` affordance keeps the
-    /// reveal discoverable.
+    /// Front matter renders as a FIELD GRID — the #59 field grid (redlined
+    /// 2026-07-15: the one-line "a · b · c" soup was unreadable). Key column
+    /// at a fixed tab stop; values wrap aligned under themselves; nested YAML
+    /// lines render as raw mono continuations. The trailing `‹/› edit`
+    /// affordance keeps the reveal discoverable.
     private func renderFrontMatterFields(yaml: String) -> NSAttributedString {
         let keyColumn: CGFloat = 96
         let output = NSMutableAttributedString()
