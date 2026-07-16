@@ -73,6 +73,8 @@ the file on disk stays clean markdown you own.
   item ends the list. All as byte-exact source edits.
 - **Task lists** — click a checkbox; it toggles and writes `- [x]` back to the
   file.
+- **Word-granular undo** — typing coalesces into word-sized undo steps, so `⌘Z`
+  removes a word (or a backspaced run), not one letter at a time.
 - **Block operations** — right-click any block for **Duplicate Block**,
   **Delete Block**, **Move Block Up/Down**, and (on a table) **Add Table Row**
   and **Add Table Column**. Each is a byte-exact source splice.

@@ -64,6 +64,13 @@ public actor DocumentSession {
     private var selfWriteHash: String?
     private var undoStack: [SourceEdit] = []
     private var redoStack: [SourceEdit] = []
+    /// Typing-coalescing state: while a run of single-character, contiguous,
+    /// same-direction, non-whitespace edits continues, each one EXTENDS the
+    /// top undo entry instead of pushing a new one — so ⌘Z undoes a word, not
+    /// a letter. Any other edit, a whitespace, a caret jump (non-contiguous
+    /// offset), or any out-of-band document change breaks the run.
+    private struct TypingRun { enum Kind { case insert, delete }; let kind: Kind; let nextOffset: Int }
+    private var typingRun: TypingRun?
     private var autosaveTask: Task<Void, Never>?
     /// Debounce for keystroke-driven autosave; checkbox toggles still write
     /// immediately.
@@ -232,6 +239,7 @@ public actor DocumentSession {
     private func adoptExternal(_ newDocument: QuoinDocument) {
         undoStack.removeAll()
         redoStack.removeAll()
+        typingRun = nil
         contentRevision += 1
         publish(newDocument)
     }
@@ -366,8 +374,7 @@ public actor DocumentSession {
             throw SessionError.staleEditBase(expected: contentRevision, got: baseRevision)
         }
         let parsed = try MarkdownConverter.parseAfterEdit(previous: document, edit: edit)
-        undoStack.append(parsed.inverse)
-        redoStack.removeAll()
+        recordUndo(edit: edit, inverse: parsed.inverse)  // reads pre-edit `document`
         if publishSnapshot {
             publish(parsed.document)
         } else {
@@ -375,6 +382,50 @@ public actor DocumentSession {
         }
         scheduleAutosave()
         return document
+    }
+
+    /// Push (or coalesce) the inverse of `edit` onto the undo stack. Called
+    /// from `applyEdit` while `document` is still the PRE-edit snapshot, so the
+    /// deleted text can be read for the whitespace check. A run of contiguous
+    /// single-character same-direction non-whitespace edits collapses into one
+    /// undo entry; anything else starts a fresh group.
+    private func recordUndo(edit: SourceEdit, inverse: SourceEdit) {
+        redoStack.removeAll()
+
+        let insertLen = edit.replacement.utf8.count
+        let isInsert = edit.range.length == 0 && edit.replacement.count == 1
+            && !(edit.replacement.first?.isWhitespace ?? true)
+        let deleted = edit.replacement.isEmpty ? document.source.substring(in: edit.range) : nil
+        let isDelete = (deleted?.count == 1) && !((deleted?.first?.isWhitespace) ?? true)
+
+        // Continue an insertion run: extend the top delete-inverse by one char.
+        if isInsert, let run = typingRun, run.kind == .insert, edit.range.offset == run.nextOffset,
+           let top = undoStack.last {
+            undoStack[undoStack.count - 1] = SourceEdit(
+                range: ByteRange(offset: top.range.offset, length: top.range.length + insertLen),
+                replacement: "")
+            typingRun = TypingRun(kind: .insert, nextOffset: edit.range.offset + insertLen)
+            return
+        }
+        // Continue a backspace run: prepend this char to the top insert-inverse.
+        if isDelete, let run = typingRun, run.kind == .delete, edit.range.upperBound == run.nextOffset,
+           let top = undoStack.last {
+            undoStack[undoStack.count - 1] = SourceEdit(
+                range: ByteRange(offset: inverse.range.offset, length: 0),
+                replacement: inverse.replacement + top.replacement)
+            typingRun = TypingRun(kind: .delete, nextOffset: edit.range.offset)
+            return
+        }
+
+        // New group; arm a fresh run only for a coalescible typing edit.
+        undoStack.append(inverse)
+        if isInsert {
+            typingRun = TypingRun(kind: .insert, nextOffset: edit.range.offset + insertLen)
+        } else if isDelete {
+            typingRun = TypingRun(kind: .delete, nextOffset: edit.range.offset)
+        } else {
+            typingRun = nil
+        }
     }
 
     // MARK: - Suggestion resolution (computed in-actor, so offsets can't go stale)
@@ -498,6 +549,7 @@ public actor DocumentSession {
     @discardableResult
     public func undo() throws -> QuoinDocument? {
         guard let edit = undoStack.popLast() else { return nil }
+        typingRun = nil
         let (newSource, inverse) = try edit.apply(to: document.source)
         redoStack.append(inverse)
         // A history splice changes content OUTSIDE the in-flight edit
@@ -517,6 +569,7 @@ public actor DocumentSession {
     @discardableResult
     public func redo() throws -> QuoinDocument? {
         guard let edit = redoStack.popLast() else { return nil }
+        typingRun = nil
         let (newSource, inverse) = try edit.apply(to: document.source)
         undoStack.append(inverse)
         // Same stale-edit rejection contract as undo (ledger #7).
@@ -636,6 +689,8 @@ public actor DocumentSession {
     /// re-read first and the toggle is re-validated against fresh content.
     public func toggleTask(markerRange: ByteRange) throws {
         let viewed = document
+
+        typingRun = nil  // a toggle is out-of-band; it can't extend a typing run
 
         // A checkbox is still an edit: it must obey the same conflict guard
         // as saveNow, or a click quietly picks a side of an unanswered merge.
