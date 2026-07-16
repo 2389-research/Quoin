@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Quoin — a native macOS Markdown editor with review inside the file</title>
 <meta name="description" content="A native macOS WYSIWYG Markdown editor with an in-file review loop — suggestions, comments, and tracked changes as plain CriticMarkup bytes. Native LaTeX and Mermaid, byte-lossless, local-only.">
+<link rel="icon" type="image/svg+xml" href="brand/quoin-mark-ink.svg">
 <style>
   :root{
     /* Quoin brand palette */
@@ -40,8 +41,9 @@
   /* Header */
   header{border-bottom:1px solid var(--line);position:sticky;top:0;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);z-index:5}
   .nav{display:flex;align-items:center;justify-content:space-between;height:60px}
-  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.01em;font-size:18px;color:var(--ink)}
-  .brand .glyph{width:26px;height:26px;border-radius:7px;background:var(--ink);color:var(--bg);display:grid;place-items:center;font-weight:800;font-size:15px}
+  .brand{display:flex;align-items:center;gap:9px;font-weight:700;letter-spacing:-.01em;font-size:18px;color:var(--ink)}
+  .brand .mark{color:var(--ink);flex:none}
+  .hero .appicon{width:92px;height:92px;border-radius:20px;box-shadow:0 12px 30px -12px rgba(38,52,61,.5);margin:0 auto}
   .nav-links{display:flex;gap:22px;align-items:center;font-size:14px;font-weight:500}
   .nav-links a{color:var(--muted)}
   .nav-links a:hover{color:var(--ink);text-decoration:none}
@@ -102,7 +104,10 @@
 <body>
 <header>
   <div class="wrap nav">
-    <div class="brand"><span class="glyph">Q</span> Quoin</div>
+    <div class="brand">
+      <svg class="mark" viewBox="0 0 96 96" width="27" height="27" aria-hidden="true"><circle cx="48" cy="45" r="24" fill="none" stroke="currentColor" stroke-width="13"></circle><polygon points="73,70 94,76 78,91" fill="var(--accent)"></polygon></svg>
+      Quoin
+    </div>
     <nav class="nav-links">
       <a href="#review">Review</a>
       <a href="#engines">Engines</a>
@@ -114,7 +119,8 @@
 
 <main class="wrap">
   <section class="hero" style="border-top:none">
-    <div class="eyebrow">Native · macOS · zero JavaScript</div>
+    <img class="appicon" src="images/app-icon.png" width="92" height="92" alt="Quoin app icon — a wedge keyed to an open ring">
+    <div class="eyebrow" style="margin-top:20px">Native · macOS · zero JavaScript</div>
     <h1>The review loop lives inside the file.</h1>
     <p class="lede">A native macOS WYSIWYG Markdown editor. Suggestions, comments, and
       tracked changes are plain bytes an agent or a person can write — and every

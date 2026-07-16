@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/images/app-icon.png" width="120" alt="Quoin app icon — a wedge keyed to an open ring">
+</p>
+
 # Quoin
 
 [![CI](https://github.com/2389-research/Quoin/actions/workflows/ci.yml/badge.svg)](https://github.com/2389-research/Quoin/actions/workflows/ci.yml)

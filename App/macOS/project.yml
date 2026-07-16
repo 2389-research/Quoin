@@ -39,6 +39,7 @@ targets:
     platform: macOS
     sources:
       - Sources
+      - Assets.xcassets
       - path: Resources
         type: folder
         buildPhase: resources
@@ -106,3 +107,4 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ENABLE_HARDENED_RUNTIME: true
         GENERATE_INFOPLIST_FILE: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
