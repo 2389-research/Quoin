@@ -69,3 +69,6 @@ App/iOS/QuoinIOS.xcodeproj/
 
 # macOS
 .DS_Store
+
+# raw screen recordings (source for docs/media/*.mp4)
+*.mov

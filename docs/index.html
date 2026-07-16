@@ -96,6 +96,11 @@
   .cmp tbody td:first-child{color:var(--muted);font-weight:600;white-space:nowrap}
   .cmp tbody td:nth-child(2){color:var(--ink);font-weight:560}
 
+  /* Demo video */
+  .video{margin:26px auto 0;max-width:900px}
+  .video video{width:100%;display:block;border-radius:var(--radius);border:1px solid var(--line);background:#000;box-shadow:0 24px 60px -30px rgba(38,52,61,.55)}
+  .video figcaption{font-size:13px;color:var(--muted);text-align:center;margin-top:12px}
+
   /* Engines row */
   .engines{display:grid;grid-template-columns:1fr 1fr;gap:20px}
   .card{border:1px solid var(--line);border-radius:var(--radius);padding:22px;background:var(--panel)}
@@ -156,6 +161,19 @@
     <figure class="shot">
       <img src="images/hero.png" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
       <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
+    </figure>
+  </section>
+
+  <section id="demo">
+    <div class="eyebrow ctr">See it in action</div>
+    <h2 class="ctr" style="font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em;margin:.2em 0 .4em">Suggest, comment, accept — all in the file</h2>
+    <p class="sub ctr">A real review pass in Quoin: writing tracked-change suggestions and comments, then resolving them from the inspector — the marks live in the Markdown the whole time.</p>
+    <figure class="video">
+      <video controls muted playsinline preload="none" poster="media/review-loop-poster.jpg" width="1280" height="696">
+        <source src="media/review-loop.mp4" type="video/mp4">
+        Your browser can't play embedded video — <a href="media/review-loop.mp4">download the clip</a>.
+      </video>
+      <figcaption>Suggestions and comments as plain CriticMarkup, resolved with Accept / Reject — no proprietary format, no web view.</figcaption>
     </figure>
   </section>
 
