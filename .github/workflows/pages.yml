@@ -16,6 +16,9 @@ on:
       - "docs/media/**"
       - "docs/brand/**"
       - ".github/workflows/pages.yml"
+  # A new release refreshes the site's version highlight + "What's new".
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -42,6 +45,23 @@ jobs:
           wget -q -O "$RUNNER_TEMP/hugo.deb" \
             "https://github.com/gohugoio/hugo/releases/download/v${HUGO_VERSION}/hugo_extended_${HUGO_VERSION}_linux-amd64.deb"
           sudo dpkg -i "$RUNNER_TEMP/hugo.deb"
+
+      # Keep the homepage's version highlight + "What's new" in step with the
+      # published Latest release. Overwrites the committed seed in
+      # site/data/release.json; on failure the seed is kept so a build never
+      # breaks on a transient API hiccup.
+      - name: Latest release → Hugo data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/${{ github.repository }}/releases/latest" \
+               --jq '{tag: .tag_name, name: .name, date: .published_at, url: .html_url, body: .body}' \
+               > "$RUNNER_TEMP/release.json" && [ -s "$RUNNER_TEMP/release.json" ]; then
+            cp "$RUNNER_TEMP/release.json" site/data/release.json
+            echo "Synced site/data/release.json to $(jq -r .tag site/data/release.json)"
+          else
+            echo "release fetch failed — keeping committed site/data/release.json"
+          fi
 
       - name: Configure Pages
         id: pages

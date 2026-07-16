@@ -77,6 +77,18 @@ ABOUTME: Fully self-contained (inline CSS/JS); asset URLs go through relURL. */ 
   code{font-family:var(--mono);font-size:.9em;background:var(--panel);padding:.12em .4em;border-radius:5px}
 
   .status{font-size:13.5px;color:var(--muted);margin:18px auto 0;max-width:64ch;line-height:1.6;text-wrap:balance}
+  .ver{font-size:12px;font-weight:700;padding:2px 7px;border-radius:6px;background:color-mix(in srgb,var(--accent-ink) 22%,transparent);letter-spacing:.02em}
+  .whats-new{max-width:760px;margin:0 auto;padding:52px 0}
+  .whats-new h2{margin:.2em 0 0;font-size:clamp(23px,3.4vw,30px);letter-spacing:-.02em}
+  .whats-new h2 time{color:var(--muted);font-weight:500;font-size:.6em;letter-spacing:0}
+  .release-notes{border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);padding:22px 28px;margin:22px 0;text-align:left}
+  .release-notes h3{font-size:14.5px;letter-spacing:.02em;margin:1.3em 0 .5em;color:var(--ink)}
+  .release-notes h3:first-child{margin-top:0}
+  .release-notes p{color:var(--muted);margin:.5em 0;font-size:15px;line-height:1.6}
+  .release-notes ul{color:var(--muted);margin:.5em 0;padding-left:1.2em}
+  .release-notes li{margin:.3em 0;line-height:1.55}
+  .release-notes strong{color:var(--ink)}
+  .release-notes code{font-size:.86em}
   .bytes{display:grid;grid-template-columns:1fr 1fr;gap:30px;align-items:center;margin-top:36px;padding-top:30px;border-top:1px solid var(--line)}
   .bytes .kicker{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:10px}
   .bytes pre{margin:0;background:var(--code-bg);color:#e9edf2;border-radius:12px;padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.65}
@@ -155,17 +167,28 @@ ABOUTME: Fully self-contained (inline CSS/JS); asset URLs go through relURL. */ 
       and best-in-class math and diagrams render as you type — drawn natively over
       plain <code>.md</code> files. No web view, no proprietary format, no cloud.</p>
     <div class="cta">
-      <a class="btn primary" href="https://github.com/2389-research/Quoin/releases/latest/download/Quoin.dmg">Download for macOS</a>
+      <a class="btn primary" href="https://github.com/2389-research/Quoin/releases/latest/download/Quoin.dmg">Download for macOS{{ with hugo.Data.release }} <span class="ver">{{ .tag }}</span>{{ end }}</a>
       <a class="btn ghost" href="https://github.com/2389-research/Quoin">View on GitHub</a>
     </div>
     <p class="status">Free &amp; open source (MIT) · macOS&nbsp;14+ · no&nbsp;account, no&nbsp;cloud, no&nbsp;telemetry.<br>
       Notarized &amp; signed, updates itself via Sparkle —
-      <a href="https://github.com/2389-research/Quoin/releases/latest">latest release notes</a>.</p>
+      <a href="{{ with hugo.Data.release }}{{ .url }}{{ else }}https://github.com/2389-research/Quoin/releases/latest{{ end }}">{{ with hugo.Data.release }}{{ .tag }} release notes{{ else }}latest release notes{{ end }}</a>.</p>
     <figure class="shot">
       <img src="{{ "images/hero.png" | relURL }}" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
       <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
     </figure>
   </section>
+
+  {{ with hugo.Data.release }}
+  <section id="whats-new" class="whats-new">
+    <div class="eyebrow ctr">What's new</div>
+    <h2 class="ctr">{{ .name | default .tag }}{{ with .date }}<time datetime="{{ . }}"> · {{ dateFormat "January 2, 2006" . }}</time>{{ end }}</h2>
+    <div class="release-notes">
+      {{ .body | markdownify }}
+    </div>
+    <p class="ctr"><a class="btn ghost" href="{{ .url }}">All release notes on GitHub →</a></p>
+  </section>
+  {{ end }}
 
   <section id="demo">
     <div class="eyebrow ctr">See it in action</div>

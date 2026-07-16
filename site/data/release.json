@@ -1,0 +1,7 @@
+{
+  "tag": "v1.0.2",
+  "name": "Quoin v1.0.2",
+  "date": "2026-07-16T15:32:54Z",
+  "url": "https://github.com/2389-research/Quoin/releases/tag/v1.0.2",
+  "body": "A maintenance release: the native Mermaid engine moves to **MermaidKit 1.1.0**, plus an internal code-quality pass. **No changes to editor behavior** — every invariant suite (byte-lossless round-trips, the caret/viewport rule, reveal fidelity, projector equivalence, RDFM conformance) stays green.\n\n### Changed\n- **MermaidKit 1.1.0** — the native Mermaid diagram engine is updated to its latest release.\n\n### Under the hood\nA code-hygiene pass across the engine, each change behavior-preserving and test-guarded:\n- Extracted `FootnoteCollector` out of the parser's `Builder`.\n- Unified the three review-endmatter YAML walkers behind one `yamlLines` helper — and fixed a latent lone-`\\r` inconsistency between them.\n- Hoisted the shared `rebuild()` tail out of the two incremental-parse fast paths.\n- Shared the callout/blockquote container styling (`containerCardsAndGaps`).\n- Added a reveal-styler ↔ `CriticScanner` **grammar-agreement test**, pinning the two CriticMarkup recognizers to identical spans.\n- Website converted to Hugo.\n\n### Install\nDownload **`Quoin.dmg`** below — notarized, drag-to-install (macOS 14+). Existing installs update themselves via Sparkle."
+}
