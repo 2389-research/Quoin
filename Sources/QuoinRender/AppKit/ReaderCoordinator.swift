@@ -671,13 +671,7 @@ extension MarkdownReaderView {
                 return false
             }
             if let id = blockID(atCharIndex: affectedCharRange.location) {
-                var hint: CaretHint?
-                if isEmbedBlock(atCharIndex: affectedCharRange.location) {
-                    hint = embedCaretHint(atCharIndex: affectedCharRange.location).map { .source($0) }
-                }
-                if hint == nil {
-                    hint = blockRanges[id].map { .rendered(affectedCharRange.location - $0.location) }
-                }
+                let hint = caretHint(forActivationAt: affectedCharRange.location, blockID: id)
                 let insertion = (affectedCharRange.length == 0 && replacementString?.isEmpty == false)
                     ? replacementString : nil
                 parent.onActivateBlock?(id, hint, insertion)
@@ -1176,8 +1170,7 @@ extension MarkdownReaderView {
             }
             let location = textView.selectedRange().location
             guard let id = blockID(atCharIndex: location) else { return }
-            let hint: CaretHint? = embedCaretHint(atCharIndex: location).map { .source($0) }
-                ?? blockRanges[id].map { .rendered(location - $0.location) }
+            let hint: CaretHint? = caretHint(forActivationAt: location, blockID: id)
             parent.onActivateBlock?(id, hint, nil)
         }
 
@@ -1591,8 +1584,7 @@ extension MarkdownReaderView {
                 captureDeactivationCaret(in: textView)
                 parent.onActivateBlock?(nil, nil, nil)
             } else {
-                let hint: CaretHint? = embedCaretHint(atCharIndex: index).map { .source($0) }
-                    ?? blockRanges[id].map { .rendered(index - $0.location) }
+                let hint: CaretHint? = caretHint(forActivationAt: index, blockID: id)
                 parent.onActivateBlock?(id, hint, nil)
             }
         }
@@ -2069,8 +2061,7 @@ extension MarkdownReaderView {
                   !isChipOnlyEmbed(atCharIndex: index),
                   let id = blockID(atCharIndex: index),
                   id != parent.rendered.activeBlockID else { return false }
-            let hint: CaretHint? = embedCaretHint(atCharIndex: index).map { .source($0) }
-                ?? blockRanges[id].map { .rendered(index - $0.location) }
+            let hint: CaretHint? = caretHint(forActivationAt: index, blockID: id)
             parent.onActivateBlock?(id, hint, nil)
             return true
         }
@@ -2107,6 +2098,16 @@ extension MarkdownReaderView {
                 return contentStart + (index - bodyRange.location)
             }
             return contentStart
+        }
+
+        /// The caret hint for activating `id` from a click/selection at `index`:
+        /// an embed maps to a SOURCE offset (1:1 body tag), prose to a RENDERED
+        /// offset within the block. Feeding one space's offset through the
+        /// other's mapping re-ships the caret-lands-early bug, so this is the
+        /// one place the choice is made.
+        func caretHint(forActivationAt index: Int, blockID id: BlockID) -> CaretHint? {
+            embedCaretHint(atCharIndex: index).map { .source($0) }
+                ?? blockRanges[id].map { .rendered(index - $0.location) }
         }
 
         // MARK: Scroll anchoring

@@ -1197,9 +1197,9 @@ public struct AttributedRenderer {
         case .codeBlock(let language, let code):
             content = renderCodeBlock(language: language, code: code)
         case .mermaid(let source):
-            content = renderMermaidFallback(source: source)
+            content = renderMermaid(source: source)
         case .mathBlock(let latex):
-            content = renderMathBlockFallback(latex: latex)
+            content = renderMathBlock(latex: latex)
         case .table(let header, let rows, let alignments):
             content = renderTable(header: header, rows: rows, alignments: alignments)
         case .list(let items, let ordered, let start):
@@ -1624,7 +1624,7 @@ public struct AttributedRenderer {
         return NSAttributedString(string: text, attributes: attributes)
     }
 
-    private func renderMermaidFallback(source: String) -> NSAttributedString {
+    private func renderMermaid(source: String) -> NSAttributedString {
         // Native rendering via MermaidKit; unparseable sources keep the
         // styled-source fallback.
         if let native = MermaidRenderer.attachmentString(source: source, theme: theme.diagramTheme) {
@@ -1655,7 +1655,7 @@ public struct AttributedRenderer {
         )
     }
 
-    private func renderMathBlockFallback(latex: String) -> NSAttributedString {
+    private func renderMathBlock(latex: String) -> NSAttributedString {
         // A definition-only block (`$$\newcommand{\R}{…}$$`) has no visible
         // output — show an unobtrusive chip naming the count instead of an
         // empty box. Definitions apply document-wide (collected at parse).

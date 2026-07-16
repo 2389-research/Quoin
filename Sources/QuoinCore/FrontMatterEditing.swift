@@ -277,16 +277,7 @@ public enum FrontMatterEditing {
     /// rule) or single quotes (resolving `''`).
     private static func unquoted(_ raw: String) -> String {
         if raw.hasPrefix("\""), raw.hasSuffix("\""), raw.count >= 2 {
-            var unescaped = ""
-            var iterator = raw.dropFirst().dropLast().makeIterator()
-            while let ch = iterator.next() {
-                if ch == "\\", let next = iterator.next() {
-                    unescaped.append(next)
-                } else {
-                    unescaped.append(ch)
-                }
-            }
-            return unescaped
+            return YAMLScalar.unescapeDoubleQuotedBody(raw.dropFirst().dropLast())
         }
         if raw.hasPrefix("'"), raw.hasSuffix("'"), raw.count >= 2 {
             return String(raw.dropFirst().dropLast())

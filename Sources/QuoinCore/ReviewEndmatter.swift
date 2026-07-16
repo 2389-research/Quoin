@@ -229,19 +229,7 @@ public enum ReviewEndmatter {
         var value = String(text[text.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
         guard !key.isEmpty else { return nil }
         if value.hasPrefix("\""), value.hasSuffix("\""), value.count >= 2 {
-            // Single left-to-right unescape: the two-pass replacing version
-            // mangled `\\\"` sequences (unescape a backslash, then treat the
-            // freed quote as escaped).
-            var unescaped = ""
-            var iterator = value.dropFirst().dropLast().makeIterator()
-            while let ch = iterator.next() {
-                if ch == "\\", let next = iterator.next() {
-                    unescaped.append(next)
-                } else {
-                    unescaped.append(ch)
-                }
-            }
-            value = unescaped
+            value = YAMLScalar.unescapeDoubleQuotedBody(value.dropFirst().dropLast())
         }
         return (key, value)
     }
