@@ -298,6 +298,17 @@ public struct MarkdownReaderView: NSViewRepresentable {
         textView.allowsUndo = false // undo lives in DocumentSession
         textView.isSelectable = true
         textView.isRichText = true
+        // macOS smart substitutions rewrite the user's exact bytes behind the
+        // source-edit mapping — double-space→". " (the "period with extra
+        // spaces" glitch), curly quotes, "--"→em dash, autocorrect. In a
+        // byte-lossless plain-text Markdown editor those are wrong by design:
+        // what you type is what lands on disk. Turn them all off.
+        textView.isAutomaticTextReplacementEnabled = false
+        textView.isAutomaticPeriodSubstitutionEnabled = false
+        textView.isAutomaticQuoteSubstitutionEnabled = false
+        textView.isAutomaticDashSubstitutionEnabled = false
+        textView.isAutomaticSpellingCorrectionEnabled = false
+        textView.smartInsertDeleteEnabled = false
         textView.textContainerInset = NSSize(width: theme.contentInset, height: theme.contentInset)
         textView.autoresizingMask = [.width]
         textView.isVerticallyResizable = true
