@@ -17,6 +17,10 @@ struct ExportSheet: View {
     @State private var selected: ExportFormat = .pdf
     @State private var exportError: String?
     @State private var includeFootnotes = true
+    /// Standalone HTML export is private-by-default: raw HTML is scrubbed of
+    /// scripts, event handlers, and remote trackers (issue #4). Users who need
+    /// byte-exact raw HTML can turn this off.
+    @State private var sanitizeHTML = true
     @State private var appearance: ExportAppearance = .auto
     @State private var escapeMonitor: Any?
 
@@ -92,6 +96,11 @@ struct ExportSheet: View {
                 Toggle("Include footnotes", isOn: $includeFootnotes)
                     .toggleStyle(.checkbox)
                     .quoinScaledFont(size: 12)
+                Toggle("Sanitize HTML", isOn: $sanitizeHTML)
+                    .toggleStyle(.checkbox)
+                    .quoinScaledFont(size: 12)
+                    .disabled(selected != .html)
+                    .help("Remove scripts, event handlers, and remote trackers from raw HTML so the exported file is private and self-contained. Turn off for byte-exact raw HTML.")
                 Spacer()
                 Picker("Theme", selection: $appearance) {
                     ForEach(ExportAppearance.allCases) { choice in
@@ -219,7 +228,7 @@ struct ExportSheet: View {
                     forcedAppearance: appearance.nsAppearance
                 )
             case .html:
-                data = Data(HTMLExporter.export(exported, title: documentName, baseURL: documentDirectory).utf8)
+                data = Data(HTMLExporter.export(exported, title: documentName, baseURL: documentDirectory, sanitizeRawHTML: sanitizeHTML).utf8)
             case .markdown:
                 data = Data(MarkdownExporter.export(exported).utf8)
             case .rtf:

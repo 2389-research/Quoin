@@ -178,7 +178,9 @@ struct ExportNoteIntent: AppIntent {
             try await IntentLibraryAccess.withDocument(at: note.ref) { document in
                 switch format {
                 case .html:
-                    return (HTMLExporter.export(document, title: title, baseURL: baseURL), "html", .html)
+                    // Standalone export is private-by-default: raw HTML is
+                    // scrubbed of scripts/handlers/remote trackers (issue #4).
+                    return (HTMLExporter.export(document, title: title, baseURL: baseURL, sanitizeRawHTML: true), "html", .html)
                 case .markdown:
                     return (MarkdownExporter.export(document), "md", .plainText)
                 case .plainText:

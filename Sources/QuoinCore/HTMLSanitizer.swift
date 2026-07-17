@@ -1,0 +1,332 @@
+import Foundation
+
+/// Dependency-free allowlist scrubber for raw HTML embedded in Markdown, used
+/// by the standalone HTML export's sanitize policy (issue #4).
+///
+/// It is a conservative HTML *fragment* cleaner, NOT a full HTML5 parser — the
+/// export pipeline never adds a third-party dependency (dependency policy). Its
+/// job is to strip the genuinely risky things a hostile or careless `.md` file
+/// can carry while leaving benign structural markup intact:
+///
+///  - **removes** `<script>` / `<style>` / `<iframe>` / `<object>` / `<embed>`
+///    elements entirely (`<script>`/`<style>` along with their raw-text
+///    content; `<iframe>`/`<object>` with their content when a close tag is
+///    present; `<embed>` is a void tag);
+///  - strips every `on*` event-handler attribute (case-insensitive);
+///  - strips `javascript:` / `vbscript:` URLs from URL-bearing attributes
+///    (whitespace and control characters are ignored first, matching how
+///    browsers parse a URL scheme);
+///  - neutralises auto-loading REMOTE resources — the tracking-pixel / remote
+///    embed vector: `http(s)` and protocol-relative (`//host`) `src` /
+///    `srcset` / `poster` / `background` on
+///    `<img>/<source>/<audio>/<video>/<track>/<input>` are dropped so a saved
+///    file fetches nothing off-device;
+///  - **preserves** benign structural HTML (tables, spans, emphasis, links,
+///    HTML comments, `data:` images, inline `style=`).
+///
+/// Documented limits (acceptable for an export scrubber, not a security
+/// boundary): it does not decode HTML entities inside attribute values (so an
+/// entity-obfuscated `javascript:` scheme is not caught), and it does not scrub
+/// `url(...)` inside inline `style=` attributes. Anything it cannot confidently
+/// parse as a tag it emits as literal text.
+public enum HTMLSanitizer {
+
+    /// Elements removed outright (never rendered in a sanitized export).
+    static let forbiddenElements: Set<String> = ["script", "style", "iframe", "object", "embed"]
+    /// Raw-text forbidden elements: their content runs to `</name>`.
+    static let rawTextForbidden: Set<String> = ["script", "style"]
+    /// Void forbidden elements: a single tag, no content to skip.
+    static let voidForbidden: Set<String> = ["embed"]
+    // The remainder (iframe, object) are container forbidden elements.
+
+    /// Attribute names whose value is a URL we scheme-check for `javascript:`.
+    static let urlAttributes: Set<String> = [
+        "href", "src", "xlink:href", "formaction", "action", "srcset",
+        "background", "poster", "data", "cite", "longdesc", "usemap",
+    ]
+    /// Tags that auto-load a resource from their URL attributes.
+    static let remoteResourceTags: Set<String> = [
+        "img", "source", "audio", "video", "track", "input", "image",
+    ]
+    /// Auto-loading URL attributes on `remoteResourceTags` that must not point
+    /// at a remote host in a private, self-contained file.
+    static let remoteResourceAttributes: Set<String> = ["src", "srcset", "poster", "background"]
+
+    /// Scrubs a raw HTML fragment per the policy above.
+    public static func sanitize(_ html: String) -> String {
+        let s = Array(html)
+        let n = s.count
+        var out = ""
+        var i = 0
+
+        while i < n {
+            let c = s[i]
+            guard c == "<" else {
+                out.append(c)
+                i += 1
+                continue
+            }
+
+            // HTML comment: pass through verbatim (inert).
+            if i + 3 < n, s[i + 1] == "!", s[i + 2] == "-", s[i + 3] == "-" {
+                let end = findCommentEnd(s, from: i + 4)
+                out += String(s[i..<end])
+                i = end
+                continue
+            }
+            // Declaration / processing instruction (`<!doctype…>`, `<?…>`):
+            // pass through to the next `>`.
+            if i + 1 < n, s[i + 1] == "!" || s[i + 1] == "?" {
+                var j = i + 1
+                while j < n, s[j] != ">" { j += 1 }
+                if j < n { j += 1 }
+                out += String(s[i..<j])
+                i = j
+                continue
+            }
+
+            guard let tag = parseTag(s, i) else {
+                // A `<` that does not start a tag is literal text.
+                out.append(c)
+                i += 1
+                continue
+            }
+
+            let lname = tag.name.lowercased()
+            if forbiddenElements.contains(lname) {
+                if tag.isClosing || tag.selfClosing || voidForbidden.contains(lname) {
+                    // Stray close, self-closed, or void: drop just the tag.
+                    i = tag.end
+                } else if rawTextForbidden.contains(lname) {
+                    // <script>/<style>: everything up to </name> is raw text.
+                    // If unterminated, drop the rest — a browser would treat it
+                    // all as script/style, so we must not leak it.
+                    i = findClose(s, from: tag.end, name: lname) ?? n
+                } else {
+                    // <iframe>/<object>: drop content when closed, else the tag.
+                    i = findClose(s, from: tag.end, name: lname) ?? tag.end
+                }
+                continue
+            }
+
+            out += serialize(tag, attributes: filterAttributes(tag))
+            i = tag.end
+        }
+
+        return out
+    }
+
+    // MARK: - Scheme classification (shared with HTMLExporter's link/image path)
+
+    /// True when a URL's scheme is `javascript:` or `vbscript:`, ignoring
+    /// leading/embedded whitespace and control characters the way a browser
+    /// does before it parses the scheme.
+    static func isDangerousScheme(_ value: String) -> Bool {
+        let lower = strippedScheme(value)
+        return lower.hasPrefix("javascript:") || lower.hasPrefix("vbscript:")
+    }
+
+    /// True when a URL points at a remote host (`http(s)://` or `//host`).
+    static func isRemoteURL(_ value: String) -> Bool {
+        let lower = strippedScheme(value)
+        return lower.hasPrefix("http://") || lower.hasPrefix("https://") || lower.hasPrefix("//")
+    }
+
+    private static func strippedScheme(_ value: String) -> String {
+        String(value.unicodeScalars.filter { $0.value > 0x20 }).lowercased()
+    }
+
+    private static func srcsetHasRemote(_ value: String) -> Bool {
+        value.split(separator: ",").contains { candidate in
+            let url = candidate.trimmingCharacters(in: .whitespaces)
+                .split(separator: " ", maxSplits: 1).first.map(String.init) ?? ""
+            return isRemoteURL(url)
+        }
+    }
+
+    // MARK: - Attribute filtering
+
+    private static func filterAttributes(_ tag: ParsedTag) -> [Attribute] {
+        let isResource = remoteResourceTags.contains(tag.name.lowercased())
+        return tag.attributes.filter { attr in
+            let an = attr.name.lowercased()
+            if an.hasPrefix("on") { return false }              // event handler
+            if let v = attr.value, urlAttributes.contains(an), isDangerousScheme(v) {
+                return false                                    // javascript:/vbscript:
+            }
+            if isResource, remoteResourceAttributes.contains(an), let v = attr.value {
+                let remote = an == "srcset" ? srcsetHasRemote(v) : isRemoteURL(v)
+                if remote { return false }                      // remote auto-load
+            }
+            return true
+        }
+    }
+
+    // MARK: - Tag parsing / serialization
+
+    private struct Attribute {
+        var name: String
+        var value: String?
+    }
+
+    private struct ParsedTag {
+        var name: String
+        var isClosing: Bool
+        var selfClosing: Bool
+        var attributes: [Attribute]
+        /// Index just past the tag's closing `>` (or end of input if none).
+        var end: Int
+    }
+
+    /// Parses the tag beginning at `start` (which must be `<`). Returns nil when
+    /// what follows is not a tag (so the caller can treat `<` as literal text).
+    private static func parseTag(_ s: [Character], _ start: Int) -> ParsedTag? {
+        let n = s.count
+        var i = start + 1
+        var isClosing = false
+        if i < n, s[i] == "/" {
+            isClosing = true
+            i += 1
+        }
+        guard i < n, isNameStart(s[i]) else { return nil }
+
+        var name = ""
+        while i < n, isNameChar(s[i]) {
+            name.append(s[i])
+            i += 1
+        }
+
+        var attributes: [Attribute] = []
+        var selfClosing = false
+
+        while i < n {
+            while i < n, isSpace(s[i]) { i += 1 }
+            if i >= n { break }
+            if s[i] == ">" {
+                i += 1
+                return ParsedTag(name: name, isClosing: isClosing, selfClosing: selfClosing,
+                                 attributes: attributes, end: i)
+            }
+            if s[i] == "/" {
+                var k = i + 1
+                while k < n, isSpace(s[k]) { k += 1 }
+                if k < n, s[k] == ">" {
+                    selfClosing = true
+                    i = k + 1
+                    return ParsedTag(name: name, isClosing: isClosing, selfClosing: selfClosing,
+                                     attributes: attributes, end: i)
+                }
+                i += 1  // stray slash
+                continue
+            }
+
+            // Attribute name.
+            var aname = ""
+            while i < n, !isSpace(s[i]), s[i] != "=", s[i] != ">", s[i] != "/" {
+                aname.append(s[i])
+                i += 1
+            }
+            if aname.isEmpty {
+                i += 1  // defensive: never spin on an unexpected char
+                continue
+            }
+
+            // Optional `= value`.
+            var value: String?
+            var k = i
+            while k < n, isSpace(s[k]) { k += 1 }
+            if k < n, s[k] == "=" {
+                i = k + 1
+                while i < n, isSpace(s[i]) { i += 1 }
+                if i < n, s[i] == "\"" || s[i] == "'" {
+                    let quote = s[i]
+                    i += 1
+                    var v = ""
+                    while i < n, s[i] != quote {
+                        v.append(s[i])
+                        i += 1
+                    }
+                    if i < n { i += 1 }  // past closing quote
+                    value = v
+                } else {
+                    var v = ""
+                    while i < n, !isSpace(s[i]), s[i] != ">" {
+                        v.append(s[i])
+                        i += 1
+                    }
+                    value = v
+                }
+            }
+            attributes.append(Attribute(name: aname, value: value))
+        }
+
+        // Unterminated tag: consume to end of input.
+        return ParsedTag(name: name, isClosing: isClosing, selfClosing: selfClosing,
+                         attributes: attributes, end: n)
+    }
+
+    private static func serialize(_ tag: ParsedTag, attributes: [Attribute]) -> String {
+        var out = "<"
+        if tag.isClosing { out += "/" }
+        out += tag.name
+        for attr in attributes {
+            out += " " + attr.name
+            if let v = attr.value {
+                // Re-quote with `"`; escape only `"` so existing entities in the
+                // value are preserved verbatim.
+                out += "=\"" + v.replacingOccurrences(of: "\"", with: "&quot;") + "\""
+            }
+        }
+        if tag.selfClosing { out += " /" }
+        out += ">"
+        return out
+    }
+
+    // MARK: - Scanning helpers
+
+    /// Index just past the matching `</name>` from `from`, or nil if absent.
+    private static func findClose(_ s: [Character], from: Int, name: String) -> Int? {
+        let n = s.count
+        var i = from
+        while i < n {
+            if s[i] == "<", i + 1 < n, s[i + 1] == "/" {
+                var j = i + 2
+                var candidate = ""
+                while j < n, isNameChar(s[j]) {
+                    candidate.append(s[j])
+                    j += 1
+                }
+                if candidate.lowercased() == name {
+                    while j < n, s[j] != ">" { j += 1 }
+                    if j < n { j += 1 }
+                    return j
+                }
+            }
+            i += 1
+        }
+        return nil
+    }
+
+    /// Index just past the closing `-->` from `from`, or end of input.
+    private static func findCommentEnd(_ s: [Character], from: Int) -> Int {
+        let n = s.count
+        var i = from
+        while i + 2 < n {
+            if s[i] == "-", s[i + 1] == "-", s[i + 2] == ">" { return i + 3 }
+            i += 1
+        }
+        return n
+    }
+
+    private static func isNameStart(_ c: Character) -> Bool {
+        c.isLetter && c.isASCII
+    }
+
+    private static func isNameChar(_ c: Character) -> Bool {
+        (c.isLetter || c.isNumber) && c.isASCII || c == "-" || c == "_" || c == ":" || c == "."
+    }
+
+    private static func isSpace(_ c: Character) -> Bool {
+        c == " " || c == "\t" || c == "\n" || c == "\r" || c == "\u{0C}"
+    }
+}

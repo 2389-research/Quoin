@@ -1157,6 +1157,32 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   needed. Everything is local-only — no `network.client` use is added. A
   multi-window user's intents target the most-recent library root (the same
   default a plain new window uses).
+- **Standalone HTML export — raw HTML policy (#4).** `HTMLExporter.export`
+  takes a `sanitizeRawHTML` flag. It defaults to **false** (raw HTML preserved
+  verbatim — full Markdown fidelity, the low-level contract Quick Look and tests
+  rely on), but every *standalone-export* entry point (the macOS Export sheet,
+  the Shortcuts *Export Note* intent, and the iOS export) turns it **on**, so a
+  saved file is private by default. The sheet exposes it as a **Sanitize HTML**
+  checkbox (default on) with an opt-out for byte-exact raw HTML. When on, block
+  and inline raw HTML runs through `HTMLSanitizer` — a hand-written,
+  dependency-free (per the one-dependency policy) allowlist *fragment* scrubber,
+  pure `QuoinCore` logic tested in `HTMLSanitizerTests`. It removes
+  `<script>/<style>/<iframe>/<object>/<embed>` elements (script/style with their
+  raw-text content), strips `on*` event-handler attributes and
+  `javascript:`/`vbscript:` URLs, and drops **remote** auto-loading
+  `src`/`srcset`/`poster`/`background` on `<img>/<source>/<audio>/<video>/
+  <track>/<input>` (the tracking-pixel / remote-embed vector), while preserving
+  benign structural HTML (tables, spans, emphasis, links, comments, `data:`
+  images, inline `style=`). The same pass neutralises `javascript:`/`vbscript:`
+  schemes in Markdown-derived link and image destinations. It is a conservative
+  export scrubber, not an HTML5 parser or a hard security boundary: it does not
+  decode HTML entities inside attribute values and does not scrub `url(...)`
+  inside inline `style=`. This is **export-only** — the `.md` source, the
+  round-trip, and Markdown export are untouched. Explicitly out of scope:
+  *remote Markdown images* (`![](https://…)`) stay external, per the deliberate
+  export choice (the interactive export WANTS them to resolve) — the sanitize
+  policy targets the raw-HTML smuggling vector the issue is about, not visible,
+  author-authored image references.
 - **Quick Look thumbnails & previews (#8).** Finder, Spotlight, and open/save
   panels render `.md` files through two small app-extensions embedded in the
   app's `PlugIns` (generated from `project.yml`): `QuoinThumbnailExtension` (a
@@ -1212,7 +1238,9 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
     (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src
     data:`) that blocks every remote subresource even if some HTML slipped past
     (suspenders). The interactive app export leaves the CSP nil — there the user
-    WANTS remote images to resolve.
+    WANTS remote *Markdown* images to resolve — but it defends the raw-HTML
+    vector differently, through the standalone-export sanitize policy (see
+    "Standalone HTML export — raw HTML policy" above).
   - **Preview = shared `HTMLExporter`.** `QuoinPreviewExtension` reduces the
     file with `.preview` bounds and returns the app's own `HTMLExporter` output
     as a data-based HTML `QLPreviewReply`. It links **only** `QuoinCore`

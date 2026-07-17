@@ -5,31 +5,58 @@ import Foundation
 /// document's directory as `baseURL` so relative `![](assets/x.png)` paths
 /// resolve); remote images and any that cannot be read stay as external
 /// `<img src>` references — never a silent drop (issue #3).
+///
+/// ## Raw HTML policy (issue #4)
+///
+/// Markdown may carry raw HTML (block and inline). By DEFAULT the exporter
+/// PRESERVES it verbatim, which keeps full Markdown fidelity — the low-level
+/// contract for callers that want an exact projection (Quick Look already
+/// neutralises raw HTML upstream and pins a strict CSP, so it needs nothing
+/// here). But raw HTML is also how a `.md` file smuggles `<script>`, remote
+/// `<iframe>`/`<object>` embeds, and tracking-pixel `<img>`s past export, at
+/// odds with Quoin's local-first/private stance.
+///
+/// The `sanitizeRawHTML` flag turns on an explicit, documented, dependency-free
+/// allowlist scrub (`HTMLSanitizer`): `<script>/<style>/<iframe>/<object>/
+/// <embed>` elements, `on*` handlers, `javascript:`/`vbscript:` URLs, and
+/// remote auto-loading resources are removed while benign structural HTML
+/// stays. When it is on, `javascript:`/`vbscript:` schemes in Markdown-derived
+/// link and image destinations are neutralised too. The macOS export sheet and
+/// the Shortcuts/iOS standalone-export paths turn this ON by default
+/// (private-by-default self-contained files); the sheet offers an opt-out
+/// toggle for users who need byte-exact raw HTML.
 public enum HTMLExporter {
 
     /// Renders `document` to one self-contained HTML file.
     ///
-    /// - Parameter contentSecurityPolicy: when non-nil, a
-    ///   `<meta http-equiv="Content-Security-Policy">` with this policy is
-    ///   emitted in `<head>`. The interactive app export leaves this nil (the
-    ///   user WANTS remote images to resolve in their browser); the Quick Look
-    ///   preview passes a restrictive policy so a hostile file's raw HTML can
-    ///   never make Quick Look's WebView fetch a remote resource (issue #8).
+    /// - Parameters:
+    ///   - contentSecurityPolicy: when non-nil, a
+    ///     `<meta http-equiv="Content-Security-Policy">` with this policy is
+    ///     emitted in `<head>`. The interactive app export leaves this nil (the
+    ///     user WANTS remote images to resolve in their browser); the Quick Look
+    ///     preview passes a restrictive policy so a hostile file's raw HTML can
+    ///     never make Quick Look's WebView fetch a remote resource (issue #8).
+    ///   - sanitizeRawHTML: when true, raw HTML is run through `HTMLSanitizer`
+    ///     and dangerous URL schemes are stripped from Markdown link/image
+    ///     destinations (issue #4). Defaults to false (raw HTML preserved for
+    ///     Markdown fidelity); the app's standalone-export entry points pass
+    ///     true so saved files are private by default.
     public static func export(
         _ document: QuoinDocument,
         title: String = "Document",
         baseURL: URL? = nil,
-        contentSecurityPolicy: String? = nil
+        contentSecurityPolicy: String? = nil,
+        sanitizeRawHTML: Bool = false
     ) -> String {
         var body = ""
-        render(document.blocks, document: document, baseURL: baseURL, into: &body)
+        render(document.blocks, document: document, baseURL: baseURL, sanitize: sanitizeRawHTML, into: &body)
 
         if !document.footnotes.isEmpty {
             body += "<hr>\n<section class=\"footnotes\">\n"
             for footnote in document.footnotes {
                 body += "<div id=\"fn-\(escape(footnote.id))\"><sup>\(footnote.index)</sup> "
                 var content = ""
-                render(footnote.blocks, document: document, baseURL: baseURL, into: &content)
+                render(footnote.blocks, document: document, baseURL: baseURL, sanitize: sanitizeRawHTML, into: &content)
                 body += content + "</div>\n"
             }
             body += "</section>\n"
@@ -58,14 +85,14 @@ public enum HTMLExporter {
 
     // MARK: - Blocks
 
-    private static func render(_ blocks: [Block], document: QuoinDocument, baseURL: URL?, into out: inout String) {
+    private static func render(_ blocks: [Block], document: QuoinDocument, baseURL: URL?, sanitize: Bool, into out: inout String) {
         for block in blocks {
             switch block.kind {
             case .heading(let level, let inlines, let slug):
                 let tag = "h\(min(max(level, 1), 6))"
-                out += "<\(tag) id=\"\(escape(slug))\">\(render(inlines, baseURL: baseURL))</\(tag)>\n"
+                out += "<\(tag) id=\"\(escape(slug))\">\(render(inlines, baseURL: baseURL, sanitize: sanitize))</\(tag)>\n"
             case .paragraph(let inlines):
-                out += "<p>\(render(inlines, baseURL: baseURL))</p>\n"
+                out += "<p>\(render(inlines, baseURL: baseURL, sanitize: sanitize))</p>\n"
             case .codeBlock(let language, let code):
                 let lang = language.map { " class=\"language-\(escape($0))\"" } ?? ""
                 out += "<pre><code\(lang)>\(escape(code))</code></pre>\n"
@@ -74,7 +101,7 @@ public enum HTMLExporter {
             case .mathBlock(let latex):
                 out += "<p class=\"math-display\">\\[\(escape(latex))\\]</p>\n"
             case .table(let header, let rows, let alignments):
-                out += renderTable(header: header, rows: rows, alignments: alignments, baseURL: baseURL)
+                out += renderTable(header: header, rows: rows, alignments: alignments, baseURL: baseURL, sanitize: sanitize)
             case .list(let items, let ordered, let start):
                 let tag = ordered ? "ol" : "ul"
                 let startAttr = ordered && start != 1 ? " start=\"\(start)\"" : ""
@@ -87,7 +114,7 @@ public enum HTMLExporter {
                         out += "<li>"
                     }
                     var inner = ""
-                    render(item.blocks, document: document, baseURL: baseURL, into: &inner)
+                    render(item.blocks, document: document, baseURL: baseURL, sanitize: sanitize, into: &inner)
                     // Unwrap a single paragraph so simple items stay tight.
                     if item.blocks.count == 1, inner.hasPrefix("<p>"), inner.hasSuffix("</p>\n") {
                         inner = String(inner.dropFirst(3).dropLast(5))
@@ -97,11 +124,11 @@ public enum HTMLExporter {
                 out += "</\(tag)>\n"
             case .blockQuote(let children):
                 var inner = ""
-                render(children, document: document, baseURL: baseURL, into: &inner)
+                render(children, document: document, baseURL: baseURL, sanitize: sanitize, into: &inner)
                 out += "<blockquote>\n\(inner)</blockquote>\n"
             case .callout(let kind, let children):
                 var inner = ""
-                render(children, document: document, baseURL: baseURL, into: &inner)
+                render(children, document: document, baseURL: baseURL, sanitize: sanitize, into: &inner)
                 out += "<aside class=\"callout callout-\(kind.rawValue)\"><p class=\"callout-title\">\(kind.title)</p>\n\(inner)</aside>\n"
             case .frontMatter(let yaml):
                 out += "<pre class=\"front-matter\"><code>\(escape(yaml))</code></pre>\n"
@@ -116,12 +143,12 @@ public enum HTMLExporter {
             case .thematicBreak:
                 out += "<hr>\n"
             case .htmlBlock(let html):
-                out += html + "\n"
+                out += (sanitize ? HTMLSanitizer.sanitize(html) : html) + "\n"
             }
         }
     }
 
-    private static func renderTable(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment], baseURL: URL?) -> String {
+    private static func renderTable(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment], baseURL: URL?, sanitize: Bool) -> String {
         func align(_ index: Int) -> String {
             guard index < alignments.count else { return "" }
             switch alignments[index] {
@@ -133,13 +160,13 @@ public enum HTMLExporter {
         }
         var out = "<table>\n<thead><tr>"
         for (i, cell) in header.enumerated() {
-            out += "<th\(align(i))>\(render(cell.inlines, baseURL: baseURL))</th>"
+            out += "<th\(align(i))>\(render(cell.inlines, baseURL: baseURL, sanitize: sanitize))</th>"
         }
         out += "</tr></thead>\n<tbody>\n"
         for row in rows {
             out += "<tr>"
             for (i, cell) in row.enumerated() {
-                out += "<td\(align(i))>\(render(cell.inlines, baseURL: baseURL))</td>"
+                out += "<td\(align(i))>\(render(cell.inlines, baseURL: baseURL, sanitize: sanitize))</td>"
             }
             out += "</tr>\n"
         }
@@ -149,7 +176,7 @@ public enum HTMLExporter {
 
     // MARK: - Inlines
 
-    private static func render(_ inlines: [Inline], baseURL: URL?) -> String {
+    private static func render(_ inlines: [Inline], baseURL: URL?, sanitize: Bool) -> String {
         var out = ""
         for inline in inlines {
             switch inline {
@@ -158,18 +185,21 @@ public enum HTMLExporter {
             case .code(let code):
                 out += "<code>\(escape(code))</code>"
             case .emphasis(let children):
-                out += "<em>\(render(children, baseURL: baseURL))</em>"
+                out += "<em>\(render(children, baseURL: baseURL, sanitize: sanitize))</em>"
             case .strong(let children):
-                out += "<strong>\(render(children, baseURL: baseURL))</strong>"
+                out += "<strong>\(render(children, baseURL: baseURL, sanitize: sanitize))</strong>"
             case .strikethrough(let children):
-                out += "<del>\(render(children, baseURL: baseURL))</del>"
+                out += "<del>\(render(children, baseURL: baseURL, sanitize: sanitize))</del>"
             case .highlight(let children, let color):
-                out += "<mark class=\"hl-\(color.rawValue)\">\(render(children, baseURL: baseURL))</mark>"
+                out += "<mark class=\"hl-\(color.rawValue)\">\(render(children, baseURL: baseURL, sanitize: sanitize))</mark>"
             case .link(let destination, let children):
-                let href = destination.map { escapeAttribute($0) } ?? "#"
-                out += "<a href=\"\(href)\">\(render(children, baseURL: baseURL))</a>"
+                // Under the sanitize policy, a `javascript:`/`vbscript:` link
+                // destination is neutralised to an inert anchor (issue #4).
+                let raw = destination ?? "#"
+                let href = (sanitize && HTMLSanitizer.isDangerousScheme(raw)) ? "#" : escapeAttribute(raw)
+                out += "<a href=\"\(href)\">\(render(children, baseURL: baseURL, sanitize: sanitize))</a>"
             case .image(let source, let alt):
-                out += renderImage(source: source, alt: alt, baseURL: baseURL)
+                out += renderImage(source: source, alt: alt, baseURL: baseURL, sanitize: sanitize)
             case .math(let latex):
                 out += "<span class=\"math-inline\">\\(\(escape(latex))\\)</span>"
             case .footnoteReference(let id, let index):
@@ -178,22 +208,22 @@ public enum HTMLExporter {
                 // Canonical CriticMarkup HTML (toolkit conventions).
                 switch kind {
                 case .insertion(let children):
-                    out += "<ins>\(render(children, baseURL: baseURL))</ins>"
+                    out += "<ins>\(render(children, baseURL: baseURL, sanitize: sanitize))</ins>"
                 case .deletion(let children):
-                    out += "<del>\(render(children, baseURL: baseURL))</del>"
+                    out += "<del>\(render(children, baseURL: baseURL, sanitize: sanitize))</del>"
                 case .substitution(let old, let new):
-                    out += "<del>\(render(old, baseURL: baseURL))</del><ins>\(render(new, baseURL: baseURL))</ins>"
+                    out += "<del>\(render(old, baseURL: baseURL, sanitize: sanitize))</del><ins>\(render(new, baseURL: baseURL, sanitize: sanitize))</ins>"
                 case .comment(let text):
                     out += "<span class=\"critic comment\">\(escape(text))</span>"
                 case .highlight(let children):
-                    out += "<mark class=\"critic\">\(render(children, baseURL: baseURL))</mark>"
+                    out += "<mark class=\"critic\">\(render(children, baseURL: baseURL, sanitize: sanitize))</mark>"
                 }
             case .softBreak:
                 out += " "
             case .lineBreak:
                 out += "<br>"
             case .html(let raw):
-                out += raw
+                out += sanitize ? HTMLSanitizer.sanitize(raw) : raw
             }
         }
         return out
@@ -206,9 +236,14 @@ public enum HTMLExporter {
     /// degrade to an external `<img src>` reference rather than a silent drop.
     /// Resolution mirrors the on-screen renderer: absolute `/…` paths and
     /// paths relative to `baseURL` (the document directory).
-    private static func renderImage(source: String?, alt: String, baseURL: URL?) -> String {
+    private static func renderImage(source: String?, alt: String, baseURL: URL?, sanitize: Bool) -> String {
         let altAttr = escapeAttribute(alt)
         guard let source, !source.isEmpty else {
+            return "<img src=\"\" alt=\"\(altAttr)\">"
+        }
+        // Under the sanitize policy, a `javascript:`/`vbscript:` image source is
+        // neutralised to an empty src (issue #4).
+        if sanitize, HTMLSanitizer.isDangerousScheme(source) {
             return "<img src=\"\" alt=\"\(altAttr)\">"
         }
         // Already-embedded or remote: keep verbatim (local-only policy never

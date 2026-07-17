@@ -545,6 +545,19 @@ degrade predictably instead of failing in an opaque sandbox.
   path) instead of a silent gap. Remote (`http(s)://`) images stay as external
   references — Quoin never fetches them.
 
+- **Standalone HTML export is private by default.** Markdown can carry raw HTML
+  — and raw HTML is how a file smuggles `<script>`, remote `<iframe>`/`<object>`
+  embeds, and tracking-pixel `<img>`s. When you export to HTML, the **Sanitize
+  HTML** option (on by default in the Export sheet) runs a built-in, dependency-
+  free allowlist scrubber that removes `<script>/<style>/<iframe>/<object>/
+  <embed>` elements, `on*` event handlers, `javascript:`/`vbscript:` URLs, and
+  remote auto-loading resources, while leaving benign structural HTML (tables,
+  spans, emphasis, links, comments, `data:` images) intact — so the saved file
+  fetches nothing off-device. Turn the toggle **off** if you need byte-exact raw
+  HTML for full Markdown fidelity (the trade-off: scripts and trackers survive).
+  The Shortcuts *Export Note* action and the iOS export always sanitize. (This
+  is export-only — your `.md` source and Markdown export are never altered.)
+
 - **Share** the current document through the system share sheet (AirDrop, Mail,
   Messages, or any share extension) from the toolbar Share button.
 
