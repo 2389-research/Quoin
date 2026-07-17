@@ -27,6 +27,12 @@ final class ReaderModel {
     /// scopes to it. Not observed: it changes on every selection move and no
     /// SwiftUI body depends on it directly.
     @ObservationIgnored var selectionSourceRange: ByteRange?
+    /// The Edit menu's live Undo/Redo labels, mirrored from the session's
+    /// stacks after every operation (nil = that stack is empty, so the item
+    /// disables). The session is an actor; these observed copies let the menu
+    /// read them synchronously and re-title/re-enable as history changes.
+    private(set) var undoActionName: UndoActionName?
+    private(set) var redoActionName: UndoActionName?
 
     /// Non-nil while an external change conflicts with unsaved local edits;
     /// holds the on-disk source for "use disk version".
@@ -268,6 +274,9 @@ final class ReaderModel {
         // Track the adoption revision even for echoes, so edit stamping
         // always reflects the newest snapshot this model has seen.
         sessionContentRevision = contentRevision
+        // An external adoption (reload, conflict resolution) clears the undo
+        // stacks in the session; keep the menu's copies honest.
+        Task { await refreshUndoState() }
         // Our own edits already rendered via restoreCaret; skip the echo.
         guard document.sourceHash != self.document.sourceHash
                 || rendered.activeBlockID != activeBlockID else { return }
@@ -665,9 +674,16 @@ final class ReaderModel {
             edit = SourceEdit(range: block.range, replacement: grown)
         }
         guard let edit else { return }
+        let actionName: UndoActionName
+        switch command {
+        case .moveUp, .moveDown: actionName = .moveBlock
+        case .duplicate: actionName = .duplicateBlock
+        case .delete: actionName = .deleteBlock
+        case .addTableRow, .addTableColumn: actionName = .editTable
+        }
         // nil caret: keep the current reveal state — a block command must
         // not fling the caret or open the block it touched.
-        applyAbsolute(edit, caretUTF8: nil)
+        applyAbsolute(edit, caretUTF8: nil, actionName: actionName)
     }
 
     /// A structural line-prefix command (#25) — heading level, list/quote
@@ -712,7 +728,7 @@ final class ReaderModel {
         }
         guard let newSlice, newSlice != slice else { return }
         // nil caret: don't fling the caret; the block transforms in place.
-        applyAbsolute(SourceEdit(range: block.range, replacement: newSlice), caretUTF8: nil)
+        applyAbsolute(SourceEdit(range: block.range, replacement: newSlice), caretUTF8: nil, actionName: .structure)
     }
 
     private func isHeadingTarget(_ kind: BlockKind) -> Bool {
@@ -770,7 +786,7 @@ final class ReaderModel {
                 fromByteOffset: fromByteOffset, options: options,
                 within: inSelection ? selectionSourceRange : nil)
         else { return false }
-        applyAbsolute(edit, caretUTF8: next)
+        applyAbsolute(edit, caretUTF8: next, actionName: .replace)
         return true
     }
 
@@ -793,7 +809,7 @@ final class ReaderModel {
                 of: query, with: replacement, in: document.source,
                 options: options, within: scope)
         else { return 0 }
-        applyAbsolute(edit, caretUTF8: nil)
+        applyAbsolute(edit, caretUTF8: nil, actionName: .replace)
         return count
     }
 
@@ -1036,6 +1052,7 @@ final class ReaderModel {
                 } else if let refusalMessage {
                     self.reportFailure(refusalMessage)
                 }
+                await self.refreshUndoState()
             } catch {
                 await self.recoverFromFailedEdit(error, generation: generation)
             }
@@ -1047,6 +1064,7 @@ final class ReaderModel {
 
     private func applyAbsolute(
         _ edit: SourceEdit, caretUTF8: Int?, spliceHint: RenderSpliceHint? = nil,
+        actionName: UndoActionName? = nil,
         onError: (@Sendable () -> Void)? = nil
     ) {
         guard let session else { return }
@@ -1069,13 +1087,15 @@ final class ReaderModel {
                     "model.session.applyEdit",
                     metadata: "range_offset=\(absolute.offset) replacement_bytes=\(replacement.utf8.count)"
                 ) {
-                    try await session.applyEdit(edit, baseRevision: baseRevision, publishSnapshot: false)
+                    try await session.applyEdit(
+                        edit, baseRevision: baseRevision, publishSnapshot: false, actionName: actionName)
                 }
                 guard generation == self.latestEditGeneration else { return }
                 QuoinPerformanceTrace.measure("model.restoreCaret") {
                     self.restoreCaret(in: newDocument, atUTF8Offset: caretUTF8, spliceHint: spliceHint)
                 }
                 self.scheduleH1Rename(for: newDocument)
+                await self.refreshUndoState()
             } catch {
                 onError?()
                 await self.recoverFromFailedEdit(error, generation: generation)
@@ -1101,6 +1121,7 @@ final class ReaderModel {
         guard let session else { return }
         let truth = await session.document
         sessionContentRevision = await session.contentRevision
+        await refreshUndoState()
         // Superseded submissions stay quiet: the newest one (or its own
         // recovery) owns the projection and the banner.
         guard generation == latestEditGeneration else { return }
@@ -1173,6 +1194,17 @@ final class ReaderModel {
         performHistoryOperation { try await $0.redo() }
     }
 
+    /// Pull the session's current Undo/Redo labels onto the main actor so the
+    /// Edit menu (via focused values) re-titles and re-enables. Called after
+    /// every edit, resolution, history op, and external adoption — the only
+    /// events that can change the stacks.
+    private func refreshUndoState() async {
+        guard let session else { return }
+        let state = await session.undoState
+        undoActionName = state.undoActionName
+        redoActionName = state.redoActionName
+    }
+
     /// Undo/redo serialized with the edit pipeline (launch ledger, data
     /// integrity #7). A ⌘Z issued while a keystroke's round-trip was still
     /// in flight used to hop onto the session actor in NONDETERMINISTIC
@@ -1204,6 +1236,7 @@ final class ReaderModel {
                     self.restoreCaret(in: newDocument, atUTF8Offset: nil)
                 }
             }
+            await self.refreshUndoState()
             if generation == self.latestEditGeneration {
                 self.editPipelineTask = nil
             }

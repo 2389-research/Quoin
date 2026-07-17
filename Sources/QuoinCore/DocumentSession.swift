@@ -77,8 +77,13 @@ public actor DocumentSession {
     /// the file presenter — and the banner must not re-fire for the same disk
     /// version. Cleared whenever the conflict is resolved.
     private var conflictOfferedHash: String?
-    private var undoStack: [SourceEdit] = []
-    private var redoStack: [SourceEdit] = []
+    /// One undoable step: the inverse edit that reverses it, plus the label
+    /// the Edit menu shows ("Undo Typing" / "Undo Move Block"). The name
+    /// rides with the entry through undo→redo→undo so the menu stays honest
+    /// as the step moves between the two stacks.
+    private struct HistoryEntry { var edit: SourceEdit; let name: UndoActionName }
+    private var undoStack: [HistoryEntry] = []
+    private var redoStack: [HistoryEntry] = []
     /// Typing-coalescing state: while a run of single-character, contiguous,
     /// same-direction, non-whitespace edits continues, each one EXTENDS the
     /// top undo entry instead of pushing a new one — so ⌘Z undoes a word, not
@@ -447,6 +452,25 @@ public actor DocumentSession {
     public var canUndo: Bool { !undoStack.isEmpty }
     public var canRedo: Bool { !redoStack.isEmpty }
 
+    /// The label for the step ⌘Z would reverse next (nil when there is
+    /// nothing to undo) — drives the Edit ▸ Undo item's title and enablement.
+    public var undoActionName: UndoActionName? { undoStack.last?.name }
+    /// The label for the step ⇧⌘Z would re-apply next (nil when the redo
+    /// stack is empty).
+    public var redoActionName: UndoActionName? { redoStack.last?.name }
+
+    /// A single read of everything the Edit menu needs, so the UI hops onto
+    /// the actor once per refresh instead of four times.
+    public struct UndoState: Sendable, Equatable {
+        public let undoActionName: UndoActionName?
+        public let redoActionName: UndoActionName?
+        public var canUndo: Bool { undoActionName != nil }
+        public var canRedo: Bool { redoActionName != nil }
+    }
+    public var undoState: UndoState {
+        UndoState(undoActionName: undoStack.last?.name, redoActionName: redoStack.last?.name)
+    }
+
     /// The editor's keystroke path: apply a byte-precise edit, re-parse,
     /// publish, and schedule a debounced autosave. Returns the new document
     /// so callers can restore the caret synchronously.
@@ -457,15 +481,20 @@ public actor DocumentSession {
     /// the edit is rejected instead of spliced at stale offsets (ledger
     /// #14). Pass nil only for callers that provably operate on the
     /// session's own current document.
+    /// `actionName` labels the resulting undo step for the Edit menu. Pass
+    /// nil for edits that carry no explicit intent (typing, format, paste):
+    /// the name is then inferred from the edit's shape. Intentful commands
+    /// (Move Block, Resolve Suggestion, Edit Properties…) pass their own.
     @discardableResult
     public func applyEdit(
-        _ edit: SourceEdit, baseRevision: Int? = nil, publishSnapshot: Bool = true
+        _ edit: SourceEdit, baseRevision: Int? = nil, publishSnapshot: Bool = true,
+        actionName: UndoActionName? = nil
     ) throws -> QuoinDocument {
         if let baseRevision, baseRevision != contentRevision {
             throw SessionError.staleEditBase(expected: contentRevision, got: baseRevision)
         }
         let parsed = try MarkdownConverter.parseAfterEdit(previous: document, edit: edit)
-        recordUndo(edit: edit, inverse: parsed.inverse)  // reads pre-edit `document`
+        recordUndo(edit: edit, inverse: parsed.inverse, actionName: actionName)  // reads pre-edit `document`
         if publishSnapshot {
             publish(parsed.document)
         } else {
@@ -480,7 +509,7 @@ public actor DocumentSession {
     /// deleted text can be read for the whitespace check. A run of contiguous
     /// single-character same-direction non-whitespace edits collapses into one
     /// undo entry; anything else starts a fresh group.
-    private func recordUndo(edit: SourceEdit, inverse: SourceEdit) {
+    private func recordUndo(edit: SourceEdit, inverse: SourceEdit, actionName: UndoActionName?) {
         redoStack.removeAll()
 
         let insertLen = edit.replacement.utf8.count
@@ -489,30 +518,45 @@ public actor DocumentSession {
         let deleted = edit.replacement.isEmpty ? document.source.substring(in: edit.range) : nil
         let isDelete = (deleted?.count == 1) && !((deleted?.first?.isWhitespace) ?? true)
 
+        // The step's Edit-menu label: an explicit intent wins; otherwise it is
+        // inferred from the edit's shape (single char → Typing, else Edit).
+        let name = actionName ?? UndoActionName.inferred(
+            replacementIsInsert: edit.range.length == 0,
+            replacementCount: edit.replacement.count,
+            deletedCount: edit.replacement.isEmpty ? (deleted?.count ?? 0) : 0)
+
+        // Only coalesce anonymous typing — an intentful command (even a
+        // one-character one) always starts its own, named, undo group.
+        let coalescible = actionName == nil
+
         // Continue an insertion run: extend the top delete-inverse by one char.
-        if isInsert, let run = typingRun, run.kind == .insert, edit.range.offset == run.nextOffset,
-           let top = undoStack.last {
-            undoStack[undoStack.count - 1] = SourceEdit(
-                range: ByteRange(offset: top.range.offset, length: top.range.length + insertLen),
-                replacement: "")
+        if coalescible, isInsert, let run = typingRun, run.kind == .insert,
+           edit.range.offset == run.nextOffset, let top = undoStack.last {
+            undoStack[undoStack.count - 1] = HistoryEntry(
+                edit: SourceEdit(
+                    range: ByteRange(offset: top.edit.range.offset, length: top.edit.range.length + insertLen),
+                    replacement: ""),
+                name: top.name)
             typingRun = TypingRun(kind: .insert, nextOffset: edit.range.offset + insertLen)
             return
         }
         // Continue a backspace run: prepend this char to the top insert-inverse.
-        if isDelete, let run = typingRun, run.kind == .delete, edit.range.upperBound == run.nextOffset,
-           let top = undoStack.last {
-            undoStack[undoStack.count - 1] = SourceEdit(
-                range: ByteRange(offset: inverse.range.offset, length: 0),
-                replacement: inverse.replacement + top.replacement)
+        if coalescible, isDelete, let run = typingRun, run.kind == .delete,
+           edit.range.upperBound == run.nextOffset, let top = undoStack.last {
+            undoStack[undoStack.count - 1] = HistoryEntry(
+                edit: SourceEdit(
+                    range: ByteRange(offset: inverse.range.offset, length: 0),
+                    replacement: inverse.replacement + top.edit.replacement),
+                name: top.name)
             typingRun = TypingRun(kind: .delete, nextOffset: edit.range.offset)
             return
         }
 
         // New group; arm a fresh run only for a coalescible typing edit.
-        undoStack.append(inverse)
-        if isInsert {
+        undoStack.append(HistoryEntry(edit: inverse, name: name))
+        if coalescible, isInsert {
             typingRun = TypingRun(kind: .insert, nextOffset: edit.range.offset + insertLen)
-        } else if isDelete {
+        } else if coalescible, isDelete {
             typingRun = TypingRun(kind: .delete, nextOffset: edit.range.offset)
         } else {
             typingRun = nil
@@ -551,7 +595,7 @@ public actor DocumentSession {
         }
         guard let edit = SuggestionResolver.combinedResolutionEdit(
             resolving: markRange, in: document.source, action: action) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .suggestion)
     }
 
     /// Accept All / Reject All — one atomic edit, one undo (suggestions
@@ -563,7 +607,7 @@ public actor DocumentSession {
     ) throws -> QuoinDocument? {
         guard let edit = SuggestionResolver.resolveAllEdit(
             in: document.source, action: action) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .bulkSuggestion)
     }
 
     /// Hoisted out of `applyAnnotation` — allocating a formatter per annotation
@@ -593,7 +637,13 @@ public actor DocumentSession {
         guard let edit = ReviewAuthoring.annotationEdit(
             kind: kind, range: range, in: document.source,
             reviewer: reviewer, timestamp: timestamp) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        let name: UndoActionName
+        switch kind {
+        case .comment, .blockComment: name = .comment
+        case .highlight: name = .highlight
+        case .replacement, .deletion, .insertion: name = .suggestedEdit
+        }
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: name)
     }
 
     // MARK: - Front-matter fields (Properties panel, #70 — computed in-actor)
@@ -612,7 +662,7 @@ public actor DocumentSession {
     ) throws -> QuoinDocument? {
         guard let edit = FrontMatterEditing.setFieldEdit(
             key: key, value: value, in: document.source) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .properties)
     }
 
     /// Sets one front-matter field to a TYPED raw value (bool/number/date
@@ -627,7 +677,7 @@ public actor DocumentSession {
     ) throws -> QuoinDocument? {
         guard let edit = FrontMatterEditing.setTypedFieldEdit(
             key: key, rawValue: rawValue, in: document.source) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .properties)
     }
 
     /// Removes one front-matter field (nested continuation lines ride
@@ -640,15 +690,16 @@ public actor DocumentSession {
     ) throws -> QuoinDocument? {
         guard let edit = FrontMatterEditing.removeFieldEdit(
             key: key, in: document.source) else { return nil }
-        return try applyEdit(edit, publishSnapshot: publishSnapshot)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .properties)
     }
 
     @discardableResult
     public func undo() throws -> QuoinDocument? {
-        guard let edit = undoStack.popLast() else { return nil }
+        guard let entry = undoStack.popLast() else { return nil }
         typingRun = nil
-        let (newSource, inverse) = try edit.apply(to: document.source)
-        redoStack.append(inverse)
+        let (newSource, inverse) = try entry.edit.apply(to: document.source)
+        // The name rides with the step so redoing it reads "Redo <same name>".
+        redoStack.append(HistoryEntry(edit: inverse, name: entry.name))
         // A history splice changes content OUTSIDE the in-flight edit
         // stream — exactly like an external adoption, any edit whose byte
         // offsets were computed against the pre-undo snapshot is
@@ -665,10 +716,10 @@ public actor DocumentSession {
 
     @discardableResult
     public func redo() throws -> QuoinDocument? {
-        guard let edit = redoStack.popLast() else { return nil }
+        guard let entry = redoStack.popLast() else { return nil }
         typingRun = nil
-        let (newSource, inverse) = try edit.apply(to: document.source)
-        undoStack.append(inverse)
+        let (newSource, inverse) = try entry.edit.apply(to: document.source)
+        undoStack.append(HistoryEntry(edit: inverse, name: entry.name))
         // Same stale-edit rejection contract as undo (ledger #7).
         contentRevision += 1
         publish(MarkdownConverter.parse(newSource))

@@ -55,13 +55,22 @@ struct ReaderScreen: View {
     /// Document→card linkage: the mark the caret is inside.
     @State private var linkedMark: ByteRange?
     @State private var isExportVisible = false
+    // Writing-environment modes are PER-WINDOW (#29): toggling Focus in one
+    // document must not flip every open window. @SceneStorage scopes them to
+    // this window (shared across its tabs, restored per window), where
+    // @AppStorage was one global switch for the whole app. The View-menu
+    // items reach these through focused values + toggle notifications, since
+    // app-level Commands can't read @SceneStorage.
     /// Focus mode: everything but the paragraph you're on recedes.
-    @AppStorage("QuoinFocusMode") private var isFocusMode = false
+    @SceneStorage("QuoinFocusMode") private var isFocusMode = false
     /// Typewriter scrolling: the caret line holds a fixed height.
-    @AppStorage("QuoinTypewriter") private var isTypewriter = false
+    @SceneStorage("QuoinTypewriter") private var isTypewriter = false
     /// Sentence-granularity focus (only meaningful with focus mode on).
-    @AppStorage("QuoinFocusSentence") private var isSentenceFocus = false
-    /// Word-count goal (0 = off): progress shows in the status bar.
+    @SceneStorage("QuoinFocusSentence") private var isSentenceFocus = false
+    /// Word-count goal (0 = off): progress shows in the status bar. Stays a
+    /// GLOBAL @AppStorage — it is a persistent writing target surfaced in
+    /// Settings (Advanced ▸ Writing), not a per-window view mode; scoping it
+    /// per-window would silently disconnect that Settings control.
     @AppStorage("QuoinWordGoal") private var wordGoal = 0
     /// Jump history (TOC clicks, anchor links, breadcrumbs): ⌘[ / ⌘].
     @State private var backStack: [BlockID] = []
@@ -666,10 +675,39 @@ struct ReaderScreen: View {
                   let command = structureCommand(for: op) else { return }
             model.applyStructure(command)
         }
+        // File ▸ Page Setup… (⇧⌘P) — configure the shared print info.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.pageSetupNotification)) { _ in
+            guard isKeyWindow else { return }
+            DocumentExporters.runPageSetup()
+        }
+        // View ▸ Focus Mode / Sentence Focus / Typewriter (#29): the menu
+        // posts a toggle; the KEY window flips its own per-window scene
+        // storage — so one document's mode never leaks into the others.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleFocusModeNotification)) { _ in
+            guard isKeyWindow else { return }
+            isFocusMode.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleSentenceFocusNotification)) { _ in
+            guard isKeyWindow else { return }
+            isSentenceFocus.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleTypewriterNotification)) { _ in
+            guard isKeyWindow else { return }
+            isTypewriter.toggle()
+        }
         // Lets the Format menu title follow the editing state, and File/
         // Edit/Go items enable only when a document can receive them.
         .focusedSceneValue(\.quoinIsEditingBlock, model.activeBlockID != nil)
         .focusedSceneValue(\.quoinHasDocument, true)
+        // Edit ▸ Undo/Redo track the session's stacks: the item names the
+        // action ("Undo Typing") and disables when its stack is empty.
+        .focusedSceneValue(\.quoinUndoAction, model.undoActionName)
+        .focusedSceneValue(\.quoinRedoAction, model.redoActionName)
+        // The View-menu writing toggles show the KEY window's per-window
+        // state (checkmarks follow this document, not a global switch).
+        .focusedSceneValue(\.quoinFocusMode, isFocusMode)
+        .focusedSceneValue(\.quoinSentenceFocus, isSentenceFocus)
+        .focusedSceneValue(\.quoinTypewriter, isTypewriter)
     }
 
     // MARK: - Format pill (B/I/U + link, floats over the editor)

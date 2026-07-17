@@ -92,7 +92,9 @@ the file on disk stays clean markdown you own.
   inserts `![](assets/…)` at the caret — the file stays a plain `.md` you can
   move as a folder.
 - **Word-granular undo** — typing coalesces into word-sized undo steps, so `⌘Z`
-  removes a word (or a backspaced run), not one letter at a time.
+  removes a word (or a backspaced run), not one letter at a time. The Edit menu
+  names the step it will reverse — **Undo Typing**, **Undo Move Block**, **Undo
+  Edit Properties** — and disables when there's nothing left to undo.
 - **Block operations** — right-click any block for **Duplicate Block**,
   **Delete Block**, **Move Block Up/Down**, and (on a table) **Add Table Row**
   and **Add Table Column**. Each is a byte-exact source splice.
@@ -300,9 +302,10 @@ resolution can never quietly corrupt the document.
 
   ![Search Library panel showing full-text results across the library](../images/library-search.png)
 
-- **Tabs & navigation** — document tabs (⌘1–9 select by position), jump history
-  **Back** ⌘[ and **Forward** ⌘], a breadcrumb path, and footnote
-  click-to-jump with a hover preview and an ↩ backlink to return.
+- **Tabs & navigation** — document tabs (⌘1–9 select by position; **Show Next
+  Tab** ⌃⇥ and **Show Previous Tab** ⌃⇧⇥ cycle through them from the Window
+  menu), jump history **Back** ⌘[ and **Forward** ⌘], a breadcrumb path, and
+  footnote click-to-jump with a hover preview and an ↩ backlink to return.
 
   ![Footnote reference marker with a hover preview popover](../images/footnotes.png)
 
@@ -312,12 +315,15 @@ resolution can never quietly corrupt the document.
 
 | Feature | Shortcut | What it does |
 | :--- | :--- | :--- |
-| Focus Mode | View menu / toolbar | dims everything but the current block |
-| Sentence Focus | — | narrows the focus to the current sentence (needs Focus Mode) |
-| Typewriter Scrolling | ⌥⌘T | keeps the active line vertically centered |
+| Focus Mode | View menu / toolbar | dims everything but the current block (per-window) |
+| Sentence Focus | View menu | narrows the focus to the current sentence (needs Focus Mode) |
+| Typewriter Scrolling | ⌥⌘T | keeps the active line vertically centered (per-window) |
 | Zoom In / Out | ⌘= / ⌘− | scales the reading text up or down |
 | Actual Size | ⌃⌘0 | resets the reading text to 100% |
 | Status Bar | — | word count, reading progress, and goals |
+
+Focus Mode, Sentence Focus, and Typewriter Scrolling are per-window — turning
+one on in one document doesn't flip it in your other open windows.
 
 Text zoom changes only how large the document reads on screen — it's a viewing
 preference, not an edit. Exports (PDF, RTF) and print always render at 100%, so a
@@ -405,7 +411,8 @@ degrade predictably instead of failing in an opaque sandbox.
 ## Export & interop
 
 - Export to **Markdown** (round-trip), **plain text**, or **HTML** (via
-  **Export…**, ⇧⌘E), and **Print…** with ⌘P.
+  **Export…**, ⇧⌘E), and **Print…** with ⌘P. **Page Setup…** (⇧⌘P) sets the
+  paper size and orientation the print job uses.
 
   ![Export sheet with Markdown, plain text, and HTML options](../images/export-sheet.png)
 

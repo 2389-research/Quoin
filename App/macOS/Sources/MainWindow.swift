@@ -133,6 +133,16 @@ struct MainWindow: View {
             guard isKeyWindow, let tab = activeTab else { return }
             close(tab)
         }
+        // Window ▸ Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥): cycle Quoin's own
+        // document tabs, wrapping at the ends (the standard tab-nav feel).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.nextTabNotification)) { _ in
+            guard isKeyWindow else { return }
+            cycleTab(by: 1)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.previousTabNotification)) { _ in
+            guard isKeyWindow else { return }
+            cycleTab(by: -1)
+        }
         // File ▸ Open… (⌘O): native panel, markdown files only.
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openFilePanelNotification)) { _ in
             guard isKeyWindow else { return }
@@ -418,6 +428,15 @@ struct MainWindow: View {
             return
         }
         open(url)
+    }
+
+    /// Move the active tab by `delta` positions, wrapping around. A no-op
+    /// with 0 or 1 tabs (nothing to switch to).
+    private func cycleTab(by delta: Int) {
+        guard openTabs.count > 1,
+              let current = openTabs.firstIndex(where: { $0.id == activeTabID }) else { return }
+        let next = ((current + delta) % openTabs.count + openTabs.count) % openTabs.count
+        activeTabID = openTabs[next].id
     }
 
     private func close(_ tab: DocumentTab) {

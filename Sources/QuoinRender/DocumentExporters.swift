@@ -149,7 +149,10 @@ public enum DocumentExporters {
         // Print always renders at 100%, never the reader's on-screen zoom.
         let rendered = AttributedRenderer(theme: theme.atActualSize()).render(document).attributed
 
-        let printInfo = NSPrintInfo()
+        // Start from the shared print info so Page Setup's choices (paper
+        // size, orientation, scale) carry into the job; Quoin's margins and
+        // pagination are then imposed on top.
+        let printInfo = (NSPrintInfo.shared.copy() as? NSPrintInfo) ?? NSPrintInfo()
         printInfo.topMargin = 54
         printInfo.bottomMargin = 54
         printInfo.leftMargin = 54
@@ -170,6 +173,22 @@ public enum DocumentExporters {
         operation.showsPrintPanel = true
         operation.showsProgressPanel = true
         operation.run()
+    }
+
+    /// File ▸ Page Setup… (⇧⌘P): configure the shared `NSPrintInfo` (paper
+    /// size, orientation, scale) that `runPrintOperation` then builds on.
+    /// Presented as a sheet on the key window when there is one, else app-
+    /// modal — standard macOS Page Setup behavior.
+    @MainActor
+    public static func runPageSetup() {
+        let layout = NSPageLayout()
+        if let window = NSApp.keyWindow {
+            layout.beginSheet(
+                with: NSPrintInfo.shared, modalFor: window,
+                delegate: nil, didEnd: nil, contextInfo: nil)
+        } else {
+            _ = layout.runModal()
+        }
     }
     #endif
 }
