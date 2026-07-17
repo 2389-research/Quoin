@@ -250,6 +250,16 @@ resolution can never quietly corrupt the document.
   **File ▸ Show in Finder** reveals the document you're editing without hunting
   for it in the tree (the sidebar's right-click **Reveal in Finder** does the
   same for any selected file or folder).
+- **Manage documents** — right-click any document or folder in the sidebar for
+  **Rename**, **Duplicate**, **Reveal in Finder**, and **Move to Trash**.
+  Duplicate copies the file to the next free ` 2`, ` 3`… name beside the
+  original (never overwriting) and opens the copy. Move to Trash uses the
+  system Trash, so a deleted document is recoverable from the Finder — it is
+  never permanently erased — and any open tabs for it close automatically.
+  The same **Duplicate** and **Move to Trash** actions sit in the File menu and
+  act on the current document. (Neither carries a keyboard shortcut: ⌘⌫ is
+  deliberately left unbound because it would shadow AppKit's in-line
+  delete-to-start-of-line while editing.)
 - **`quoin://` links** — a `quoin://open?path=…` link opens a document in the
   library. `path` may be relative to the library root
   (`quoin://open?path=Notes/Today.md`) or an absolute path *inside* it. Links

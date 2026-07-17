@@ -188,6 +188,18 @@ private struct FileCommands: Commands {
                 }
             }
             Divider()
+            // Document management: the current document (active tab) is the
+            // target. Neither carries a key equivalent: ⌘D is Daily Note, and
+            // ⌘⌫ is AppKit's system deleteToBeginningOfLine: editing binding —
+            // a menu key equivalent would win over the first responder via
+            // NSApplication.sendEvent and turn a common in-line delete into a
+            // (not-in-app-undoable) document trash. Trashing stays menu/context
+            // only, matching Duplicate.
+            Button("Duplicate") { post(AppDelegate.duplicateDocumentNotification) }
+                .disabled(hasDocument != true)
+            Button("Move to Trash") { post(AppDelegate.trashDocumentNotification) }
+                .disabled(hasDocument != true)
+            Divider()
             Button("Close Tab") { post(AppDelegate.closeTabNotification) }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(hasDocument != true)
@@ -584,6 +596,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let toggleSentenceFocusNotification = Notification.Name("quoin.toggleSentenceFocus")
     static let toggleTypewriterNotification = Notification.Name("quoin.toggleTypewriter")
     static let newDocumentNotification = Notification.Name("quoin.newDocument")
+    static let duplicateDocumentNotification = Notification.Name("quoin.duplicateDocument")
+    static let trashDocumentNotification = Notification.Name("quoin.trashDocument")
     static let closeTabNotification = Notification.Name("quoin.closeTab")
     static let openFilePanelNotification = Notification.Name("quoin.openFilePanel")
     static let dailyNoteNotification = Notification.Name("quoin.dailyNote")

@@ -308,6 +308,31 @@ final class LibraryModel {
         rescan()
     }
 
+    /// Duplicate a document or folder to a unique sibling name, rescan, and
+    /// return the copy so the caller can select/open it. A failed copy beeps
+    /// (silence reads as success, matching trash and drag-drop).
+    @discardableResult
+    func duplicate(url: URL) -> URL? {
+        guard let copy = try? Library.duplicate(url) else {
+            NSSound.beep()
+            return nil
+        }
+        rescan()
+        return copy
+    }
+
+    /// Duplicate, first flushing any live session for `url` so the copy
+    /// captures the latest keystrokes rather than the pre-debounce disk file
+    /// (#12: autosave is 400ms-debounced, so a fast Duplicate right after
+    /// typing would otherwise silently omit the last edits). Folders and
+    /// unopened files skip straight to the copy — the flush no-ops when the URL
+    /// isn't held open.
+    @discardableResult
+    func duplicateFlushingSession(url: URL) async -> URL? {
+        await OpenDocumentStore.shared.flush(url)
+        return duplicate(url: url)
+    }
+
     /// New folder inside `parent` (or the library root), pre-expanded so
     /// the user sees where it landed.
     @discardableResult

@@ -59,6 +59,13 @@ final class OpenDocumentStore {
         entries[Self.key(for: url)]?.model
     }
 
+    /// Drain and save the live session for `url` (if any tab holds it open) so
+    /// a subsequent on-disk copy sees the latest keystrokes rather than the
+    /// pre-debounce file (#12). A no-op when the file isn't open.
+    func flush(_ url: URL) async {
+        await entries[Self.key(for: url)]?.model.flush()
+    }
+
     /// Take a reference to `url`'s model, creating and starting it on the first
     /// reference (from any window). Every call must be balanced with
     /// `release(_:)` when the holding tab closes.

@@ -128,6 +128,20 @@ struct MainWindow: View {
             guard isKeyWindow else { return }
             if let url = library.createDocument() { open(url) }
         }
+        // File ▸ Duplicate: copy the active document to a unique sibling and
+        // open the copy (matching the sidebar context menu).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.duplicateDocumentNotification)) { _ in
+            guard isKeyWindow, let url = activeTab?.url else { return }
+            // Flush the live session first so the copy captures unsaved
+            // keystrokes still inside the 400ms autosave debounce (#12).
+            Task { if let copy = await library.duplicateFlushingSession(url: url) { open(copy) } }
+        }
+        // File ▸ Move to Trash (⌘⌫): trash the active document. Its tabs then
+        // close via the documentTrashedNotification observer below.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.trashDocumentNotification)) { _ in
+            guard isKeyWindow, let url = activeTab?.url else { return }
+            library.trash(url: url)
+        }
         // File ▸ Close Tab (⌘W).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.closeTabNotification)) { _ in
             guard isKeyWindow, let tab = activeTab else { return }
