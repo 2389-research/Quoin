@@ -171,7 +171,7 @@ ABOUTME: Fully self-contained (inline CSS/JS); asset URLs go through relURL. */ 
       <a class="btn ghost" href="https://github.com/2389-research/Quoin">View on GitHub</a>
     </div>
     <p class="status">Free &amp; open source (MIT) · macOS&nbsp;14+ · no&nbsp;account, no&nbsp;cloud, no&nbsp;telemetry.<br>
-      Notarized &amp; signed, updates itself via Sparkle —
+      Notarized &amp; signed —
       <a href="{{ with hugo.Data.release }}{{ .url }}{{ else }}https://github.com/2389-research/Quoin/releases/latest{{ end }}">{{ with hugo.Data.release }}{{ .tag }} release notes{{ else }}latest release notes{{ end }}</a>.</p>
     <figure class="shot">
       <img src="{{ "images/hero.png" | relURL }}" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
@@ -363,6 +363,8 @@ suggestions:
       <a class="doc" href="https://github.com/2389-research/Quoin/blob/main/docs/design/suggestions.md"><b>The review loop</b><span>How suggestions, comments, and byte-safe accept/reject work.</span></a>
       <a class="doc" href="https://github.com/2389-research/Quoin/blob/main/docs/reference/architecture.md"><b>Architecture</b><span>Parse → session → project → display, and the engine seams.</span></a>
       <a class="doc" href="https://github.com/2389-research/Quoin/blob/main/docs/reference/invariants.md"><b>Invariants</b><span>Byte-lossless round-trips and the caret/viewport rule.</span></a>
+      <a class="doc" href="https://github.com/2389-research/Quoin/blob/main/docs/reference/dependencies.md"><b>Dependencies</b><span>One third-party dependency, two first-party engines, and why.</span></a>
+      <a class="doc" href="https://github.com/2389-research/Quoin/blob/main/docs/reference/performance.md"><b>Performance</b><span>The incremental fast paths and the measured parse/render budgets.</span></a>
     </div>
   </section>
 </main>
