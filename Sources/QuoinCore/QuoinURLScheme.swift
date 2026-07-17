@@ -145,6 +145,25 @@ public enum QuoinURLScheme {
     /// across machines whose library lives at a different absolute location — the
     /// resuming side re-anchors it to ITS root. Pure: no I/O.
     public static func deepLink(forDocumentPath documentPath: String, relativeTo rootPath: String) -> URL? {
+        guard let relative = relativePath(forDocumentPath: documentPath, relativeTo: rootPath) else {
+            return nil
+        }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = DeepLink.Action.open.rawValue
+        components.queryItems = [URLQueryItem(name: "path", value: relative)]
+        return components.url
+    }
+
+    /// The library-root-relative path for `documentPath` (an absolute POSIX
+    /// path), or `nil` when the document is not strictly contained within
+    /// `rootPath`. This is the boundary-safe handle window-session restoration
+    /// persists instead of an absolute path or a raw security-scoped bookmark:
+    /// it round-trips back to the absolute path through
+    /// ``resolvedPath(forRawPath:relativeTo:)`` under the same root, and stays
+    /// portable across machines whose library lives at a different absolute
+    /// location. Pure: no I/O.
+    public static func relativePath(forDocumentPath documentPath: String, relativeTo rootPath: String) -> String? {
         guard !documentPath.contains("\0") else { return nil }
         let root = normalize(rootPath)
         guard root.hasPrefix("/"), root != "/" else { return nil }
@@ -155,12 +174,7 @@ public enum QuoinURLScheme {
         guard doc != root, doc.hasPrefix(root + "/") else { return nil }
         let relative = String(doc.dropFirst(root.count + 1))
         guard !relative.isEmpty else { return nil }
-
-        var components = URLComponents()
-        components.scheme = scheme
-        components.host = DeepLink.Action.open.rawValue
-        components.queryItems = [URLQueryItem(name: "path", value: relative)]
-        return components.url
+        return relative
     }
 
     /// Build a `quoin://open?path=<relativePath>` deep link straight from a

@@ -1050,6 +1050,73 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   real cross-device Handoff once an iOS/iPadOS reader ships. Spotlight indexing
   (#6) is deliberately not claimed here (`isEligibleForSearch = false`).
 
+- **Window & session restoration (#15).** Quit, relaunch, restart, or crash and
+  each window comes back to the library, tabs, active document, panel layout,
+  and scroll position it had. This is implemented **around** the existing
+  `WindowGroup`/`MainWindow`/`LibraryModel` shell — the `NSDocument`/`DocumentGroup`
+  migration the TRD imagines is **intentionally DEFERRED** (it is a shell rewrite
+  that also governs the future iOS shell, and `OpenDocumentStore` + Quoin's own
+  document tabs already deliver what a `DocumentGroup` would; see
+  [ADR 0006](adr/0006-restoration-around-windowgroup-not-nsdocument.md) and
+  ADR 0005).
+
+  The split follows the same discipline as the surfaces above: the *decidable,
+  testable* part is pure and lives in `QuoinCore` (`WindowSessionState`), and the
+  shell holds only the plumbing. `WindowSessionState` is a `Codable` model of one
+  window's session — open tabs, active tab, sidebar/inspector visibility + mode,
+  and per-tab scroll anchor — with its own serialize/deserialize
+  (`serialized()` / `init?(serialized:)`, version-gated so a downgrade refuses a
+  future blob), a `capture(...)` that folds live state into it, and a
+  `restoredTabs(rootPath:exists:)` that re-hydrates it. `MainWindow` only mirrors
+  it into `@SceneStorage("QuoinWindowSession")` (per SwiftUI scene → naturally
+  per window) and rebuilds tabs/panels from it; `ReaderScreen` seeds its
+  inspector chrome + restore scroll from the window and reports live changes back
+  up. `WindowSessionStateTests` covers round-trip (every field), pruning,
+  the no-absolute-path-leak assertion, and the dedupe decision.
+
+  **Only relative handles are persisted.** Each tab is stored as a
+  library-root-relative path (`QuoinURLScheme.relativePath` — the exact inverse
+  of the deep-link resolver), **never** an absolute path and **never** a raw
+  security-scoped bookmark. A one-off file opened from *outside* the library
+  (⌘O) has no sandbox-safe handle, so it is simply not persisted. The library
+  bookmark itself lives where it already did — the per-folder bookmark store
+  keyed by the window root (#61) — and the window root path in
+  `@SceneStorage("QuoinWindowRoot")` is that store's key, not a document handle.
+  On restore, `restoredTabs` resolves each relative handle back through the same
+  lexical confinement a `quoin://` link uses (`resolvedPath`), so a handle that
+  climbs out of the root (`../…`) is refused; it prunes tabs whose files moved,
+  were renamed, or vanished (`exists` is injected, so this is unit-tested off
+  disk); and it dedupes two handles that name one file to a single tab.
+
+  **Route to the existing session, never a second writer.** Opening a file that
+  is already open (Finder, Spotlight, a library click, two path forms) must land
+  on the existing tab/window/session — two `DocumentSession`s over one file is
+  the ledger-#12 dual-autosaver corruption. Live routing uses
+  `OpenDocumentStore.sameFile` (filesystem-accurate: symlinks resolved, case
+  folded on the case-insensitive default volume); the *lexical* half of that
+  rule is captured purely as `SessionRouting` (normalize + case-fold →
+  `focusExisting`/`openNew`) so the decision is unit-tested, and `restoredTabs`
+  uses `SessionRouting.canonicalKey` to collapse duplicate restored handles. One
+  session per file across every window and tab is `OpenDocumentStore`'s
+  ref-counting invariant (ADR 0005), unchanged.
+
+  **Dirty documents & crash (autosave contract).** There is *no* separate
+  autosave journal — the file on disk **is** the durable state, and restoration
+  reopens it through `DocumentSession.open`. Exposure is bounded by leaning on
+  existing machinery: autosave-in-place is 400ms-debounced; a graceful quit
+  (⌘Q, logout, restart) drains **every** live session through
+  `applicationShouldTerminate`'s detached flush (with a 3s watchdog) *before* the
+  process dies, so an in-flight edit is written, not lost; `saveNow` writes
+  atomically, so a file is never half-written even on a hard kill. The only
+  window where keystrokes can be lost is a true hard crash (power loss / SIGKILL)
+  inside the sub-400ms debounce — and even then the byte-lossless, atomic write
+  means the document on relaunch is the last *consistent* save, never a corrupt
+  merge. If the file changed underneath a session (another writer, a sync
+  daemon), the file-coordination reload path surfaces the **merge banner**
+  ("changed on disk while you had unsaved edits" → *Keep Mine* / *Use Disk
+  Version*) rather than clobbering silently — so what was recovered vs. replaced
+  is always shown, never ambiguous. None of this weakens byte-losslessness.
+
 - **Core Spotlight indexing (#6).** So system search finds Quoin documents,
   headings, front-matter tags, and body snippets, the app maintains a **private,
   on-device** Core Spotlight index. The split follows the same discipline: the

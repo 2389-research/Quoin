@@ -179,6 +179,31 @@ LaunchServices indexes its document types):
       Finder-opened and library-opened documents, most-recent first, and reopen
       through the same tab/session; deleted files drop off the list.
     - **Drag a `.md` onto the Dock icon** opens it as a tab.
+- **Window & session restoration (#15).**
+    - **Quit / relaunch:** with a library, several tabs open, one active, the
+      sidebar toggled and the inspector on (say) *Review*, and a document
+      scrolled partway down — quit (⌘Q) and reopen. The window comes back with
+      the same library, the same tabs in order, the same active document, the
+      same sidebar/inspector state, and roughly the same scroll position.
+    - **Moved/deleted file pruned:** with a tab open, quit, move or delete that
+      file in Finder, relaunch — the vanished document is dropped from the
+      restored tabs (no dead tab, no beep), the rest come back.
+    - **Crash / force-quit:** type a few characters, then **Force Quit** Quoin
+      (or `kill -9`) and relaunch. The document opens to its last atomically
+      saved state — never a half-written or corrupt file; at worst the final
+      sub-second of keystrokes (inside the autosave debounce) is missing. A
+      normal ⌘Q instead flushes those keystrokes first, so nothing is lost.
+    - **External change while dirty:** open a document, type without pausing,
+      and edit the same file in another editor and save. Quoin surfaces the
+      *Keep Mine / Use Disk Version* merge banner — it must **not** silently
+      overwrite either side.
+    - **Finder-open routes to the existing session:** with a library document
+      already open in a tab, *Open With ▸ Quoin* (or double-click) the SAME file
+      — it focuses the existing tab, and typing then saving shows no
+      duplicate-writer conflict banner (one session, one autosaver).
+    - **Multi-window:** open two windows (⇧⌘N) on different folders, arrange
+      tabs and panels differently in each, quit and relaunch — each window
+      restores its OWN library, tabs, and layout independently.
 
 ## How the app side works
 

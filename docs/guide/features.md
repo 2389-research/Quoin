@@ -244,6 +244,21 @@ resolution can never quietly corrupt the document.
 - **Library** — pick a folder and its tree becomes your sidebar (⌘0). Folders
   are directories; documents are plain files. **Open Folder in New Window** (in
   the File menu) gives each window its own folder, restored on relaunch.
+- **Pick up where you left off** — quit and relaunch (or restart, or recover
+  from a crash) and every window comes back the way you left it: the same
+  library, the same open **tabs** in the same order, the **active document**,
+  the **sidebar and inspector** (shown/hidden, and whether the inspector was on
+  Outline, Review, or Properties), and roughly where each document was
+  **scrolled**. Only files still inside a library you've granted come back —
+  a one-off file you opened with ⌘O from elsewhere isn't remembered (Quoin keeps
+  no path to it across launches). Opening the same file again — from Finder,
+  Spotlight, the sidebar, or a link — always jumps to the tab that already has
+  it open, never a second copy fighting to save over itself. **Your edits are
+  safe across quit:** saving is automatic and happens as you type, and quitting
+  flushes the last few keystrokes to disk before Quoin closes. If a file was
+  changed by something else while you had unsaved edits, Quoin shows a *Keep
+  Mine / Use Disk Version* banner instead of silently overwriting — so nothing
+  is ever lost without telling you.
 - **Open in Finder** — Quoin registers as a Markdown *editor*, so it appears in
   Finder's **Open With ▸ Quoin** for any `.md` file and can be set as your
   default Markdown app if you want. It does **not** grab `.md` on install,
