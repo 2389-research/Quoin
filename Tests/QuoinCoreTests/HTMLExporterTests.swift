@@ -120,4 +120,97 @@ final class HTMLExporterTests: XCTestCase {
         XCTAssertTrue(html.contains("<a href=\"#one\">One</a>"))
         XCTAssertTrue(html.contains("<a href=\"#two\">Two</a>"))
     }
+
+    // MARK: - Raw HTML export policy (issue #4)
+
+    /// DOCUMENTED DEFAULT: the low-level exporter PRESERVES raw HTML verbatim
+    /// (Markdown fidelity). The app's standalone-export entry points opt into
+    /// sanitize=true for private-by-default files; this pins the API contract.
+    func testRawHTMLPreservedByDefault() {
+        let doc = MarkdownConverter.parse("<div onclick=\"x()\">hi</div>")
+        let html = HTMLExporter.export(doc)  // default: sanitizeRawHTML == false
+        XCTAssertTrue(html.contains("<div onclick=\"x()\">hi</div>"),
+                      "default export must preserve raw HTML verbatim for fidelity")
+    }
+
+    func testSanitizeRemovesScriptBlock() {
+        let doc = MarkdownConverter.parse("<script>alert('pwn')</script>")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.contains("<script"), "script element must not survive sanitized export")
+        XCTAssertFalse(html.contains("alert('pwn')"), "script content must not survive")
+    }
+
+    func testSanitizeStripsEventHandlerFromRawBlock() {
+        let doc = MarkdownConverter.parse("<div onclick=\"steal()\" class=\"c\">hi</div>")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.lowercased().contains("onclick"))
+        XCTAssertFalse(html.contains("steal()"))
+        XCTAssertTrue(html.contains("class=\"c\""), "benign attributes are kept")
+    }
+
+    func testSanitizeNeutralisesRemoteTrackingPixelInRawHTML() {
+        let doc = MarkdownConverter.parse("<img src=\"https://tracker.example.com/p.png?id=me\">")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.contains("tracker.example.com"),
+                       "remote tracking-pixel src must be dropped in sanitized export")
+    }
+
+    func testSanitizeStripsInlineRawHTMLEventHandler() {
+        let doc = MarkdownConverter.parse("Hello <b onmouseover=\"x()\">there</b> friend.")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.lowercased().contains("onmouseover"))
+        XCTAssertTrue(html.contains("<b>there</b>"), "the benign inline tag stays")
+    }
+
+    func testSanitizeNeutralisesJavascriptLinkDestination() {
+        let doc = MarkdownConverter.parse("[click me](javascript:alert(1))")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.lowercased().contains("javascript:"),
+                       "javascript: markdown link must be neutralised under sanitize")
+        XCTAssertTrue(html.contains("<a href=\"#\">click me</a>"))
+    }
+
+    func testJavascriptLinkPreservedWhenNotSanitizing() {
+        // Default fidelity mode keeps whatever the Markdown said.
+        let doc = MarkdownConverter.parse("[click me](javascript:alert(1))")
+        let html = HTMLExporter.export(doc)
+        XCTAssertTrue(html.contains("javascript:alert(1)"))
+    }
+
+    func testSanitizePreservesBenignRawHTML() {
+        let doc = MarkdownConverter.parse("<div class=\"note\"><span>ok</span></div>")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertTrue(html.contains("<div class=\"note\"><span>ok</span></div>"),
+                      "benign structural raw HTML must be preserved even when sanitizing")
+    }
+
+    func testSanitizeNeutralisesJavascriptImageDestination() {
+        // HTMLExporter.renderImage neutralises a javascript: Markdown image
+        // source to an empty src under sanitize (issue #4).
+        let doc = MarkdownConverter.parse("![alt](javascript:alert(1))")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.lowercased().contains("javascript:"),
+                       "javascript: markdown image source must be neutralised under sanitize")
+        XCTAssertTrue(html.contains("<img src=\"\" alt=\"alt\">"))
+    }
+
+    func testSanitizePreservesRemoteMarkdownImage() {
+        // Deliberate scope: author-authored remote Markdown images stay external
+        // even under sanitize (the interactive export WANTS them to resolve).
+        // Pins the contract so the remote-neutralization logic can't silently
+        // start dropping visible image refs.
+        let doc = MarkdownConverter.parse("![r](https://example.com/x.png)")
+        let html = HTMLExporter.export(doc, baseURL: nil, sanitizeRawHTML: true)
+        XCTAssertTrue(html.contains("src=\"https://example.com/x.png\""),
+                      "remote Markdown image must be preserved even under sanitize")
+    }
+
+    func testSanitizeLeavesGeneratedMarkdownConstructsIntact() {
+        // Sanitize is raw-HTML-only: normal Markdown still exports fully.
+        let doc = MarkdownConverter.parse("**bold** and `code` and a [link](https://x.com).")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertTrue(html.contains("<strong>bold</strong>"))
+        XCTAssertTrue(html.contains("<code>code</code>"))
+        XCTAssertTrue(html.contains("<a href=\"https://x.com\">link</a>"))
+    }
 }

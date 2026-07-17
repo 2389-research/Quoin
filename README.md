@@ -262,6 +262,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Source-level undo/redo through the session | ✅ |
 | First-H1 auto-rename of Untitled files | ✅ |
 | Export: PDF, HTML, Markdown, RTF, TXT — light or dark | ✅ |
+| HTML export sanitizes raw HTML (private by default) | ✅ | **Sanitize HTML** option (on by default) strips `<script>/<style>/<iframe>/<object>/<embed>`, `on*` handlers, `javascript:` URLs, and remote trackers via a built-in dependency-free scrubber; opt out for byte-exact raw HTML |
 | Local images in export (HTML inlines base64 `data:`; PDF/Print draw; RTF names a placeholder; MD keeps `![](…)`) | ✅ |
 | Word count, reading time, per-element statistics | ✅ |
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
@@ -493,7 +494,10 @@ Local-only by design: no network calls, no telemetry, no indexing services.
 Documents are plain `.md` files on disk; folders are directories. Remote images
 are placeholders unless explicitly enabled per document. Nothing you write leaves
 your machine, and no runtime engine phones home — the math and diagram renderers
-are native code, not bundled web assets.
+are native code, not bundled web assets. Standalone **HTML export is private by
+default**: raw HTML is scrubbed of `<script>`, remote embeds, and tracking
+pixels (with an opt-out for byte-exact fidelity), so a shared file fetches
+nothing off-device.
 
 ## Documentation
 

@@ -85,7 +85,9 @@ struct IOSReaderScreen: View {
                 data = Data(MarkdownExporter.export(document).utf8)
                 ext = "md"
             case .html:
-                data = Data(HTMLExporter.export(document, title: name, baseURL: baseURL).utf8)
+                // Standalone export is private-by-default: raw HTML is scrubbed
+                // of scripts/handlers/remote trackers (issue #4).
+                data = Data(HTMLExporter.export(document, title: name, baseURL: baseURL, sanitizeRawHTML: true).utf8)
                 ext = "html"
             case .text:
                 data = Data(PlainTextExporter.export(document).utf8)
