@@ -550,11 +550,16 @@ degrade predictably instead of failing in an opaque sandbox.
   embeds, and tracking-pixel `<img>`s. When you export to HTML, the **Sanitize
   HTML** option (on by default in the Export sheet) runs a built-in, dependency-
   free allowlist scrubber that removes `<script>/<style>/<iframe>/<object>/
-  <embed>` elements, `on*` event handlers, `javascript:`/`vbscript:` URLs, and
-  every remote auto-loading resource (media `src`, a remote stylesheet, `<base>`,
-  or SVG `<image>`, and a `<meta refresh>` that redirects off-device), while
+  <embed>` elements, `on*` event handlers, `javascript:`/`vbscript:` URLs
+  (including entity-encoded ones like `&#106;avascript:`), inline `style`
+  attributes (inline CSS can `url()`-fetch off-device, so a private export
+  drops it wholesale rather than parse CSS), and every remote auto-loading
+  resource (media `src`, a remote stylesheet, `<base>`, SVG `<image>`/`<use>`,
+  and a `<meta refresh>` that redirects off-device) — while
   leaving benign structural HTML (tables, spans, emphasis, links, comments,
-  `data:` images) intact — so the saved file fetches nothing off-device. Turn the toggle **off** if you need byte-exact raw
+  `data:` images) intact — so the saved file fetches nothing off-device. Comment
+  parsing follows the HTML5 tokenizer (abrupt-close `<!-->`/`<!--->` and the
+  `--!>` terminator), so nothing hides live markup behind a fake comment. Turn the toggle **off** if you need byte-exact raw
   HTML for full Markdown fidelity (the trade-off: scripts and trackers survive).
   The Shortcuts *Export Note* action and the iOS export always sanitize. (This
   is export-only — your `.md` source and Markdown export are never altered.)

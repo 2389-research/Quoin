@@ -61,7 +61,7 @@ public enum HTMLSanitizer {
     /// `<link>` (stylesheet / preload font), `<base>` (rebases every relative
     /// URL onto a remote origin), and SVG `<image>`. A remote value here fetches
     /// off-device on load with no interaction, exactly like a tracking pixel.
-    static let remoteHrefTags: Set<String> = ["link", "base", "image"]
+    static let remoteHrefTags: Set<String> = ["link", "base", "image", "use"]
     /// The `href`-family attributes checked on `remoteHrefTags` (and on links
     /// for dangerous navigation schemes).
     static let hrefAttributes: Set<String> = ["href", "xlink:href"]
@@ -166,7 +166,61 @@ public enum HTMLSanitizer {
     }
 
     private static func strippedScheme(_ value: String) -> String {
-        String(value.unicodeScalars.filter { $0.value > 0x20 }).lowercased()
+        // Decode the character references a browser resolves inside an
+        // attribute value BEFORE it parses the scheme. Without this,
+        // `href="&#106;avascript:alert(1)"` reads as an inert string here while
+        // the browser decodes `&#106;` → `j` and runs a live `javascript:`.
+        let decoded = decodingCharacterReferences(value)
+        return String(decoded.unicodeScalars.filter { $0.value > 0x20 }).lowercased()
+    }
+
+    /// Decode numeric (`&#106;`, `&#x6a;`) and a small set of named character
+    /// references that can hide a URL scheme (`&colon;` → `:`, `&NewLine;`,
+    /// `&Tab;` → whitespace stripped by `strippedScheme`). Not a full HTML
+    /// entity table — just the references a browser would resolve in a URL
+    /// before scheme parsing, so `strippedScheme` classifies what the browser
+    /// will actually see. Unrecognized `&…` is left verbatim.
+    static func decodingCharacterReferences(_ value: String) -> String {
+        guard value.contains("&") else { return value }
+        let named: [String: Character] = [
+            "colon": ":", "tab": "\t", "newline": "\n", "sol": "/",
+            "excl": "!", "lpar": "(", "rpar": ")", "period": ".",
+        ]
+        let chars = Array(value)
+        let n = chars.count
+        var out = ""
+        var i = 0
+        while i < n {
+            guard chars[i] == "&" else { out.append(chars[i]); i += 1; continue }
+            // Numeric reference: &#123; or &#x1F;  (trailing `;` optional).
+            if i + 1 < n, chars[i + 1] == "#" {
+                var j = i + 2
+                let hex = j < n && (chars[j] == "x" || chars[j] == "X")
+                if hex { j += 1 }
+                let start = j
+                while j < n, hex ? chars[j].isHexDigit : chars[j].isNumber { j += 1 }
+                if j > start,
+                   let code = UInt32(String(chars[start..<j]), radix: hex ? 16 : 10),
+                   let scalar = Unicode.Scalar(code) {
+                    out.append(Character(scalar))
+                    if j < n, chars[j] == ";" { j += 1 }
+                    i = j
+                    continue
+                }
+                out.append(chars[i]); i += 1; continue
+            }
+            // Named reference from the small scheme-relevant set.
+            var j = i + 1
+            while j < n, chars[j].isLetter, j - i <= 10 { j += 1 }
+            if let ch = named[String(chars[(i + 1)..<j]).lowercased()] {
+                out.append(ch)
+                if j < n, chars[j] == ";" { j += 1 }
+                i = j
+                continue
+            }
+            out.append(chars[i]); i += 1
+        }
+        return out
     }
 
     private static func srcsetHasRemote(_ value: String) -> Bool {
@@ -188,6 +242,14 @@ public enum HTMLSanitizer {
         return tag.attributes.filter { attr in
             let an = attr.name.lowercased()
             if an.hasPrefix("on") { return false }              // event handler
+            // Inline CSS can auto-fetch off-device via `url(...)` in any
+            // property (background, list-style-image, border-image, …), and
+            // detecting that reliably means parsing CSS (comments, hex escapes,
+            // whitespace splits). Rather than play that cat-and-mouse and risk
+            // leaking a tracking pixel — contradicting the "fetches nothing
+            // off-device" guarantee — sanitize mode drops `style` wholesale.
+            // Inline styling is cosmetic; a private export forgoes it.
+            if an == "style" { return false }
             guard let v = attr.value else { return true }
             // Link destinations: strip javascript:/vbscript: AND active data:
             // documents (the click-to-XSS vector).
@@ -384,12 +446,28 @@ public enum HTMLSanitizer {
         return nil
     }
 
-    /// Index just past the closing `-->` from `from`, or end of input.
+    /// Index just past the end of an HTML comment whose `<!--` opener ended at
+    /// `from`, matching the HTML5 tokenizer's comment-closing rules — NOT just
+    /// the literal `-->`. Browsers also close a comment on the abrupt-close
+    /// forms `<!-->` and `<!--->` (empty comment) and on the comment-end-bang
+    /// `--!>`. A scanner that only searched for `-->` would treat live markup
+    /// after one of those sequences as comment text and pass an embedded
+    /// `<script>` through untouched — a sanitizer bypass. An unterminated
+    /// comment runs to EOF, which the browser also treats as comment (inert).
     private static func findCommentEnd(_ s: [Character], from: Int) -> Int {
         let n = s.count
+        // Abrupt closing of an empty comment: `<!-->` (from at `>`) and
+        // `<!--->` (from at `-` then `>`).
+        if from < n, s[from] == ">" { return from + 1 }
+        if from + 1 < n, s[from] == "-", s[from + 1] == ">" { return from + 2 }
         var i = from
-        while i + 2 < n {
-            if s[i] == "-", s[i + 1] == "-", s[i + 2] == ">" { return i + 3 }
+        while i < n {
+            // `--!>` — comment-end-bang state closes the comment.
+            if i + 3 < n, s[i] == "-", s[i + 1] == "-", s[i + 2] == "!", s[i + 3] == ">" {
+                return i + 4
+            }
+            // `-->` — the ordinary terminator.
+            if i + 2 < n, s[i] == "-", s[i + 1] == "-", s[i + 2] == ">" { return i + 3 }
             i += 1
         }
         return n

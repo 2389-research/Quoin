@@ -228,8 +228,82 @@ final class HTMLSanitizerTests: XCTestCase {
         XCTAssertEqual(HTMLSanitizer.sanitize(html), html)
     }
 
-    func testInlineStyleAttributePreserved() {
-        let html = "<span style=\"color:red\">x</span>"
+    func testInlineStyleAttributeDropped() {
+        // Sanitize mode drops `style` wholesale: inline CSS can auto-fetch
+        // off-device via url(...), and detecting that reliably means parsing
+        // CSS. A private export forgoes cosmetic inline styling for the
+        // "fetches nothing off-device" guarantee.
+        XCTAssertEqual(HTMLSanitizer.sanitize("<span style=\"color:red\">x</span>"),
+                       "<span>x</span>")
+    }
+
+    func testInlineStyleRemoteURLDropped() {
+        // The MEDIUM finding: a CSS background url() is a zero-interaction
+        // tracking pixel. It must not survive a sanitized export.
+        let out = HTMLSanitizer.sanitize(
+            "<div style=\"background:url(https://tracker.example/x.png)\">hi</div>")
+        XCTAssertEqual(out, "<div>hi</div>")
+        XCTAssertFalse(out.contains("tracker.example"))
+    }
+
+    // MARK: - Comment-close bypasses (HIGH finding)
+
+    func testAbruptCloseEmptyCommentDoesNotHideScript() {
+        // `<!-->` is an abrupt-closed empty comment; the browser then parses
+        // `<script>` as live markup. The sanitizer must close the comment at
+        // the same point and strip the script.
+        let out = HTMLSanitizer.sanitize("<!--><script>alert(1)</script><p>ok</p>")
+        XCTAssertFalse(out.lowercased().contains("<script"))
+        XCTAssertFalse(out.contains("alert(1)"))
+        XCTAssertTrue(out.contains("<p>ok</p>"))
+    }
+
+    func testAbruptCloseDashEmptyCommentDoesNotHideScript() {
+        let out = HTMLSanitizer.sanitize("<!---><script>alert(1)</script>done")
+        XCTAssertFalse(out.lowercased().contains("<script"))
+        XCTAssertFalse(out.contains("alert(1)"))
+        XCTAssertTrue(out.contains("done"))
+    }
+
+    func testCommentEndBangDoesNotHideScript() {
+        // `--!>` is the comment-end-bang terminator; markup after it is live.
+        let out = HTMLSanitizer.sanitize("<!-- x --!><script>alert(1)</script>tail")
+        XCTAssertFalse(out.lowercased().contains("<script"))
+        XCTAssertFalse(out.contains("alert(1)"))
+        XCTAssertTrue(out.contains("tail"))
+    }
+
+    func testUnterminatedCommentStaysInert() {
+        // No terminator at all: a browser treats the rest as comment (inert),
+        // so passing it through verbatim is safe — nothing executes.
+        let out = HTMLSanitizer.sanitize("<!-- <script>alert(1)</script>")
+        XCTAssertEqual(out, "<!-- <script>alert(1)</script>")
+    }
+
+    // MARK: - Entity-encoded scheme (LOW, but a live XSS vector)
+
+    func testEntityEncodedJavascriptHrefDropped() {
+        // A browser decodes `&#106;` → `j`, making this a live javascript: link.
+        let out = HTMLSanitizer.sanitize("<a href=\"&#106;avascript:alert(1)\">x</a>")
+        XCTAssertFalse(out.contains("avascript:alert"))
+        XCTAssertEqual(out, "<a>x</a>")
+    }
+
+    func testHexEntityEncodedJavascriptHrefDropped() {
+        let out = HTMLSanitizer.sanitize("<a href=\"&#x6a;avascript:alert(1)\">x</a>")
+        XCTAssertEqual(out, "<a>x</a>")
+    }
+
+    // MARK: - SVG <use> remote reference (LOW, off-device fetch)
+
+    func testSVGUseRemoteHrefDropped() {
+        let out = HTMLSanitizer.sanitize("<use xlink:href=\"https://evil.example/x.svg#a\"/>")
+        XCTAssertFalse(out.contains("evil.example"))
+    }
+
+    func testSVGUseLocalFragmentPreserved() {
+        // A same-document fragment reference fetches nothing — keep it.
+        let html = "<use xlink:href=\"#icon\"></use>"
         XCTAssertEqual(HTMLSanitizer.sanitize(html), html)
     }
 
