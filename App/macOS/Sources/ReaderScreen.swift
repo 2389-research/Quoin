@@ -1233,33 +1233,49 @@ struct OutlinePanel: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("OUTLINE")
-                    .quoinScaledFont(size: 10, weight: .semibold)
-                    .kerning(0.5)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 12)
-                    .padding(.bottom, 6)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("OUTLINE")
+                        .quoinScaledFont(size: 10, weight: .semibold)
+                        .kerning(0.5)
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 12)
+                        .padding(.bottom, 6)
 
-                ForEach(visible) { heading in
-                    OutlineRow(
-                        heading: heading,
-                        isCurrent: heading.id == highlightID,
-                        isParent: parents.contains(heading.id),
-                        isCollapsed: collapsed.contains(heading.id),
-                        onSelect: onSelect,
-                        onToggle: {
-                            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                                if collapsed.contains(heading.id) {
-                                    collapsed.remove(heading.id)
-                                } else {
-                                    collapsed.insert(heading.id)
+                    ForEach(visible) { heading in
+                        OutlineRow(
+                            heading: heading,
+                            isCurrent: heading.id == highlightID,
+                            isParent: parents.contains(heading.id),
+                            isCollapsed: collapsed.contains(heading.id),
+                            onSelect: onSelect,
+                            onToggle: {
+                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+                                    if collapsed.contains(heading.id) {
+                                        collapsed.remove(heading.id)
+                                    } else {
+                                        collapsed.insert(heading.id)
+                                    }
                                 }
                             }
-                        }
-                    )
+                        )
+                        .id(heading.id)
+                    }
+                }
+            }
+            // Keep the reading section in view as it advances (#37). `highlightID`
+            // changes only at section boundaries (#R3), so scrolling here is
+            // naturally debounced — no per-scroll-tick jitter. No `anchor` means
+            // scroll the MINIMUM to reveal the row, so a section already on
+            // screen doesn't move. Reduce-Motion-aware. Manual collapse still
+            // wins — we scroll to the resolved highlight (collapsed ancestor),
+            // never re-expand (#74).
+            .onChange(of: highlightID) { _, newHighlight in
+                guard let newHighlight else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(newHighlight)
                 }
             }
         }
