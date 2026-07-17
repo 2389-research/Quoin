@@ -89,6 +89,24 @@ final class ReaderModel {
     /// exactly once.
     @ObservationIgnored private var renderedRevision = 0
 
+    /// Monotonic guard for the OFF-MAIN full-render path (issue #33). Every
+    /// projection publish — sync or async — bumps it; a background render
+    /// captures the value at launch and its result is adopted ONLY if the
+    /// counter is unchanged when it hops back to the main actor. Any newer
+    /// edit/activation/theme/reload that published in the meantime therefore
+    /// DROPS the now-stale async projection instead of overwriting a fresher
+    /// one (which would resurrect a pre-edit render on top of a keystroke —
+    /// the corruption this guard closes). Non-Sendable state
+    /// (`NSAttributedString` fragments, `RenderedDocument`) only crosses the
+    /// actor hop as a clean, single-owner handoff: the background task is the
+    /// sole reader while it renders; the main actor is the sole reader after.
+    @ObservationIgnored private var renderGeneration = 0
+    /// The in-flight background render, cancelled when a newer one supersedes
+    /// it and on teardown. Cancellation is cooperative (the render loop has no
+    /// checkpoints) so a cancelled task still finishes and is dropped by the
+    /// generation guard — wasted CPU, never a wrong projection.
+    @ObservationIgnored private var backgroundRenderTask: Task<Void, Never>?
+
     /// The authoritative projection, mirrored through every publish: full
     /// renders replace it; patch publishes apply their patches to it FIRST.
     /// SwiftUI coalesces rapid publishes, so the view can skip a patch
@@ -190,7 +208,10 @@ final class ReaderModel {
         guard session != nil else { return }
         renderer = makeRenderer()
         fragmentCache.removeAll()
-        rerender()
+        // Off-main full render (issue #33): a theme flip re-projects the whole
+        // document (every cached fragment has the old palette baked in), which
+        // is exactly the ~0.5s-at-novel-length beach-ball this defers.
+        rerenderAsync()
     }
 
     // MARK: - Merge banner
@@ -221,6 +242,10 @@ final class ReaderModel {
     func stop() {
         snapshotTask?.cancel()
         snapshotTask = nil
+        backgroundRenderTask?.cancel()
+        backgroundRenderTask = nil
+        asyncRerenderTask?.cancel()
+        asyncRerenderTask = nil
         let session = session
         let pendingEdits = editPipelineTask
         Task {
@@ -247,7 +272,14 @@ final class ReaderModel {
             activeBlockID = nil
             caretInActiveBlock = nil
         }
-        rerender()
+        // Off-main full render (issue #33): an external reload / checkbox
+        // toggle / non-echo snapshot re-projects the whole document. No
+        // keystroke is mapping a caret against this result in the same turn
+        // (the edit paths keep their own synchronous render), so deferring it
+        // is safe and lifts the reload beach-ball on large files. `document`
+        // is already adopted synchronously above, so any edit that races in
+        // renders against the fresh source and its generation bump drops this.
+        rerenderAsync()
     }
 
     @ObservationIgnored private var asyncRerenderTask: Task<Void, Never>?
@@ -259,11 +291,17 @@ final class ReaderModel {
         asyncRerenderTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            self?.rerender()
+            // Off-main full render (issue #33): async image decode re-projects
+            // the whole document to pick up the resolved attachment.
+            self?.rerenderAsync()
         }
     }
 
     private func rerender(spliceHint: RenderSpliceHint? = nil, activeBlockPatch: AttributedRenderer.ActiveBlockEditUpdate? = nil) {
+        // A synchronous publish supersedes any in-flight background render
+        // (issue #33): bumping the guard makes a still-running async render
+        // drop its result instead of clobbering this fresher projection.
+        renderGeneration += 1
         QuoinPerformanceTrace.measure(
             "model.rerender",
             metadata: "bytes=\(document.source.utf8.count) blocks=\(document.blocks.count) active=\(activeBlockID != nil) patched=\(activeBlockPatch != nil)"
@@ -310,6 +348,82 @@ final class ReaderModel {
                 document.outline.map { ($0.slug, $0.id) },
                 uniquingKeysWith: { first, _ in first }
             )
+        }
+    }
+
+    /// The full-document projection rebuilt OFF the main actor (issue #33).
+    ///
+    /// The expensive part — `AttributedRenderer.render`, which walks every
+    /// block and builds the whole attributed string — runs on a background
+    /// executor so a multi-MB document no longer beach-balls the UI while it
+    /// re-projects. Only the pure computation moves; the caret/viewport
+    /// bookkeeping and the actual apply-to-live-storage stay on the main
+    /// actor, and the result is adopted under `renderGeneration` so a stale
+    /// async projection is dropped rather than applied over a fresher one.
+    ///
+    /// Used ONLY by the non-interactive, non-edit triggers — theme flip,
+    /// external reload, async image decode — where no keystroke is mapping a
+    /// caret against the result in the same turn. The per-keystroke patch
+    /// path, the edit-recover full render, and the activation flip fallback
+    /// stay SYNCHRONOUS (`rerender`): their ordering with the caret
+    /// bookkeeping and the coordinator's keystroke-ack serialization is an
+    /// invariant, and deferring them would let a queued keystroke map against
+    /// a projection that hasn't landed yet.
+    ///
+    /// Document-derived observable state (`outline`, `stats`, `slugToBlock`)
+    /// is refreshed SYNCHRONOUSLY here — it is cheap and some of it
+    /// (`slugToBlock` for anchor navigation) should not lag the document —
+    /// so only the heavy attributed-string projection is deferred.
+    private func rerenderAsync() {
+        outline = document.outline
+        stats = document.stats
+        slugToBlock = Dictionary(
+            document.outline.map { ($0.slug, $0.id) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
+        renderGeneration += 1
+        let generation = renderGeneration
+        // Snapshot the inputs the render is a pure function of. The cache
+        // holds immutable NSAttributedString fragments (safe to read
+        // off-main); the renderer is value-typed (Theme + URL + Bool +
+        // @Sendable closure). These snapshots are the background task's
+        // private copies — the main actor keeps mutating its own.
+        let renderer = self.renderer
+        let document = self.document
+        let activeBlockID = self.activeBlockID
+        let caret = self.caretInActiveBlock
+        let cacheSnapshot = self.fragmentCache
+        let heldSnapshot = self.heldPreview
+
+        backgroundRenderTask?.cancel()
+        backgroundRenderTask = Task.detached(priority: .userInitiated) { [weak self] in
+            guard !Task.isCancelled else { return }
+            var cache = cacheSnapshot
+            var held = heldSnapshot
+            let next = renderer.render(
+                document, activeBlockID: activeBlockID, activeCaret: caret,
+                cache: &cache, heldPreview: &held)
+            // Copy into the string that becomes authoritative on adoption,
+            // still off-main, so the main actor receives a fully-built value.
+            let live = NSMutableAttributedString(attributedString: next.attributed)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard let self, generation == self.renderGeneration else { return }
+                self.liveAttributed = live
+                self.fragmentCache = cache
+                self.heldPreview = held
+                self.rendered = RenderedDocument(
+                    attributed: live,
+                    blockRanges: next.blockRanges,
+                    activeBlockID: next.activeBlockID,
+                    activeEditableRange: next.activeEditableRange,
+                    activeSourceText: next.activeSourceText,
+                    revision: self.nextRevision(),
+                    previewPanel: next.previewPanel,
+                    revealStyler: next.revealStyler
+                )
+            }
         }
     }
 
@@ -436,6 +550,9 @@ final class ReaderModel {
         if let newID {
             fragmentCache.removeValue(forKey: newID)
         }
+        // Supersede any in-flight background render (issue #33) — this flip
+        // publish is the fresher projection.
+        renderGeneration += 1
         rendered = RenderedDocument(
             attributed: liveAttributed,
             blockRanges: update.blockRanges,

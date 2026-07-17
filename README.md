@@ -353,6 +353,11 @@ representative benchmarks on a ~1.2 MB / 5,402-line / 2,701-block document
   cache + text-storage splicing)
 - 70k-character stress documents scroll at full frame rate — TextKit 2 lays out
   only the visible viewport
+- Whole-document re-projection (theme flip, external reload, async image decode)
+  runs on a background executor and is adopted on the main actor under a
+  generation guard, so a multi-MB document re-renders without freezing the UI
+  (the interactive edit/activation paths keep their synchronous, latency-bounded
+  render)
 
 The ~9 ms figure is a *fast path*, not the only path: an edit is only
 reparsed incrementally when it's provably safe to do so, and falls back to a

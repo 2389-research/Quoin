@@ -212,7 +212,14 @@ The caret line sits at the same screen Y before and after. Growth is absorbed
 viewport settle — which pins the caret line's screen position across layout
 resolution — before any pixel is drawn, including the case where TextKit resolves
 height estimates for a very large document. `CaretLineAnchorTests` (including a
->200k-character settle case) and `RevealFidelityTests` guard it.
+>200k-character settle case) and `RevealFidelityTests` guard it. Moving the
+*full-document projection build* off the main actor (issue #33) does not touch
+this: only the pure `AttributedRenderer.render` computation runs on a background
+executor; the projection is *adopted* and every pixel *settled* on the main
+actor exactly as before, and only for non-interactive triggers (theme flip,
+external reload, async image decode) where no keystroke is mapping a caret
+against the result — the edit and activation paths keep their synchronous render.
+See the threading note in [architecture.md](architecture.md).
 
 ### 5. Caret hints carry their own coordinate space
 
@@ -328,7 +335,12 @@ patch computed against one storage state could land on a newer one, corrupting t
 projection. The length gate turns a possible corruption into a clean resync.
 
 **How it's enforced.** `ProjectionCoalescingTests`. The apply site checks
-`patchBaseLength == storage.length` before trusting the patch.
+`patchBaseLength == storage.length` before trusting the patch. The off-main
+full render (issue #33) has a sibling gate: a background render carries the
+`renderGeneration` it was launched at and is adopted only if that counter is
+unchanged on return to the main actor, so a projection computed against a
+superseded state is dropped rather than applied over a fresher one — the same
+refuse-on-drift principle as the length gate, one actor-hop out.
 
 ### 10. One block edits at a time; one caret
 
