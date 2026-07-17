@@ -283,6 +283,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Services menu — **New Quoin Document with Selection** (creates a document from selected text in any app) | ✅ |
 | Handoff / current activity — the open document publishes an `NSUserActivity` carrying a boundary-safe `quoin://` link (Handoff banner, Siri Suggestions, window restoration; cross-device once an iOS reader ships) | ✅ |
 | Core Spotlight indexing — documents, headings, front-matter tags, and body snippets in system search; tap a result to open it. Private, on-device, no network; stays in sync (stale items removed on move/delete) | ✅ |
+| Shortcuts / Siri (App Intents) — Create Note, Append Text to Note, Open Note, Search Library, Export Note, with App Shortcut phrases; mutating actions go through `DocumentSession` (atomic, byte-lossless), confined to the granted library, local-only | ✅ |
 
 A few of these surfaces, up close:
 

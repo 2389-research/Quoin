@@ -563,6 +563,21 @@ public actor DocumentSession {
         }
     }
 
+    /// Append `text` to the end of the document as its own line(s) — the App
+    /// Intents "Append Text to Note" path. The edit is COMPUTED IN-ACTOR
+    /// against the session's CURRENT source (the `applyResolution` pattern), so
+    /// its end-of-source offset can never go stale, and it flows through the
+    /// same `applyEdit` pipeline as a keystroke: re-parse, publish, autosave —
+    /// a real, undoable, byte-lossless edit, never a raw file rewrite. Returns
+    /// nil when `text` has nothing to append (empty/whitespace-only).
+    @discardableResult
+    public func appendText(_ text: String, publishSnapshot: Bool = true) throws -> QuoinDocument? {
+        guard let edit = DocumentAppend.appendEdit(appending: text, to: document.source) else {
+            return nil
+        }
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .append)
+    }
+
     // MARK: - Suggestion resolution (computed in-actor, so offsets can't go stale)
 
     /// Accept/reject ONE mark atomically: the combined mark+record edit is
