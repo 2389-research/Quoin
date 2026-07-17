@@ -1,0 +1,9 @@
+{{- /*
+  Markdown headings on this site come from ONE place: the release-notes body
+  ({{ .body | markdownify }} in the What's-new section). Goldmark's auto ids
+  turned "### Engines" into id="engines", which collided with the nav's
+  <section id="engines"> anchor and hijacked the "Engines" nav link. The page
+  itself is hand-authored HTML, so no other markdown headings exist — drop the
+  id for markdown-rendered headings and the collision can't recur.
+*/ -}}
+<h{{ .Level }}>{{ .Text | safeHTML }}</h{{ .Level }}>

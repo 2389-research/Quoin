@@ -97,7 +97,7 @@ only, not committed).
 | `20-code-editing` | `-QuoinShotOpen showcase.md -QuoinShotState codeEdit` | Active code-block editing (diagnostic) | — |
 | `21-code-editing-settled` | same, +1.5s | Settled code-block editing (diagnostic) | — |
 
-Hand-curated images not sourced from a single shot (composed/exported
+Hand-curated: `docs/images/hero-dark.png` is the `05-dark-document` capture (showcase, dark — matches hero.png dimensions). Other images not sourced from a single shot (composed/exported
 separately): `docs/images/hero.png`,
 `docs/images/architecture-overview.png` (+`-dark`),
 `docs/images/data-flow.png` (+`-dark`).

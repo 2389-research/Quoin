@@ -174,7 +174,10 @@ ABOUTME: Fully self-contained (inline CSS/JS); asset URLs go through relURL. */ 
       Notarized &amp; signed —
       <a href="{{ with hugo.Data.release }}{{ .url }}{{ else }}https://github.com/2389-research/Quoin/releases/latest{{ end }}">{{ with hugo.Data.release }}{{ .tag }} release notes{{ else }}latest release notes{{ end }}</a>.</p>
     <figure class="shot">
-      <img src="{{ "images/hero.png" | relURL }}" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="{{ "images/hero-dark.png" | relURL }}">
+        <img src="{{ "images/hero.png" | relURL }}" alt="Quoin editing a Markdown document, showing the library sidebar, the rendered body, the outline panel, and the floating format pill">
+      </picture>
       <figcaption>Quoin editing a real Markdown document — sidebar, rendered body, live outline, and the format pill, all native.</figcaption>
     </figure>
   </section>
