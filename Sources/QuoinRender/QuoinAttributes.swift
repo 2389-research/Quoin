@@ -57,6 +57,15 @@ public enum QuoinAttribute {
     /// VoiceOver "Headings" custom rotor (accessibility structure, #10);
     /// it never affects layout.
     public static let headingLevel = NSAttributedString.Key("quoin.headingLevel")
+    /// Value: `String` — a spoken announcement for a NON-heading structural
+    /// block ("Code block, swift, 12 lines", "Table, 3 columns, 4 rows",
+    /// "Note callout", …), computed once by `BlockAccessibility.announcement`
+    /// and stamped across the block's rendered range. The reader view scans
+    /// these runs to build the VoiceOver "Landmarks" custom rotor so a
+    /// listener can flick through document structure and hear WHAT each region
+    /// is (accessibility structure, #10). Headings are excluded here — they
+    /// have their own `.heading` rotor via `headingLevel`. Layout-inert.
+    public static let blockAccessibilityLabel = NSAttributedString.Key("quoin.blockAXLabel")
 }
 
 /// Custom URL schemes used for in-document interaction via the text view's

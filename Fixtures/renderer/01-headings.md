@@ -18,6 +18,10 @@
 
 Heading with trailing hashes ###
 
+##
+
+Empty ATX heading above (title-less, legal markdown): projects to a zero-width placeholder so it still carries its level for the VoiceOver Headings rotor (#10).
+
 # Heading with *inline emphasis*, `code`, and [a link](#links-inline-heading)
 
 Setext Heading Level 1

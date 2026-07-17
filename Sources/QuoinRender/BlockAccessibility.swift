@@ -5,15 +5,19 @@ import QuoinCore
 /// Derives VoiceOver announcements and heading levels from block structure.
 ///
 /// Pure and platform-free (no AppKit/UIKit): the mapping from a `BlockKind`
-/// to a spoken label is unit-tested directly (`BlockAccessibilityTests`),
-/// and the AppKit reader consumes it to name the document's structure for
-/// assistive technologies — the heading rotor's item labels and the
-/// attachment fallbacks all route through here so there is ONE source of
-/// truth for how a block announces itself.
+/// to a spoken label is unit-tested directly (`BlockAccessibilityTests`), and
+/// the renderer consumes it to name the document's structure for assistive
+/// technologies. `AttributedRenderer.render(block:)` stamps every block's
+/// announcement onto its rendered range (`headingLevel` for headings,
+/// `blockAccessibilityLabel` for the rest); `QuoinTextView` then vends those
+/// as the Headings and Landmarks VoiceOver rotors. So there is ONE source of
+/// truth for how a block announces itself — the heading rotor labels, the
+/// landmark labels, and the attachment fallbacks all route through here.
 ///
 /// Scope (accessibility structure, #10): this is the *bounded* subset — a
-/// concise "what is this region" sentence per block kind plus heading-level
-/// extraction. Rich per-element navigation (tables, links, tasks as rotor
+/// concise "what is this region" sentence per block kind (surfaced through the
+/// block-level Landmarks rotor) plus heading-level extraction. Rich
+/// per-*element* navigation (stepping individual tables, links, tasks as rotor
 /// targets), container grouping, and alternate actions are deferred; see
 /// `docs/reference/architecture.md`.
 public enum BlockAccessibility {

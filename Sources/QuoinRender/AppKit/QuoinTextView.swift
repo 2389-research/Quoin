@@ -730,90 +730,139 @@ final class QuoinTextView: NSTextView {
         return children
     }
 
-    // MARK: - Heading rotor (accessibility structure, #10)
+    // MARK: - Structure rotors (accessibility structure, #10)
 
-    /// Retains the search delegate: `NSAccessibilityCustomRotor` holds its
-    /// `itemSearchDelegate` weakly, so the view must own it.
-    private lazy var headingRotorDelegate = HeadingRotorSearchDelegate(owner: self)
+    /// Retains the search delegates: `NSAccessibilityCustomRotor` holds its
+    /// `itemSearchDelegate` weakly, so the view must own them.
+    private lazy var headingRotorDelegate = StructureRotorDelegate(owner: self)
+    private lazy var landmarkRotorDelegate = StructureRotorDelegate(owner: self)
 
-    /// Exposes a VoiceOver "Headings" rotor so a listener can jump between
-    /// headings (VO-U / VO-arrow) instead of arrowing through every line.
-    /// Rebuilt from the current storage each query so it tracks edits; the
-    /// rotor is dropped entirely when the document has no headings.
+    /// The rotors' item lists are cached and only rescanned when the storage
+    /// actually changed, so VoiceOver's per-keystroke queries don't each run
+    /// an O(n) full-storage `enumerateAttribute` (#10 perf). Invalidated by
+    /// observing the text storage's edit notification.
+    private var rotorItemsStale = true
+    private weak var observedRotorStorage: NSTextStorage?
+    private var rotorStorageObserver: NSObjectProtocol?
+
+    deinit {
+        if let token = rotorStorageObserver {
+            NotificationCenter.default.removeObserver(token)
+        }
+    }
+
+    /// Exposes two VoiceOver custom rotors so a listener can navigate by
+    /// document structure instead of arrowing through every line:
+    ///   • **Headings** (`.heading`) — jump heading to heading (VO-U).
+    ///   • **Landmarks** — flick through the other structural blocks (code,
+    ///     table, list, callout, quote, diagram, math, …), each announced with
+    ///     its `BlockAccessibility` label ("Table, 3 columns, 4 rows").
+    /// Either rotor is dropped when the document has none of its kind.
     override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
         var rotors = super.accessibilityCustomRotors()
-        headingRotorDelegate.reload(from: textContentStorage?.textStorage)
+        refreshRotorItemsIfNeeded()
         if !headingRotorDelegate.items.isEmpty {
             rotors.append(NSAccessibilityCustomRotor(
                 rotorType: .heading, itemSearchDelegate: headingRotorDelegate))
         }
+        if !landmarkRotorDelegate.items.isEmpty {
+            rotors.append(NSAccessibilityCustomRotor(
+                label: "Landmarks", itemSearchDelegate: landmarkRotorDelegate))
+        }
         return rotors
+    }
+
+    /// Rescans the storage for rotor items only when it changed since the last
+    /// scan (or the storage itself was swapped). One pass populates both
+    /// rotors.
+    private func refreshRotorItemsIfNeeded() {
+        let storage = textContentStorage?.textStorage
+        if storage !== observedRotorStorage {
+            if let token = rotorStorageObserver {
+                NotificationCenter.default.removeObserver(token)
+                rotorStorageObserver = nil
+            }
+            observedRotorStorage = storage
+            if let storage {
+                // queue nil → synchronous delivery on the (main) posting
+                // thread, so a query right after an edit never reads a stale
+                // list.
+                rotorStorageObserver = NotificationCenter.default.addObserver(
+                    forName: NSTextStorage.didProcessEditingNotification,
+                    object: storage, queue: nil
+                ) { [weak self] _ in self?.rotorItemsStale = true }
+            }
+            rotorItemsStale = true
+        }
+        guard rotorItemsStale else { return }
+        rotorItemsStale = false
+        scanRotorItems(from: storage)
+    }
+
+    private func scanRotorItems(from storage: NSTextStorage?) {
+        guard let storage, storage.length > 0 else {
+            headingRotorDelegate.items = []
+            landmarkRotorDelegate.items = []
+            return
+        }
+        var headings: [StructureRotor.Item] = []
+        var landmarks: [StructureRotor.Item] = []
+        let full = NSRange(location: 0, length: storage.length)
+        storage.enumerateAttribute(QuoinAttribute.headingLevel, in: full) { value, range, _ in
+            guard let level = (value as? NSNumber)?.intValue else { return }
+            // A title-less heading renders as a lone zero-width space (see
+            // AttributedRenderer.renderHeading) purely so it has a navigable
+            // position — strip it so the spoken label reads "Heading level N".
+            let title = storage.attributedSubstring(from: range).string
+                .replacingOccurrences(of: "\u{200B}", with: "")
+            headings.append(StructureRotor.Item(
+                location: range.location, length: range.length,
+                label: BlockAccessibility.headingAnnouncement(level: level, title: title)))
+        }
+        storage.enumerateAttribute(QuoinAttribute.blockAccessibilityLabel, in: full) { value, range, _ in
+            guard let label = value as? String else { return }
+            landmarks.append(StructureRotor.Item(
+                location: range.location, length: range.length, label: label))
+        }
+        headingRotorDelegate.items = headings.sorted { $0.location < $1.location }
+        landmarkRotorDelegate.items = landmarks.sorted { $0.location < $1.location }
     }
 
 }
 
-/// Feeds the "Headings" rotor. Holds the current heading runs (range + spoken
-/// label) and answers next/previous queries relative to the caret or the
-/// last-visited item, with optional substring filtering.
-private final class HeadingRotorSearchDelegate: NSObject, NSAccessibilityCustomRotorItemSearchDelegate {
+/// Feeds a structure rotor (Headings or Landmarks). Holds the current items
+/// (set by `QuoinTextView.scanRotorItems`) and answers next/previous queries
+/// through the pure `StructureRotor.result` navigator, so the direction /
+/// filter logic is tested without a text system.
+private final class StructureRotorDelegate: NSObject, NSAccessibilityCustomRotorItemSearchDelegate {
     private weak var owner: NSTextView?
-    fileprivate private(set) var items: [(range: NSRange, label: String)] = []
+    fileprivate var items: [StructureRotor.Item] = []
 
     init(owner: NSTextView) {
         self.owner = owner
-    }
-
-    /// Scans the storage for `headingLevel`-tagged runs, in document order.
-    func reload(from storage: NSTextStorage?) {
-        guard let storage, storage.length > 0 else { items = []; return }
-        var found: [(range: NSRange, label: String)] = []
-        storage.enumerateAttribute(
-            QuoinAttribute.headingLevel,
-            in: NSRange(location: 0, length: storage.length)
-        ) { value, range, _ in
-            guard let level = (value as? NSNumber)?.intValue else { return }
-            let title = storage.attributedSubstring(from: range).string
-            found.append((range, BlockAccessibility.headingAnnouncement(level: level, title: title)))
-        }
-        items = found.sorted { $0.range.location < $1.range.location }
     }
 
     func rotor(
         _ rotor: NSAccessibilityCustomRotor,
         resultFor parameters: NSAccessibilityCustomRotor.SearchParameters
     ) -> NSAccessibilityCustomRotor.ItemResult? {
-        guard let owner, !items.isEmpty else { return nil }
-
-        let filter = parameters.filterString.lowercased()
-        let pool = filter.isEmpty
-            ? Array(items.enumerated())
-            : items.enumerated().filter { $0.element.label.lowercased().contains(filter) }
-        guard !pool.isEmpty else { return nil }
-
-        // Anchor on the current item's location (nil on the first search).
-        let currentLocation = parameters.currentItem?.targetRange.location
-        let chosen: (offset: Int, element: (range: NSRange, label: String))?
+        guard let owner else { return nil }
+        let direction: StructureRotor.Direction
         switch parameters.searchDirection {
-        case .next:
-            if let loc = currentLocation {
-                chosen = pool.first { $0.element.range.location > loc }
-            } else {
-                chosen = pool.first
-            }
-        case .previous:
-            if let loc = currentLocation {
-                chosen = pool.last { $0.element.range.location < loc }
-            } else {
-                chosen = pool.last
-            }
-        @unknown default:
-            chosen = nil
+        case .next: direction = .next
+        case .previous: direction = .previous
+        @unknown default: return nil
         }
-        guard let target = chosen else { return nil }
+        guard let hit = StructureRotor.result(
+            items: items,
+            currentLocation: parameters.currentItem?.targetRange.location,
+            direction: direction,
+            filter: parameters.filterString
+        ) else { return nil }
 
         let result = NSAccessibilityCustomRotor.ItemResult(targetElement: owner)
-        result.targetRange = target.element.range
-        result.customLabel = target.element.label
+        result.targetRange = NSRange(location: hit.location, length: hit.length)
+        result.customLabel = hit.label
         return result
     }
 }
