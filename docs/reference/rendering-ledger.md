@@ -10,7 +10,9 @@ Format mirrors [`code-hygiene-ledger.md`](code-hygiene-ledger.md): **severity**
 
 ---
 
-## R1 — H · Revealing a wrapped paragraph explodes its line height
+> **Status:** R2 and R3 shipped; R1 narrowed but not yet fixed (see its note).
+
+## R1 — H · Revealing a wrapped paragraph explodes its line height — NARROWED, OPEN
 
 **Symptom.** Reading is fine; the moment the caret enters a *soft-wrapped* body
 paragraph (it activates and reveals its source), the inter-line spacing balloons
@@ -39,15 +41,31 @@ from the theme/rendered paragraph style rather than duplicating a literal (two
 literals for one metric is the "recognizers diverge" class again).
 
 **Verify.** `RevealFidelityTests` pass today, so they don't cover a body
-paragraph that WRAPS to ≥3 visual lines (the existing paragraph cases are short
-enough not to expose the multiplier, or they compare block spacing rather than
-intra-block leading). Add a failing test first: render a long paragraph in a
-fixed-width container, reveal it, assert total laid-out height is unchanged
-within epsilon. Then fix the multiplier and watch it go green.
+paragraph that WRAPS to ≥3 visual lines. Add a failing test first: render a long
+paragraph in a fixed-width container, reveal it, assert total laid-out height is
+unchanged within epsilon.
+
+**Update (investigated).** Added exactly that test —
+`testWrappedParagraphRevealIsHeightNeutral` (measures at width 320) — and it
+**PASSES**. So the RENDERER is height-neutral even for a wrapped paragraph: the
+`renderEditableSource` → `transplantParagraphStyles` path overrides the styler's
+1.5 with the rendered block's per-line metric on every renderer call (all
+callers pass `document`). The explosion is therefore in the LIVE AppKit apply
+path, not the styling. Prime suspect: `ReaderCoordinator.restyleActiveBlock`
+(`Sources/QuoinRender/AppKit/ReaderCoordinator.swift:~838`) SUBSTITUTES storage's
+existing `.paragraphStyle` for the fragment's transplanted one on every caret
+move (a workaround predating the transplant, with a documented "height collapse"
+regression if removed naively) — but storage *should* already hold the correct
+transplanted style after activation, so this doesn't fully explain it. **Next
+step: live instrument** — log the active paragraph's resolved
+`lineHeightMultiple` from storage on activation + first caret move, reproduce in
+the running app, and trace which write leaves the exploded value. Do NOT change
+the delicate reveal/caret code blind; the renderer test guards against a
+styling-layer regression while this is chased.
 
 ---
 
-## R2 — M · Real word-wrap / no-wrap setting, applied to source *and* rendered
+## R2 — M · Real word-wrap / no-wrap setting — ✅ SHIPPED
 
 **Symptom / request.** There's no user control over wrapping. We want an
 explicit **Wrap / No Wrap** setting that applies as consistently as possible to
@@ -70,11 +88,15 @@ true` is what forces wrapping today. No-wrap means `widthTracksTextView = false`
 - Keep it consistent across the rendered and revealed states so toggling doesn't
   reflow-jump the caret (respect the viewport invariant on the toggle itself).
 
-**Status.** Feature, not a bug. Bounded; good standalone issue.
+**Shipped.** `@AppStorage("QuoinWordWrap")` (default wrap); **View ▸ Wrap Lines**
+toggle. `MarkdownReaderView.applyWrapMode` flips `widthTracksTextView` + an
+unlimited-width container + a horizontal scroller, applied in make + update so
+the toggle is live. One text container serves both rendered and revealed source,
+so it applies to both. Code canvases keep their own width.
 
 ---
 
-## R3 — H · Outline stops highlighting the section you're actually reading
+## R3 — H · Outline stops highlighting the section you're reading — ✅ SHIPPED
 
 **Symptom.** The current-section highlight in the outline only lights up a
 heading as it *approaches* the top of the viewport, then reverts to the PREVIOUS
@@ -109,5 +131,9 @@ top-block that is a paragraph inside section B (heading B above it, heading A
 before that), it must return B — including when B's own range is unavailable.
 Currently it should return A/first, reproducing the bug.
 
-**Related.** Interacts with the outline's manual-collapse highlight (#74, done)
-— keep "highlight the collapsed ancestor" behavior intact when this changes.
+**Shipped.** Extracted to a pure `OutlineNavigation.currentSection(topBlockID:
+blocks:outline:)` (QuoinCore) keyed on document block INDEX, wired into
+`ReaderScreen.currentSection`. `OutlineNavigationTests` (5) prove a paragraph
+deep in a section still reports that section (the failing case), plus the
+fallbacks. The outline manual-collapse highlight (#74) is unaffected — it keys
+on the same `currentSectionID`, now more accurate.

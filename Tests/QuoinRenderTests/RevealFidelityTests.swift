@@ -246,6 +246,36 @@ final class RevealFidelityTests: XCTestCase {
         XCTAssertEqual((storage.string as NSString).substring(with: flipEditable), slice)
     }
 
+    /// R1: a LONG paragraph that soft-wraps to several visual lines must reveal
+    /// height-neutrally too. The other paragraph cases are short enough not to
+    /// wrap at the measured width, so they never exposed a per-line metric
+    /// mismatch on the wrapped lines. Measured at a narrow width to force wrap.
+    func testWrappedParagraphRevealIsHeightNeutral() throws {
+        let longSource = """
+        # Wrapping
+
+        This is a deliberately long paragraph of ordinary prose with no markup \
+        at all, written to be far wider than the measuring container so that it \
+        soft-wraps across several visual lines, which is exactly the case where \
+        a per-line metric mismatch between the rendered body and the revealed \
+        source would balloon the line height on activation.
+        """
+        let document = MarkdownConverter.parse(longSource)
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        let para = try XCTUnwrap(document.blocks.first {
+            if case .paragraph = $0.kind { return true }
+            return false
+        }?.id)
+
+        let reading = renderer.render(document, activeBlockID: nil, activeCaret: nil, cache: &cache)
+        let revealed = renderer.render(document, activeBlockID: para, activeCaret: 3, cache: &cache)
+        XCTAssertEqual(measureHeight(reading.attributed, width: 320),
+                       measureHeight(revealed.attributed, width: 320),
+                       accuracy: 1.0,
+                       "revealing a soft-wrapped paragraph must not change the document height")
+    }
+
     private func measureHeight(_ attributed: NSAttributedString, width: CGFloat = 600) -> CGFloat {
         let storage = NSTextStorage(attributedString: attributed)
         let contentStorage = NSTextContentStorage()

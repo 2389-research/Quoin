@@ -25,6 +25,9 @@ struct ReaderScreen: View {
     /// change must re-render, same as an appearance flip.
     @AppStorage("QuoinCodeTheme") private var codeTheme = "match"
     @AppStorage("QuoinTextScale") private var textScale = 1.0
+    /// Wrap long lines to the column, or let them run with a horizontal
+    /// scroller (#R2). Applies to rendered + revealed source alike.
+    @AppStorage("QuoinWordWrap") private var wordWrap = true
 
     @State private var formatCommand: FormatCommand?
     @State private var formatGeneration = 0
@@ -216,7 +219,8 @@ struct ReaderScreen: View {
                     userPickedInspectorMode = true
                 },
                 activeFragmentProvider: { caret in model.restyledActiveFragment(caretOffset: caret) },
-                onPasteImage: { model.insertPastedImage() }
+                onPasteImage: { model.insertPastedImage() },
+                wordWrap: wordWrap
             )
             // Dropping an image file copies it into assets/ and inserts
             // the markdown reference at the caret.
@@ -783,19 +787,16 @@ struct ReaderScreen: View {
     }
 
     /// The heading governing the top of the viewport.
+    /// The section the reader is in, resolved by DOCUMENT ORDER (#R3). The old
+    /// range-based version reverted to the ancestor heading once the current
+    /// heading scrolled above the viewport (its laid-out range dropped out);
+    /// block index survives that, so the highlight stays on the section you're
+    /// actually reading until the NEXT heading reaches the top.
     private var currentSection: HeadingInfo? {
-        guard let topBlockID,
-              let topRange = model.rendered.blockRanges[topBlockID] else { return model.outline.first }
-        var current: HeadingInfo?
-        for heading in model.outline {
-            guard let headingRange = model.rendered.blockRanges[heading.id] else { continue }
-            if headingRange.location <= topRange.location {
-                current = heading
-            } else {
-                break
-            }
-        }
-        return current ?? model.outline.first
+        OutlineNavigation.currentSection(
+            topBlockID: topBlockID,
+            blocks: model.document.blocks,
+            outline: model.outline)
     }
 
     private func fireFormat(_ command: FormatCommand) {

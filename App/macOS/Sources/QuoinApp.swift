@@ -258,6 +258,7 @@ private struct ViewCommands: Commands {
     @FocusedValue(\.quoinTypewriter) private var typewriter
     @AppStorage("QuoinShowStatusBar") private var showStatusBar = true
     @AppStorage("QuoinTextScale") private var textScale = 1.0
+    @AppStorage("QuoinWordWrap") private var wordWrap = true
 
     /// A checkmark that mirrors the key window's per-window state and toggles
     /// it through a notification (the set value is ignored — the window owns
@@ -298,6 +299,9 @@ private struct ViewCommands: Commands {
                 .keyboardShortcut("-", modifiers: .command)
             Button("Actual Size") { textScale = 1 }
                 .keyboardShortcut("0", modifiers: [.command, .control])
+            Divider()
+            // Wrap long lines to the column, or let them run and scroll (#R2).
+            Toggle("Wrap Lines", isOn: $wordWrap)
             Divider()
         }
     }

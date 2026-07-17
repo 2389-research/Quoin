@@ -212,6 +212,12 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// handled so the plain-text paste is skipped. nil = read-only reader.
     public var onPasteImage: (() -> Bool)? = nil
 
+    /// Soft-wrap long lines to the column (true) or let them run and scroll
+    /// horizontally (false) — the Wrap/No-Wrap setting (#R2). Applies to both
+    /// the rendered projection and the revealed source, since it's one text
+    /// container for both states.
+    public var wordWrap: Bool = true
+
     public init(
         rendered: RenderedDocument,
         theme: Theme = Theme(),
@@ -258,7 +264,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         onSuggestionCaretLink: ((ByteRange?) -> Void)? = nil,
         onOpenReview: (() -> Void)? = nil,
         activeFragmentProvider: ((_ caretOffset: Int) -> NSAttributedString?)? = nil,
-        onPasteImage: (() -> Bool)? = nil
+        onPasteImage: (() -> Bool)? = nil,
+        wordWrap: Bool = true
     ) {
         self.rendered = rendered
         self.theme = theme
@@ -306,6 +313,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.onOpenReview = onOpenReview
         self.activeFragmentProvider = activeFragmentProvider
         self.onPasteImage = onPasteImage
+        self.wordWrap = wordWrap
     }
 
     public func makeCoordinator() -> Coordinator {
@@ -413,13 +421,43 @@ public struct MarkdownReaderView: NSViewRepresentable {
             coordinator?.handleLinkHover(url: url, at: rect)
         }
         textView.updateTrackingAreas()
+        Self.applyWrapMode(wordWrap, textView: textView, scrollView: scrollView)
         return scrollView
+    }
+
+    /// Wrap/No-Wrap (#R2). Wrap: the container tracks the viewport width so
+    /// lines fold to the column. No-wrap: an unlimited-width container + a
+    /// horizontally-resizable text view + a horizontal scroller, so long lines
+    /// run off and scroll. Idempotent — safe to call every update.
+    static func applyWrapMode(_ wrap: Bool, textView: NSTextView, scrollView: NSScrollView) {
+        guard let container = textView.textContainer else { return }
+        if wrap {
+            guard container.widthTracksTextView == false || scrollView.hasHorizontalScroller else { return }
+            container.widthTracksTextView = true
+            container.size = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
+            textView.isHorizontallyResizable = false
+            textView.autoresizingMask = [.width]
+            scrollView.hasHorizontalScroller = false
+            // The frame may have grown wide under no-wrap; snap it back so the
+            // container re-tracks the viewport instead of staying over-wide.
+            textView.setFrameSize(NSSize(width: scrollView.contentSize.width,
+                                         height: textView.frame.height))
+        } else {
+            guard container.widthTracksTextView else { return }
+            container.widthTracksTextView = false
+            container.size = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+            textView.isHorizontallyResizable = true
+            textView.autoresizingMask = [.height]
+            scrollView.hasHorizontalScroller = true
+        }
+        textView.needsLayout = true
     }
 
     public func updateNSView(_ scrollView: NSScrollView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
         guard let textView = coordinator.textView else { return }
+        Self.applyWrapMode(wordWrap, textView: textView, scrollView: scrollView)
 
         // View-level chrome follows the theme on every update, so an
         // appearance flip (dark/light) recolors the canvas along with the

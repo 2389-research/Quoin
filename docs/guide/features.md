@@ -320,6 +320,7 @@ resolution can never quietly corrupt the document.
 | Typewriter Scrolling | ⌥⌘T | keeps the active line vertically centered (per-window) |
 | Zoom In / Out | ⌘= / ⌘− | scales the reading text up or down |
 | Actual Size | ⌃⌘0 | resets the reading text to 100% |
+| Wrap Lines | View menu | wrap long lines to the column, or let them run and scroll horizontally |
 | Status Bar | — | word count, reading progress, and goals |
 
 Focus Mode, Sentence Focus, and Typewriter Scrolling are per-window — turning
