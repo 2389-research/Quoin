@@ -55,7 +55,7 @@ struct ReviewPanel: View {
                 }
                 if items.isEmpty {
                     Text("Nothing left to review")
-                        .font(.system(size: 11.5))
+                        .quoinScaledFont(size: 11.5)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
@@ -70,7 +70,7 @@ struct ReviewPanel: View {
                         .padding(.top, 6)
                     } label: {
                         Text("RESOLVED · \(resolved.count)")
-                            .font(.system(size: 10, weight: .semibold))
+                            .quoinScaledFont(size: 10, weight: .semibold)
                             .kerning(0.5)
                             .foregroundStyle(.tertiary)
                     }
@@ -97,7 +97,7 @@ struct ReviewPanel: View {
             Text(title)
                 .lineLimit(1)
                 .fixedSize()
-                .font(.system(size: 10.5, weight: .medium))
+                .quoinScaledFont(size: 10.5, weight: .medium)
                 .padding(.horizontal, 8).padding(.vertical, 2.5)
                 .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 6))
                 .foregroundStyle(.secondary)
@@ -117,18 +117,18 @@ private struct ResolvedRow: View {
                 Image(systemName: record.summary.hasPrefix("rejected")
                     || record.summary.hasPrefix("dismissed")
                     ? "xmark.circle" : "checkmark.circle")
-                    .font(.system(size: 10))
+                    .quoinScaledFont(size: 10)
                     .foregroundStyle(.secondary)
                 Text(record.by == "AI" ? "Agent" : (record.by ?? record.id))
-                    .font(.system(size: 11, weight: .semibold))
+                    .quoinScaledFont(size: 11, weight: .semibold)
                 if let at = record.at {
                     Text(at.prefix(10))
-                        .font(.system(size: 9, design: .monospaced))
+                        .quoinScaledFont(size: 9, design: .monospaced)
                         .foregroundStyle(.tertiary)
                 }
             }
             Text(record.summary)
-                .font(.system(size: 10.5))
+                .quoinScaledFont(size: 10.5)
                 .foregroundStyle(.secondary)
                 .padding(.leading, 15)
         }
@@ -175,17 +175,17 @@ private struct ReviewCard: View {
     private var meta: some View {
         HStack(spacing: 5) {
             Text(item.by == "AI" ? "Agent" : (item.by ?? kindLabel))
-                .font(.system(size: 11.5, weight: .semibold))
+                .quoinScaledFont(size: 11.5, weight: .semibold)
             if item.by == "AI" {
                 Text("AI")
-                    .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                    .quoinScaledFont(size: 8, weight: .semibold, design: .monospaced)
                     .padding(.horizontal, 4).padding(.vertical, 1)
                     .background(Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
                     .foregroundStyle(.secondary)
             }
             if let at = relativeTime {
                 Text(at)
-                    .font(.system(size: 9.5, design: .monospaced))
+                    .quoinScaledFont(size: 9.5, design: .monospaced)
                     .foregroundStyle(.tertiary)
             }
             Spacer(minLength: 0)
@@ -217,17 +217,17 @@ private struct ReviewCard: View {
         switch item.body {
         case .comment(let text, let anchor):
             (anchorText(anchor) + Text(text))
-                .font(.system(size: 11.5))
+                .quoinScaledFont(size: 11.5)
         case .insertion(let text):
             (Text("Add: ").foregroundStyle(.secondary) + inserted(text))
-                .font(.system(size: 11.5))
+                .quoinScaledFont(size: 11.5)
         case .deletion(let text):
             (Text("Remove: ").foregroundStyle(.secondary) + deleted(text))
-                .font(.system(size: 11.5))
+                .quoinScaledFont(size: 11.5)
         case .substitution(let old, let new):
             (Text("Replace: ").foregroundStyle(.secondary) + deleted(old)
                 + Text(" with ").foregroundStyle(.secondary) + inserted(new))
-                .font(.system(size: 11.5))
+                .quoinScaledFont(size: 11.5)
         }
     }
 
@@ -255,17 +255,17 @@ private struct ReviewCard: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 5) {
                         Text(reply.by == "AI" ? "Agent" : (reply.by ?? "reply"))
-                            .font(.system(size: 11, weight: .semibold))
+                            .quoinScaledFont(size: 11, weight: .semibold)
                         if reply.by == "AI" {
                             Text("AI")
-                                .font(.system(size: 8, weight: .semibold, design: .monospaced))
+                                .quoinScaledFont(size: 8, weight: .semibold, design: .monospaced)
                                 .padding(.horizontal, 4).padding(.vertical, 1)
                                 .background(Color.primary.opacity(0.07),
                                             in: RoundedRectangle(cornerRadius: 4))
                                 .foregroundStyle(.secondary)
                         }
                     }
-                    Text(reply.body).font(.system(size: 11))
+                    Text(reply.body).quoinScaledFont(size: 11)
                 }
             }
         }
@@ -310,7 +310,7 @@ private struct ReviewCard: View {
             Text(title)
                 .lineLimit(1)
                 .fixedSize()
-                .font(.system(size: 10.5, weight: .medium))
+                .quoinScaledFont(size: 10.5, weight: .medium)
                 .padding(.horizontal, 8).padding(.vertical, 2.5)
                 .background(
                     prominent ? Color.accentColor.opacity(0.12) : Color.primary.opacity(0.07),

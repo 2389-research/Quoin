@@ -186,7 +186,7 @@ struct OutlineSheet: View {
                     onSelect(heading.id)
                 } label: {
                     Text(heading.title)
-                        .font(.system(size: 15, weight: heading.level == 1 ? .semibold : .regular))
+                        .quoinScaledFont(size: 15, weight: heading.level == 1 ? .semibold : .regular)
                         .padding(.leading, CGFloat(max(0, heading.level - 1)) * 14)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }

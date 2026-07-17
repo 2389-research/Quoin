@@ -185,7 +185,9 @@ with copy button.
 - **Appearance** — system/light/dark; the code canvas stays a constant
   ink surface across appearances (design spec).
 - **Accessibility** — VoiceOver labels on images/diagrams/equations,
-  editing announcements, Reduce-Motion honored throughout.
+  editing announcements; the chrome scales with Dynamic Type ("Larger text")
+  while preserving the design's type ramp; Reduce Motion and Reduce
+  Transparency honored throughout.
 
 ## Performance (measured, enforced)
 

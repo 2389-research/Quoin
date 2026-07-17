@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import QuoinCore
+import QuoinRender
 
 /// The main window per the handoff: library sidebar (⌘0) · tab bar +
 /// editor · outline inspector (⌥⌘0), with quick open (⇧⌘O) floating above.
@@ -57,7 +58,7 @@ struct MainWindow: View {
                     Image(systemName: "books.vertical")
                         .foregroundStyle(.tertiary)
                     Text("No library yet")
-                        .font(.system(size: 11))
+                        .quoinScaledFont(size: 11)
                         .foregroundStyle(.tertiary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -435,13 +436,13 @@ struct MainWindow: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "doc.text")
-                .font(.system(size: 44))
+                .quoinScaledFont(size: 44)
                 .foregroundStyle(.primary.opacity(0.35))
             Text("No document open")
-                .font(.system(size: 13, weight: .semibold))
+                .quoinScaledFont(size: 13, weight: .semibold)
                 .foregroundStyle(.primary.opacity(0.55))
             Text("Select a document, or press ⌘N")
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .foregroundStyle(.secondary)
             Button("New Document") {
                 if let url = library.createDocument() { open(url) }
@@ -460,7 +461,7 @@ struct MainWindow: View {
                 }
             }
             .buttonStyle(.link)
-            .font(.system(size: 11))
+            .quoinScaledFont(size: 11)
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -475,7 +476,7 @@ struct MainWindow: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                     Text(failure)
-                        .font(.system(size: 11.5))
+                        .quoinScaledFont(size: 11.5)
                         .multilineTextAlignment(.leading)
                 }
                 .padding(10)
@@ -484,12 +485,12 @@ struct MainWindow: View {
                 .padding(.bottom, 8)
             }
             Image(systemName: "doc.text")
-                .font(.system(size: 36))
+                .quoinScaledFont(size: 36)
                 .foregroundStyle(.primary.opacity(0.35))
             Text("Open a file, or set up a library")
-                .font(.system(size: 13, weight: .semibold))
+                .quoinScaledFont(size: 13, weight: .semibold)
             Text("Your documents stay plain .md files on disk.\nQuoin never converts or moves your files.")
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             // Just edit a file — no library required (#18). First-class path,
@@ -510,7 +511,7 @@ struct MainWindow: View {
             }
             .buttonStyle(.bordered)
             Text("A library is just a folder Quoin watches — optional. Every document is a plain file you can open anywhere.")
-                .font(.system(size: 10.5))
+                .quoinScaledFont(size: 10.5)
                 .foregroundStyle(.tertiary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 300)

@@ -76,7 +76,7 @@ struct ExportSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Export “\(documentName)”")
-                .font(.system(size: 15, weight: .semibold))
+                .quoinScaledFont(size: 15, weight: .semibold)
 
             LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3), spacing: 10) {
                 ForEach(ExportFormat.allCases) { format in
@@ -88,14 +88,14 @@ struct ExportSheet: View {
             HStack(spacing: 16) {
                 Toggle("Include footnotes", isOn: $includeFootnotes)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 12))
+                    .quoinScaledFont(size: 12)
                 Spacer()
                 Picker("Theme", selection: $appearance) {
                     ForEach(ExportAppearance.allCases) { choice in
                         Text(choice.rawValue).tag(choice)
                     }
                 }
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .fixedSize()
                 .disabled(selected != .pdf)
                 .help("PDF color theme")
@@ -103,7 +103,7 @@ struct ExportSheet: View {
 
             if let exportError {
                 Text(exportError)
-                    .font(.system(size: 11))
+                    .quoinScaledFont(size: 11)
                     .foregroundStyle(.red)
             }
 
@@ -146,9 +146,9 @@ struct ExportSheet: View {
         let isSelected = format == selected
         return VStack(spacing: 3) {
             Text(format.rawValue)
-                .font(.system(size: 14, weight: .semibold))
+                .quoinScaledFont(size: 14, weight: .semibold)
             Text(format.caption)
-                .font(.system(size: 10))
+                .quoinScaledFont(size: 10)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }

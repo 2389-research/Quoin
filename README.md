@@ -261,6 +261,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Word count, reading time, per-element statistics | ✅ |
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
 | Dark mode (code canvas constant across appearances, per design spec) | ✅ |
+| Accessibility — chrome scales with Dynamic Type; Reduce Motion & Reduce Transparency honored | ✅ |
 
 A few of these surfaces, up close:
 

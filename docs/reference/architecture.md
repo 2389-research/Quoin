@@ -647,6 +647,29 @@ AppKit guards select the AppKit branch inside a UIKit runtime and fail to
 compile. Supporting it means changing those guards to
 `canImport(AppKit) && !targetEnvironment(macCatalyst)` throughout.
 
+## Accessibility in the SwiftUI chrome
+
+The app shells (`App/macOS`, `App/iOS`) honor three system settings; the
+document body is out of scope (it has its own reading zoom, `Theme.textScale`).
+
+- **Dynamic Type.** The handoff pins the type ramp as *final* (exact point
+  sizes), so the chrome must scale with the "Larger text" setting **without**
+  discarding that ramp. Every `.font(.system(size:))` chrome site therefore
+  goes through `.quoinScaledFont(size:weight:design:)` (`ScaledChromeFont`
+  in QuoinRender), a `@ScaledMetric(relativeTo: .body)` wrapper that multiplies
+  the design's base size by the Dynamic Type factor. One shared reference style
+  (`.body`) means the whole ramp grows by one curve and keeps its proportions —
+  do **not** hand-swap sites to semantic styles like `.body`/`.caption`.
+  When you add new chrome, use `quoinScaledFont`, not a raw `.system(size:)`.
+  The two fixed-height, `.clipped()` strips — the status bar (`ReaderScreen`)
+  and the document tab bar (`DocumentTabBar`) — would guillotine their scaled
+  text, so their heights are `@ScaledMetric` too (`statusBarHeight`,
+  `barHeight`) and grow with the label.
+- **Reduce Motion** gates the sidebar/outline reveals and the format pill on
+  `accessibilityReduceMotion` (the flip controller was already aware).
+- **Reduce Transparency** gives Quick Open and the find/replace bars an opaque
+  `windowBackgroundColor` fallback.
+
 ## Testing strategy
 
 Quoin's tests are how the invariants above stay true — several of them exist

@@ -87,6 +87,10 @@ struct ReaderScreen: View {
     @Environment(\.controlActiveState) private var controlActiveState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    // The status strip is `.clipped()` to a fixed height so misbehaving
+    // bridged controls can't inflate it; that same clip would guillotine the
+    // scaled status text, so the height grows with Dynamic Type too (#28).
+    @ScaledMetric(relativeTo: .body) private var statusBarHeight: CGFloat = 22
 
     private var isKeyWindow: Bool { controlActiveState == .key }
 
@@ -288,7 +292,7 @@ struct ReaderScreen: View {
                     let open = reviewItems.filter { !$0.isResolved }.count
                     if open > 0 {
                         Text("\(open)")
-                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .quoinScaledFont(size: 10, weight: .semibold, design: .rounded)
                             .monospacedDigit()
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5.5)
@@ -718,7 +722,7 @@ struct ReaderScreen: View {
             fireFormat(command)
         } label: {
             Image(systemName: symbol)
-                .font(.system(size: 11, weight: .medium))
+                .quoinScaledFont(size: 11, weight: .medium)
                 .foregroundStyle(.primary.opacity(0.75))
                 .frame(width: 22, height: 18)
                 .contentShape(Rectangle())
@@ -800,7 +804,7 @@ struct ReaderScreen: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                 Text("This file changed on disk while you had unsaved edits.")
-                    .font(.system(size: 12))
+                    .quoinScaledFont(size: 12)
                 Spacer()
                 Button("Keep Mine") { model.resolveConflictKeepingMine() }
                 Button("Use Disk Version") { model.resolveConflictTakingDisk() }
@@ -821,7 +825,7 @@ struct ReaderScreen: View {
                 Image(systemName: "exclamationmark.circle.fill")
                     .foregroundStyle(.red)
                 Text(failure.message)
-                    .font(.system(size: 12))
+                    .quoinScaledFont(size: 12)
                 Spacer()
                 Button {
                     model.dismissActionFailure()
@@ -870,7 +874,7 @@ struct ReaderScreen: View {
                 // becomes suggestions, the status bar says so in accent.
                 if model.isSuggestMode {
                     Text("SUGGESTING")
-                        .font(.system(size: 9, weight: .semibold))
+                        .quoinScaledFont(size: 9, weight: .semibold)
                         .kerning(0.5)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 6)
@@ -910,12 +914,13 @@ struct ReaderScreen: View {
                 }
                 StatsButton(stats: model.stats, wordGoal: $wordGoal)
             }
-            .font(.system(size: 10.5, design: .monospaced))
+            .quoinScaledFont(size: 10.5, design: .monospaced)
             .foregroundStyle(.secondary)
             .padding(.horizontal, 12)
             // The bar is a FIXED-HEIGHT hairline strip by spec — no content
-            // may inflate it, whatever the bridged controls report.
-            .frame(height: 22)
+            // may inflate it, whatever the bridged controls report; the height
+            // tracks Dynamic Type (statusBarHeight) so the scaled label fits.
+            .frame(height: statusBarHeight)
             .clipped()
         }
     }
@@ -1095,7 +1100,7 @@ struct OutlinePanel: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 Text("OUTLINE")
-                    .font(.system(size: 10, weight: .semibold))
+                    .quoinScaledFont(size: 10, weight: .semibold)
                     .kerning(0.5)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 12)
@@ -1168,7 +1173,7 @@ private struct OutlineRow: View {
                     if isParent {
                         Button(action: onToggle) {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .semibold))
+                                .quoinScaledFont(size: 8, weight: .semibold)
                                 .foregroundStyle(.tertiary)
                                 .rotationEffect(.degrees(isCollapsed ? 0 : 90))
                                 .frame(width: 12, height: 12)
@@ -1180,12 +1185,12 @@ private struct OutlineRow: View {
                         Color.clear.frame(width: 12, height: 12)
                     }
                     Text(heading.title)
-                        .font(.system(size: 12, weight: weight))
+                        .quoinScaledFont(size: 12, weight: weight)
                         .foregroundStyle(isCurrent ? Color.accentColor : Color.primary)
                         .lineLimit(1)
                     if isCollapsed, isParent {
                         Text("…")
-                            .font(.system(size: 12))
+                            .quoinScaledFont(size: 12)
                             .foregroundStyle(.tertiary)
                     }
                 }

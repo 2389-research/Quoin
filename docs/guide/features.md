@@ -310,6 +310,23 @@ to fight with your content.
 
 ---
 
+## Accessibility
+
+Quoin honors the system accessibility settings from **System Settings ▸
+Accessibility** — no separate in-app switches to find:
+
+| Setting | What Quoin does |
+| :--- | :--- |
+| **Larger text** (Dynamic Type) | The app chrome — sidebar, outline, document tabs, status bar, inspector, and dialogs — scales with your preferred text size. The design's type ramp is preserved (everything grows together, in proportion), so nothing looks lopsided at large sizes. |
+| **Reduce Motion** | Sidebar and outline reveals, the formatting pill, and block flip transitions apply instantly instead of animating. |
+| **Reduce Transparency** | Vibrant surfaces (Quick Open, the find and replace bars) fall back to opaque backgrounds. |
+
+Dynamic Type scales the *chrome*; the document body has its own independent
+reading zoom (⌘= / ⌘−, above). The two never fight, and neither changes the
+bytes on disk.
+
+---
+
 ## Reference: math & diagrams
 
 Math and diagrams are rendered natively — no MathJax, no KaTeX, no Mermaid.js.

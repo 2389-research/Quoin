@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import QuoinCore
+import QuoinRender
 
 /// The library sidebar: classic tree per the handoff (icons, disclosure
 /// chevrons, accent-filled selection), documents open on click, assets
@@ -30,7 +31,7 @@ struct LibrarySidebar: View {
                 Text(library.documentCount == 1 ? "1 document" : "\(library.documentCount) documents")
                 Spacer()
             }
-            .font(.system(size: 10.5))
+            .quoinScaledFont(size: 10.5)
             .foregroundStyle(.tertiary)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
@@ -76,10 +77,10 @@ struct LibrarySidebar: View {
             if library.root?.children?.isEmpty ?? true {
                 VStack(spacing: 6) {
                     Text("No documents yet")
-                        .font(.system(size: 11, weight: .medium))
+                        .quoinScaledFont(size: 11, weight: .medium)
                         .foregroundStyle(.secondary)
                     Text("Press ⌘N to create one")
-                        .font(.system(size: 10.5))
+                        .quoinScaledFont(size: 10.5)
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -107,10 +108,10 @@ struct LibrarySidebar: View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-                .font(.system(size: 11))
+                .quoinScaledFont(size: 11)
             TextField("Search library", text: $library.librarySearchQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .focused($searchFocused)
                 .onExitCommand { isSearchVisible = false }
                 .onChange(of: library.librarySearchQuery) { _, _ in
@@ -121,7 +122,7 @@ struct LibrarySidebar: View {
                     library.librarySearchQuery = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 10))
+                        .quoinScaledFont(size: 10)
                         .foregroundStyle(.secondary)
                 }
                 .buttonStyle(.plain)
@@ -139,10 +140,10 @@ struct LibrarySidebar: View {
                 ForEach(library.librarySearchResults) { result in
                     VStack(alignment: .leading, spacing: 2) {
                         Text(result.title)
-                            .font(.system(size: 12.5, weight: .medium))
+                            .quoinScaledFont(size: 12.5, weight: .medium)
                         if !result.snippet.isEmpty {
                             Text(result.snippet)
-                                .font(.system(size: 10.5))
+                                .quoinScaledFont(size: 10.5)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
                         }
@@ -155,7 +156,7 @@ struct LibrarySidebar: View {
                 }
                 if library.librarySearchResults.isEmpty {
                     Text("No matches")
-                        .font(.system(size: 11))
+                        .quoinScaledFont(size: 11)
                         .foregroundStyle(.tertiary)
                         .padding(10)
                 }
@@ -218,10 +219,10 @@ private struct LibraryRow: View {
                             _ = library.rename(url: node.url, to: draftName)
                         })
                         .textFieldStyle(.roundedBorder)
-                        .font(.system(size: 12.5))
+                        .quoinScaledFont(size: 12.5)
                     } else {
                         Label(node.name, systemImage: "folder")
-                            .font(.system(size: 12.5))
+                            .quoinScaledFont(size: 12.5)
                     }
                 }
                 .onDrag { NSItemProvider(object: node.url as NSURL) }
@@ -266,11 +267,11 @@ private struct LibraryRow: View {
                     _ = library.rename(url: node.url, to: draftName)
                 })
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12.5))
+                .quoinScaledFont(size: 12.5)
             } else {
                 Label {
                     Text(node.name)
-                        .font(.system(size: 12.5))
+                        .quoinScaledFont(size: 12.5)
                         .foregroundStyle(node.kind == .asset ? Color.primary.opacity(0.35) : Color.primary)
                 } icon: {
                     Image(systemName: node.kind == .asset ? "photo" : "doc.text")
@@ -321,7 +322,7 @@ struct QuickOpenPanel: View {
                     .foregroundStyle(.secondary)
                 TextField("Open document…", text: $library.quickOpenQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 15))
+                    .quoinScaledFont(size: 15)
                     .focused($fieldFocused)
                     .onSubmit { openHighlighted() }
                     .onExitCommand { close() }
@@ -365,7 +366,7 @@ struct QuickOpenPanel: View {
                 Text(library.quickOpenQuery.trimmingCharacters(in: .whitespaces).isEmpty
                      ? "Recent documents appear here as you work"
                      : "No matches")
-                    .font(.system(size: 11))
+                    .quoinScaledFont(size: 11)
                     .foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 14)
@@ -387,11 +388,11 @@ struct QuickOpenPanel: View {
     private func resultRow(_ result: QuickOpen.Result, isHighlighted: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(result.title)
-                .font(.system(size: 13, weight: .medium))
+                .quoinScaledFont(size: 13, weight: .medium)
                 .foregroundStyle(isHighlighted ? Color.white : Color.primary)
             if !result.snippet.isEmpty {
                 Text(result.snippet)
-                    .font(.system(size: 11))
+                    .quoinScaledFont(size: 11)
                     .lineLimit(1)
                     .foregroundStyle(isHighlighted ? Color.white.opacity(0.85) : Color.secondary)
             }
@@ -440,7 +441,9 @@ struct DocumentTabBar: View {
     private static let minTabWidth: CGFloat = 72
     private static let maxTabWidth: CGFloat = 240
     private static let tabSpacing: CGFloat = 1
-    private static let barHeight: CGFloat = 27
+    /// Grows with Dynamic Type so the scaled tab titles never clip against the
+    /// bar's `.clipped()` bound (#28); base height is the handoff's 27pt.
+    @ScaledMetric(relativeTo: .body) private var barHeight: CGFloat = 27
 
     var body: some View {
         if tabs.count > 1 {
@@ -471,7 +474,7 @@ struct DocumentTabBar: View {
                     )
                 }
             }
-            .frame(height: Self.barHeight)
+            .frame(height: barHeight)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.primary.opacity(0.04))
             .overlay(alignment: .bottom) { Divider() }
@@ -511,7 +514,7 @@ struct DocumentTabBar: View {
                 activeTabID = tab.id
             } label: {
                 Text(name)
-                    .font(.system(size: 12, weight: isActive ? .medium : .regular))
+                    .quoinScaledFont(size: 12, weight: isActive ? .medium : .regular)
                     .foregroundStyle(isActive ? Color.primary : Color.primary.opacity(0.5))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -526,7 +529,7 @@ struct DocumentTabBar: View {
                 onClose(tab)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
+                    .quoinScaledFont(size: 8, weight: .bold)
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
@@ -536,7 +539,7 @@ struct DocumentTabBar: View {
         .padding(.horizontal, 12)
         // The tab's width is ASSIGNED, never demanded — the title truncates
         // into whatever share of the bar it gets (#75).
-        .frame(width: width, height: Self.barHeight)
+        .frame(width: width, height: barHeight)
         .background(isActive ? Color(nsColor: .textBackgroundColor) : Color.clear)
         .onHover { inside in
             hoveredTab = inside ? tab.id : (hoveredTab == tab.id ? nil : hoveredTab)

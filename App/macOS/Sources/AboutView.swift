@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuoinRender
 
 /// The custom About window (Quoin ▸ About Quoin). More context than the
 /// standard panel: what Quoin is, the engines inside it, and where the
@@ -21,14 +22,14 @@ struct AboutView: View {
 
             VStack(spacing: 3) {
                 Text("Quoin")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .quoinScaledFont(size: 24, weight: .bold, design: .rounded)
                 Text(version)
-                    .font(.system(size: 11))
+                    .quoinScaledFont(size: 11)
                     .foregroundStyle(.secondary)
             }
 
             Text("A native WYSIWYG markdown editor.\nPlain files on disk — no lock-in, no cloud, no JavaScript.")
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
 
@@ -41,7 +42,7 @@ struct AboutView: View {
                 engineRow("Math", "Vinculum — native LaTeX typesetting, no web view")
                 engineRow("Text", "TextKit 2, SF Pro Rounded")
             }
-            .font(.system(size: 11))
+            .quoinScaledFont(size: 11)
 
             Divider()
                 .frame(width: 260)
@@ -53,9 +54,9 @@ struct AboutView: View {
                     Button("Acknowledgements") { isAcknowledgementsVisible = true }
                         .buttonStyle(.link)
                 }
-                .font(.system(size: 11))
+                .quoinScaledFont(size: 11)
                 Text("© 2026 2389 Research · Chicago, Illinois")
-                    .font(.system(size: 10.5))
+                    .quoinScaledFont(size: 10.5)
                     .foregroundStyle(.tertiary)
             }
         }
@@ -69,7 +70,7 @@ struct AboutView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     Text(acknowledgementsText)
-                        .font(.system(size: 11, design: .monospaced))
+                        .quoinScaledFont(size: 11, design: .monospaced)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(16)

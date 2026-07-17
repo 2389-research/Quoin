@@ -1,5 +1,6 @@
 import SwiftUI
 import QuoinCore
+import QuoinRender
 
 /// The Properties inspector (#70/#79): front matter as an editable
 /// key/value panel, the trailing inspector's third mode. The panel is the
@@ -43,7 +44,7 @@ struct PropertiesPanel: View {
                 }
                 if fields.isEmpty {
                     Text("No properties yet")
-                        .font(.system(size: 11.5))
+                        .quoinScaledFont(size: 11.5)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
@@ -70,7 +71,7 @@ struct PropertiesPanel: View {
             }
         } label: {
             Label("Add Property", systemImage: "plus")
-                .font(.system(size: 11, weight: .medium))
+                .quoinScaledFont(size: 11, weight: .medium)
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -83,10 +84,10 @@ struct PropertiesPanel: View {
     private var customKeyEntry: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Property name")
-                .font(.system(size: 11, weight: .semibold))
+                .quoinScaledFont(size: 11, weight: .semibold)
             TextField("key", text: $customKey)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .frame(width: 160)
                 .onSubmit { addCustomKey() }
             HStack {
@@ -185,7 +186,7 @@ private struct PropertyRow: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 4) {
                     Text(field.key.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
+                        .quoinScaledFont(size: 10, weight: .semibold)
                         .kerning(0.5)
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
@@ -198,7 +199,7 @@ private struct PropertyRow: View {
                             onRemove(field.key)
                         } label: {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 10))
+                                .quoinScaledFont(size: 10)
                                 .foregroundStyle(.tertiary)
                         }
                         .buttonStyle(.plain)
@@ -241,7 +242,7 @@ private struct PropertyRow: View {
         switch editor {
         case .readOnly:
             Text(field.rawPreview)
-                .font(.system(size: 11, design: .monospaced))
+                .quoinScaledFont(size: 11, design: .monospaced)
                 .foregroundStyle(.secondary)
                 .lineLimit(4)
                 .help("Nested values are edited in the document — click the front-matter block")
@@ -268,19 +269,20 @@ private struct PropertyRow: View {
         case .number:
             TextField("number", text: $draft)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12).monospacedDigit())
+                .quoinScaledFont(size: 12)
+                .monospacedDigit()
                 .focused($isFocused)
                 .onSubmit { commit() }
         case .list:
             TextField("comma, separated", text: $draft)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .focused($isFocused)
                 .onSubmit { commit() }
         case .text:
             TextField("empty", text: $draft)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .quoinScaledFont(size: 12)
                 .focused($isFocused)
                 .onSubmit { commit() }
         }
