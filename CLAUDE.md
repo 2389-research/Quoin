@@ -161,6 +161,15 @@ justification in the TRD first; the default answer is no.
   what CI runs. The app: `cd App/macOS && xcodegen && xcodebuild -project
   Quoin.xcodeproj -scheme Quoin -configuration Debug build`. Both targets
   share DerivedData at `Quoin-auvclcixelydkdfodldptdztmdln`.
+- Language mode: `QuoinCore`, the macOS app target, and `QuoinUITests` are
+  in **Swift 6 language mode** (strict concurrency); keep them warning-clean.
+  `QuoinRender`/`QuoinRenderTests` are still Swift 5 (the `sending self`
+  caret/viewport migration is staged) and the iOS shell is Swift 5 — language
+  mode is per-module, so the Swift-6 app links the Swift-5 render layer. The
+  app's concurrency model (one `DocumentSession` actor + `@MainActor` view
+  models + the serialized edit FIFO) is documented in
+  `docs/reference/architecture.md` under "Concurrency and the Swift 6 language
+  mode."
 - Run the dev build directly for log capture:
   `…/Build/Products/Debug/Quoin.app/Contents/MacOS/Quoin > /tmp/quoin.log 2>&1 &`
   — NSLog lands in that file. Kill with `pkill -x Quoin`; only run ONE

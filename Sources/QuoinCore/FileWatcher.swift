@@ -131,7 +131,10 @@ public final class FileWatcher: @unchecked Sendable {
         guard fileDescriptor >= 0 else { return nil }
         var buffer = [CChar](repeating: 0, count: Int(PATH_MAX))
         guard fcntl(fileDescriptor, F_GETPATH, &buffer) == 0 else { return nil }
-        let path = String(cString: buffer)
+        // `F_GETPATH` null-terminates; read up to that terminator. The pointer
+        // overload of `String(cString:)` (unlike the deprecated array overload)
+        // stops at the NUL, preserving the exact old behavior.
+        let path = buffer.withUnsafeBufferPointer { String(cString: $0.baseAddress!) }
         guard !path.isEmpty, FileManager.default.fileExists(atPath: path) else { return nil }
         return URL(fileURLWithPath: path)
     }

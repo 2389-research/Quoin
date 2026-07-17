@@ -181,20 +181,27 @@ final class ReaderModel {
         Self.registerLiveSession(session)
 
         snapshotTask = Task { [weak self] in
-            await session.setConflictHandler { diskSource in
-                Task { @MainActor [weak self] in
+            // Each session callback takes its OWN `[weak self]`: it is a
+            // @Sendable closure that lives on the session actor, so it can't
+            // reach back to the enclosing task's captured `self` (that would
+            // be a cross-context capture). Both hop to the main actor to
+            // mutate this model.
+            await session.setConflictHandler { [weak self] diskSource in
+                Task { @MainActor in
                     self?.conflictDiskSource = diskSource
                 }
             }
-            await session.setSaveFailureHandler { message in
-                Task { @MainActor [weak self] in
+            await session.setSaveFailureHandler { [weak self] message in
+                Task { @MainActor in
                     self?.reportFailure(message, sticky: true)
                 }
             }
             await session.startWatching()
             let snapshots = await session.revisionedSnapshots()
             for await snapshot in snapshots {
-                await self?.ingest(snapshot.document, contentRevision: snapshot.contentRevision)
+                // This task inherits the model's main-actor isolation, so
+                // `ingest` is a same-actor call — no `await` hop needed.
+                self?.ingest(snapshot.document, contentRevision: snapshot.contentRevision)
             }
         }
     }
@@ -258,6 +265,14 @@ final class ReaderModel {
         backgroundRenderTask = nil
         asyncRerenderTask?.cancel()
         asyncRerenderTask = nil
+        // Also tear down the remaining background tasks the model owns so none
+        // outlive teardown (they were harmless with `[weak self]`, but leaving
+        // them running past `stop()` is a leak): a debounced H1 rename and the
+        // auto-dismiss timer for a transient action-failure banner.
+        renameTask?.cancel()
+        renameTask = nil
+        actionFailureTask?.cancel()
+        actionFailureTask = nil
         let session = session
         let pendingEdits = editPipelineTask
         Task {
@@ -412,34 +427,68 @@ final class ReaderModel {
         let heldSnapshot = self.heldPreview
 
         backgroundRenderTask?.cancel()
-        backgroundRenderTask = Task.detached(priority: .userInitiated) { [weak self] in
-            guard !Task.isCancelled else { return }
-            var cache = cacheSnapshot
-            var held = heldSnapshot
-            let next = renderer.render(
-                document, activeBlockID: activeBlockID, activeCaret: caret,
-                cache: &cache, heldPreview: &held)
-            // Copy into the string that becomes authoritative on adoption,
-            // still off-main, so the main actor receives a fully-built value.
-            let live = NSMutableAttributedString(attributedString: next.attributed)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self, generation == self.renderGeneration else { return }
-                self.liveAttributed = live
-                self.fragmentCache = cache
-                self.heldPreview = held
-                self.rendered = RenderedDocument(
-                    attributed: live,
-                    blockRanges: next.blockRanges,
-                    activeBlockID: next.activeBlockID,
-                    activeEditableRange: next.activeEditableRange,
-                    activeSourceText: next.activeSourceText,
-                    revision: self.nextRevision(),
-                    previewPanel: next.previewPanel,
-                    revealStyler: next.revealStyler
-                )
-            }
+        // The task inherits this model's main-actor isolation; the heavy render
+        // runs off-main inside `buildAsyncRender` (a `nonisolated` async method)
+        // and its non-Sendable result is handed back as a single `sending`
+        // value — the region-based, single-owner handoff issue #33 always
+        // intended, now proven by the compiler instead of asserted in a comment.
+        backgroundRenderTask = Task { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            let output = await self.buildAsyncRender(
+                renderer: renderer, document: document, activeBlockID: activeBlockID,
+                caret: caret, cache: cacheSnapshot, held: heldSnapshot)
+            guard !Task.isCancelled, generation == self.renderGeneration else { return }
+            self.liveAttributed = output.live
+            self.fragmentCache = output.cache
+            self.heldPreview = output.held
+            self.rendered = RenderedDocument(
+                attributed: output.live,
+                blockRanges: output.next.blockRanges,
+                activeBlockID: output.next.activeBlockID,
+                activeEditableRange: output.next.activeEditableRange,
+                activeSourceText: output.next.activeSourceText,
+                revision: self.nextRevision(),
+                previewPanel: output.next.previewPanel,
+                revealStyler: output.next.revealStyler
+            )
         }
+    }
+
+    /// The single-owner handoff bundle for `rerenderAsync`: the freshly built
+    /// projection plus the caches it advanced. Non-Sendable (it holds
+    /// NSAttributedString fragments), so it only ever crosses actors as a
+    /// `sending` value — built by `buildAsyncRender`, consumed once on the main
+    /// actor, never aliased.
+    private struct AsyncRenderOutput {
+        let next: RenderedDocument
+        let live: NSMutableAttributedString
+        let cache: [BlockID: NSAttributedString]
+        let held: AttributedRenderer.HeldPreview?
+    }
+
+    /// The pure, off-main portion of `rerenderAsync`. `nonisolated`, so
+    /// awaiting it from the main-actor render task runs the walk on a
+    /// background executor. `cache`/`held` are transferred in as `sending`
+    /// (the main actor snapshotted them and doesn't touch them again until it
+    /// adopts the result), and the whole output is transferred back as
+    /// `sending`.
+    private nonisolated func buildAsyncRender(
+        renderer: AttributedRenderer,
+        document: QuoinDocument,
+        activeBlockID: BlockID?,
+        caret: Int?,
+        cache: sending [BlockID: NSAttributedString],
+        held: sending AttributedRenderer.HeldPreview?
+    ) async -> sending AsyncRenderOutput {
+        var cache = cache
+        var held = held
+        let next = renderer.render(
+            document, activeBlockID: activeBlockID, activeCaret: caret,
+            cache: &cache, heldPreview: &held)
+        // Copy into the string that becomes authoritative on adoption, still
+        // off-main, so the main actor receives a fully-built value.
+        let live = NSMutableAttributedString(attributedString: next.attributed)
+        return AsyncRenderOutput(next: next, live: live, cache: cache, held: held)
     }
 
     // MARK: - Syntax reveal
@@ -600,7 +649,9 @@ final class ReaderModel {
     var isSuggestMode = false
 
     func applyEdit(relativeRange: ByteRange, replacement: String, caretDelta: Int? = nil) {
-        guard let session,
+        // `applyAbsolute` re-guards the session at apply time; here we only
+        // need to know one exists, so this binding is existence-only.
+        guard session != nil,
               let activeBlockID,
               let block = document.blocks.first(where: { $0.id == activeBlockID })
         else { return }
@@ -1302,7 +1353,9 @@ final class ReaderModel {
 
     // MARK: - Image drop
 
-    static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "bmp"]
+    // `nonisolated`: an immutable Sendable lookup table, read from off-main
+    // drag-and-drop completion handlers as well as the main actor.
+    nonisolated static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "bmp"]
 
     /// Drag-dropped image: copy the asset next to the document (assets/),
     /// insert `![](assets/…)` at the caret (or document end). Every file step

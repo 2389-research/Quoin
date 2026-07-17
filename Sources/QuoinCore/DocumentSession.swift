@@ -390,7 +390,7 @@ public actor DocumentSession {
         vanishCheckTask = Task {
             try? await Task.sleep(for: .milliseconds(250))
             guard !Task.isCancelled else { return }
-            await self.confirmVanished(expecting: url)
+            self.confirmVanished(expecting: url)
         }
     }
 
@@ -760,15 +760,15 @@ public actor DocumentSession {
             try? await Task.sleep(for: autosaveDelay)
             guard !Task.isCancelled else { return }
             do {
-                try await self.saveNow()
+                try self.saveNow()
             } catch {
                 // Retry once shortly (transient I/O), then tell the user —
                 // never fail silently on the write path.
                 try? await Task.sleep(for: .milliseconds(800))
                 do {
-                    try await self.saveNow()
+                    try self.saveNow()
                 } catch {
-                    await self.reportSaveFailure()
+                    self.reportSaveFailure()
                 }
             }
         }

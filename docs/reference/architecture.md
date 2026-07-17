@@ -289,10 +289,13 @@ expensive whole-document projection is built on a **background executor** and
 adopted back on the main actor — a multi-MB document no longer beach-balls the
 UI while it re-projects (issue #33). `ReaderModel.rerenderAsync` snapshots the
 render inputs (the fragment cache holds immutable `NSAttributedString`
-fragments, safe to read off-main; the renderer is value-typed), runs the render
-in a `Task.detached`, and hops the finished `RenderedDocument` back to
-`@MainActor` for a clean single-owner handoff (the background task is the sole
-reader while rendering; the main actor is the sole reader after).
+fragments, safe to read off-main; the renderer is a `Sendable` value type),
+then awaits `buildAsyncRender` — a `nonisolated` async method that performs the
+walk on a background executor and returns the finished projection as a single
+**`sending` value**. The caches cross in as `sending` too. Under Swift 6 the
+compiler now *proves* this single-owner handoff (the background task is the sole
+reader while rendering; the main actor is the sole reader after) rather than the
+code merely asserting it — see the concurrency note below.
 
 This is deliberately a **subset**. Only the non-interactive, non-edit triggers
 render off-main — **theme flip, external reload, and async image decode** —
@@ -725,6 +728,63 @@ Mac Catalyst is not supported: on Catalyst `canImport(AppKit)` is true, so the
 AppKit guards select the AppKit branch inside a UIKit runtime and fail to
 compile. Supporting it means changing those guards to
 `canImport(AppKit) && !targetEnvironment(macCatalyst)` throughout.
+
+## Concurrency and the Swift 6 language mode
+
+The threading model is deliberately small: **one actor for the document, one
+main actor for everything the user sees.**
+
+- `DocumentSession` is a `public actor`. It owns the source string, the AST,
+  the undo stacks, and autosave; every mutation is serialized on its executor.
+- `ReaderModel`, `LibraryModel`, and `OpenDocumentStore` are
+  `@MainActor` (`ReaderModel`/`LibraryModel` are also `@Observable`). All view
+  state, caret bookkeeping, and the reveal projection live on the main actor.
+- Edits flow through a **serialized FIFO** on the main actor
+  (`ReaderModel.editPipelineTask`): each keystroke/command chains off the prior
+  task's completion, hops onto the session actor to apply, then adopts the
+  result back on the main actor. Undo/redo and resolutions join the same FIFO so
+  they can never interleave with an in-flight edit (see the apply contract and
+  invariant 8).
+
+**Language mode by target.** `QuoinCore`, the **macOS app target** (`Quoin`),
+and its **`QuoinUITests`** bundle build under the **Swift 6 language mode**;
+`swift build`/`swift test`/`xcodebuild` all run clean with strict concurrency
+checking. `QuoinRender` (and its `QuoinRenderTests`) stay in **Swift 5 language
+mode**: the remaining Swift 6 diagnostics there are all `sending self` in the
+caret/viewport settle-and-pin `DispatchQueue.main.async` closures — the
+`QuoinTextView` machinery that enforces the viewport invariant — and that
+migration is staged behind the reveal/caret characterization tests rather than
+rushed. The app target compiles against `QuoinRender` regardless, because
+language mode is per-module. The iOS app shell (`QuoinIOS`) remains Swift 5 for
+now (iOS is a later platform); it builds against the same Swift-6 `QuoinCore`.
+
+**How the app target satisfies strict concurrency (no isolation weakened):**
+
+- **Off-main full render.** `ReaderModel.buildAsyncRender` is a `nonisolated`
+  async method; the caches enter as `sending` and the finished projection
+  returns as a `sending` value, so the compiler proves the single-owner handoff
+  the off-main render (issue #33) always relied on. No `@unchecked Sendable` or
+  `nonisolated(unsafe)` is used to carry the non-Sendable `NSAttributedString`
+  across the boundary — it is a genuine region transfer. `AttributedRenderer`
+  is a `Sendable` value type (all-Sendable stored state), so a copy crosses to
+  the background executor freely.
+- **FSEvents.** `FSEventsWatcher.onChange` is `@Sendable`; `LibraryModel`
+  supplies a closure that hops back with `MainActor.assumeIsolated` (the stream
+  is dispatched on `DispatchQueue.main`, so the assumption is checked and
+  correct). The watcher is never sent across an actor, so it needs no `Sendable`
+  conformance itself.
+- **Library scan.** `LibraryModel.rescan` runs the pure `Library.scan` in a
+  `Task.detached` (a Sendable `URL` in, a Sendable `LibraryNode` out) while the
+  owning task stays on the main actor to adopt the tree — coalesced so at most
+  one scan runs at a time.
+- **Termination.** `applicationShouldTerminate` flushes sessions on a *detached*
+  task (a main-actor task is not guaranteed to run in the `.terminateLater`
+  runloop mode) and answers exactly once through a `@MainActor`
+  `TerminationReplyBox`, which also avoids capturing the non-Sendable
+  `NSApplication` in the detached closure.
+- **App delegate.** `AppDelegate` is `@MainActor`, which isolates its
+  `pendingDeepLink` slot instead of leaving it as nonisolated global mutable
+  state.
 
 ## Accessibility in the SwiftUI chrome
 

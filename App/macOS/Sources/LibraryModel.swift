@@ -192,9 +192,16 @@ final class LibraryModel {
         // Keep the sidebar live for external changes (Finder, sync, other
         // editors). FSEvents debounces internally.
         eventsWatcher = FSEventsWatcher(url: url) { [weak self] in
-            self?.rescan()
-            if let self, !self.librarySearchQuery.isEmpty {
-                self.runLibrarySearch()
+            // The FSEvents stream is dispatched on `DispatchQueue.main` (see
+            // FSEventsWatcher.init), so this @Sendable callback always runs on
+            // the main queue — `assumeIsolated` documents and checks that,
+            // letting us touch this @MainActor model without an async hop that
+            // would defer (and reorder) the rescan.
+            MainActor.assumeIsolated {
+                self?.rescan()
+                if let self, !self.librarySearchQuery.isEmpty {
+                    self.runLibrarySearch()
+                }
             }
         }
     }
@@ -213,18 +220,23 @@ final class LibraryModel {
             rescanRequestedDuringScan = true
             return
         }
-        // Scanning is fast (directory metadata only) but not free; keep it
-        // off the main actor for large libraries.
-        scanTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let tree = Library.scan(root: rootURL)
-            await MainActor.run {
-                guard let self else { return }
-                self.root = tree
-                self.scanTask = nil
-                if self.rescanRequestedDuringScan {
-                    self.rescanRequestedDuringScan = false
-                    self.rescan()
-                }
+        // Scanning is fast (directory metadata only) but not free; keep the
+        // walk off the main actor for large libraries. The owning task runs
+        // ON the main actor (LibraryModel is @MainActor), so adopting the
+        // result needs no `MainActor.run` hop — that hop was what tripped the
+        // Swift 6 `sending self` check. Only the pure `Library.scan` detaches;
+        // `rootURL` (a Sendable URL) crosses in and a Sendable `LibraryNode`
+        // crosses back.
+        scanTask = Task { [weak self] in
+            let tree = await Task.detached(priority: .userInitiated) {
+                Library.scan(root: rootURL)
+            }.value
+            guard let self else { return }
+            self.root = tree
+            self.scanTask = nil
+            if self.rescanRequestedDuringScan {
+                self.rescanRequestedDuringScan = false
+                self.rescan()
             }
         }
     }

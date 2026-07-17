@@ -4,12 +4,20 @@ import CoreServices
 /// Recursive directory watching via FSEvents — keeps the library sidebar
 /// live when files change outside the app (Finder, other editors, sync).
 /// Events are debounced through FSEvents' own latency parameter.
+///
+/// The FSEvents stream calls back on a context Swift treats as nonisolated, so
+/// `onChange` is `@Sendable` — the caller (`LibraryModel`) supplies a closure
+/// that hops to the main actor via `MainActor.assumeIsolated`. The watcher
+/// object itself is only ever held as a property of the main-actor
+/// `LibraryModel` and never sent across an isolation boundary, so it needs no
+/// `Sendable` conformance (unlike QuoinCore's `FileWatcher`, which is passed
+/// into a `DocumentSession` actor).
 final class FSEventsWatcher {
 
     private var stream: FSEventStreamRef?
-    private let onChange: () -> Void
+    private let onChange: @Sendable () -> Void
 
-    init(url: URL, latency: TimeInterval = 0.5, onChange: @escaping () -> Void) {
+    init(url: URL, latency: TimeInterval = 0.5, onChange: @escaping @Sendable () -> Void) {
         self.onChange = onChange
 
         var context = FSEventStreamContext(

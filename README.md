@@ -427,6 +427,12 @@ full data-flow and the [docs map](docs/README.md) for everything else.
 
 Requires Xcode 16+ / Swift 6 tools on macOS 14+.
 
+`QuoinCore`, the macOS app target, and its UI-test bundle build in the **Swift 6
+language mode** (strict concurrency). `QuoinRender` stays in Swift 5 mode while
+its caret/viewport `NSTextView` machinery is migrated; language mode is
+per-module, so the Swift-6 app links it fine. See the concurrency section of
+[`docs/reference/architecture.md`](docs/reference/architecture.md) for the model.
+
 ```sh
 swift build            # QuoinCore + QuoinRender
 swift test             # full suite — unit, torture, performance, conformance

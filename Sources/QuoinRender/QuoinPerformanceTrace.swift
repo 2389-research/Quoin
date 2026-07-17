@@ -28,11 +28,19 @@ public enum QuoinPerformanceTrace {
         }
     }
 
+    // The async overload's closures are `@Sendable`: `measure` is a nonisolated
+    // async function, so awaiting it from an actor-isolated caller hands the
+    // work and metadata closures across the isolation boundary. Both callers
+    // (ReaderModel's edit pipeline) capture only Sendable values — a `@Sendable`
+    // session-operation closure and Sendable metadata — so the requirement is
+    // satisfied without weakening anything. The SYNCHRONOUS overload above is
+    // deliberately left non-Sendable: its callers run and mutate main-actor
+    // state in place and never cross a boundary.
     @discardableResult
     public static func measure<T>(
         _ phase: String,
-        metadata: @autoclosure () -> String = "",
-        _ work: () async throws -> T
+        metadata: @autoclosure @Sendable () -> String = "",
+        _ work: @Sendable () async throws -> T
     ) async rethrows -> T {
         guard isEnabled else { return try await work() }
         let start = DispatchTime.now().uptimeNanoseconds
