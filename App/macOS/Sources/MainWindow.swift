@@ -22,9 +22,23 @@ struct MainWindow: View {
     @State private var sidebarSelection: URL?
     @State private var openTabs: [DocumentTab] = []
     @State private var activeTabID: DocumentTab.ID?
-    /// Workspace memory (UI #4): open tabs survive relaunch. First line
-    /// is the active tab's path, the rest are the tab order.
-    @SceneStorage("QuoinOpenTabs") private var persistedTabs = ""
+    /// Workspace memory (UI #4 / #15): the whole per-window session — open tabs
+    /// (as library-relative handles, NEVER absolute paths or raw bookmarks),
+    /// active tab, panel chrome, and the active document's scroll anchor —
+    /// survives quit/relaunch/crash. Serialized from the platform-free,
+    /// unit-tested `WindowSessionState` seam in QuoinCore.
+    @SceneStorage("QuoinWindowSession") private var persistedSession = ""
+    /// The active tab's inspector chrome, mirrored up from `ReaderScreen` (which
+    /// owns the live `@State`) so the window can persist it and re-seed the
+    /// restored active tab. Window-scoped: shared across this window's tabs.
+    @State private var inspectorVisible = true
+    @State private var inspectorMode = WindowSessionState.InspectorMode.outline
+    /// Per-tab scroll anchors (absolute document path → top-of-viewport heading
+    /// slug), kept fresh for the active tab and persisted for restore.
+    @State private var scrollAnchors: [String: String] = [:]
+    /// The scroll anchor to apply ONCE to the restored active tab on relaunch,
+    /// tagged with that tab's identity so no other tab consumes it.
+    @State private var pendingRestoreAnchor: (tabID: DocumentTab.ID, slug: String)?
 
     private var activeTab: DocumentTab? {
         openTabs.first { $0.id == activeTabID }
@@ -88,8 +102,28 @@ struct MainWindow: View {
                         // view — re-entry re-projects from the cached model, never
                         // from disk. Keyed by the tab's STABLE identity so a
                         // first-H1 rename can't tear the editor down (ledger #13).
-                        ReaderScreen(model: model, fileURL: tab.url)
-                            .id(tab.id)
+                        ReaderScreen(
+                            model: model, fileURL: tab.url,
+                            initialInspectorVisible: inspectorVisible,
+                            initialInspectorMode: inspectorMode.rawValue,
+                            initialScrollAnchor: pendingRestoreAnchor?.tabID == tab.id
+                                ? pendingRestoreAnchor?.slug : nil,
+                            onInspectorChange: { visible, modeRaw in
+                                inspectorVisible = visible
+                                if let mode = WindowSessionState.InspectorMode(rawValue: modeRaw) {
+                                    inspectorMode = mode
+                                }
+                                persistSession()
+                            },
+                            onScrollAnchorChange: { slug in
+                                let key = tab.url.standardizedFileURL.path
+                                if let slug { scrollAnchors[key] = slug }
+                                else { scrollAnchors.removeValue(forKey: key) }
+                                persistSession()
+                            },
+                            onInitialScrollConsumed: { pendingRestoreAnchor = nil }
+                        )
+                        .id(tab.id)
                     } else {
                         emptyState
                     }
@@ -319,8 +353,10 @@ struct MainWindow: View {
         }
         // A rename can change the active tab's URL without changing activeTabID,
         // so republish on any tab-list change too (keeps the deep link current).
-        .onChange(of: openTabs) { persistTabs(); updateUserActivity() }
-        .onChange(of: activeTabID) { persistTabs(); updateUserActivity() }
+        .onChange(of: openTabs) { persistSession(); updateUserActivity() }
+        .onChange(of: activeTabID) { persistSession(); updateUserActivity() }
+        // Sidebar visibility is part of the window session (⌘0 toggles it).
+        .onChange(of: columnVisibility) { persistSession() }
         // Sidebar keyboard selection (↑/↓ + the List's type-select) opens
         // documents, not just mouse clicks (UI #23). open() re-sets the
         // selection to the same URL, so this settles after one pass.
@@ -351,40 +387,75 @@ struct MainWindow: View {
             return
         }
         if launchBehavior == "empty", AppDelegate.isLaunchRestoration {
-            persistedTabs = "" // an empty start restores no workspace either
+            persistedSession = "" // an empty start restores no workspace either
             return
         }
         library.restoreDefaultLibrary()
     }
 
-    // MARK: - Workspace persistence (UI #4)
+    // MARK: - Workspace persistence (UI #4 / #15)
 
-    private func persistTabs() {
-        persistedTabs = ([activeTab?.url.path ?? ""] + openTabs.map(\.url.path)).joined(separator: "\n")
+    /// Snapshot the whole window session into the `@SceneStorage` blob. The
+    /// pure `WindowSessionState.capture` folds every open tab to a
+    /// library-relative handle (dropping one-off files opened from outside the
+    /// library — they have no sandbox-safe handle) and guarantees no absolute
+    /// path or bookmark ever reaches the blob.
+    private func persistSession() {
+        let state = WindowSessionState.capture(
+            rootPath: library.rootURL?.standardizedFileURL.path,
+            openTabPaths: openTabs.map { $0.url.standardizedFileURL.path },
+            activeTabPath: activeTab?.url.standardizedFileURL.path,
+            scrollAnchors: scrollAnchors,
+            sidebarVisible: columnVisibility != .detailOnly,
+            inspectorVisible: inspectorVisible,
+            inspectorMode: inspectorMode
+        )
+        persistedSession = state.serialized()
     }
 
-    /// Restores tabs from the last session. Only files reachable through
-    /// the library's security scope come back — a sandboxed relaunch has
-    /// no access to one-off files that were opened via the panel.
+    /// Restore the window session from the last run. Only files still reachable
+    /// through the library's security scope come back — a sandboxed relaunch has
+    /// no access to one-off files opened via the panel, and the pure seam prunes
+    /// any handle that vanished, moved, or would escape the root, and dedupes two
+    /// handles for one file to a single tab (never two sessions over one file).
     private func restoreTabs() {
-        guard openTabs.isEmpty, !persistedTabs.isEmpty,
+        guard openTabs.isEmpty, !persistedSession.isEmpty,
+              let state = WindowSessionState(serialized: persistedSession),
               let rootPath = library.rootURL?.standardizedFileURL.path else { return }
-        let lines = persistedTabs.components(separatedBy: "\n")
-        guard lines.count > 1 else { return }
-        let restored = lines.dropFirst()
-            .filter { $0.hasPrefix(rootPath + "/") && FileManager.default.fileExists(atPath: $0) }
-            .map { DocumentTab(url: URL(fileURLWithPath: $0)) }
-        guard !restored.isEmpty else { return }
+        // Panel chrome restores even when no tabs survive.
+        columnVisibility = state.sidebarVisible ? .all : .detailOnly
+        inspectorVisible = state.inspectorVisible
+        inspectorMode = state.inspectorMode
+
+        let restored = state.restoredTabs(rootPath: rootPath) {
+            FileManager.default.fileExists(atPath: $0)
+        }
+        guard !restored.orderedPaths.isEmpty else { return }
+        // Re-seed the per-tab scroll anchors so switching tabs mid-session keeps
+        // each document's remembered position, and the next persist keeps them.
+        for tab in state.tabs {
+            guard let slug = tab.scrollAnchor,
+                  let resolved = QuoinURLScheme.resolvedPath(forRawPath: tab.path, relativeTo: rootPath)
+            else { continue }
+            scrollAnchors[resolved] = slug
+        }
+        let tabs = restored.orderedPaths.map { DocumentTab(url: URL(fileURLWithPath: $0)) }
         // Acquire BEFORE publishing the tabs so the model is present the first
         // time the body renders the active tab (no empty-state flash).
-        restored.forEach { store.acquire($0.url) }
-        openTabs = restored
-        let activePath = lines[0]
-        let active = restored.first { $0.url.path == activePath } ?? restored.last
+        tabs.forEach { store.acquire($0.url) }
+        openTabs = tabs
+        let active = restored.activePath.flatMap { path in
+            tabs.first { $0.url.path == path }
+        } ?? tabs.last
         activeTabID = active?.id
         if let active {
             sidebarSelection = active.url
             library.reveal(url: active.url)
+            // Apply the active tab's saved scroll position ONCE on relaunch
+            // (the in-session per-tab scroll memory is the model's savedViewport).
+            if let slug = scrollAnchors[active.url.standardizedFileURL.path] {
+                pendingRestoreAnchor = (active.id, slug)
+            }
         }
     }
 

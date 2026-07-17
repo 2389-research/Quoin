@@ -15,6 +15,21 @@ struct ReaderScreen: View {
     /// history — outlives it in the store (#12/#22).
     let model: ReaderModel
     let fileURL: URL?
+    /// Window-session restoration (#15): the window seeds the active tab's
+    /// inspector chrome + scroll anchor from the persisted session, and this
+    /// view reports live changes back up so the window can re-persist them.
+    /// ReaderScreen still OWNS the live `@State` (isOutlineVisible /
+    /// inspectorMode / scrollTarget) — these only prime and mirror it.
+    var initialInspectorVisible: Bool = true
+    var initialInspectorMode: String = "outline"
+    var initialScrollAnchor: String?
+    var onInspectorChange: ((Bool, String) -> Void)?
+    var onScrollAnchorChange: ((String?) -> Void)?
+    var onInitialScrollConsumed: (() -> Void)?
+    /// One-shot guards so re-appearance can't re-seed the inspector or re-fire
+    /// the restore scroll over the user's own mid-session changes.
+    @State private var didSeedInspector = false
+    @State private var didApplyInitialScroll = false
     /// Fresh per body evaluation: `Theme()` captures the CURRENT appearance,
     /// and reading `colorScheme` below is what makes SwiftUI re-evaluate
     /// this view when the appearance flips (system or Settings preference).
@@ -134,9 +149,45 @@ struct ReaderScreen: View {
     }
 
     var body: some View {
-        // Split into layout → chrome → menu wiring: one flat modifier
-        // chain here exceeds the type-checker's budget.
-        menuObservers(windowChrome(panelChrome(layout)))
+        // Split into layout → chrome → menu wiring → session restore: one flat
+        // modifier chain here exceeds the type-checker's budget.
+        restoreObservers(menuObservers(windowChrome(panelChrome(layout))))
+    }
+
+    /// Session restoration (#15): seed the inspector chrome from the window's
+    /// persisted state, mirror live changes back up, and apply the active tab's
+    /// saved scroll position once on relaunch. The scroll uses the same
+    /// slug→block anchor path an outline click takes, so it inherits the
+    /// viewport invariant (no special-cased scroll math here).
+    private func restoreObservers(_ content: some View) -> some View {
+        content
+        .onAppear {
+            if !didSeedInspector {
+                didSeedInspector = true
+                isOutlineVisible = initialInspectorVisible
+                if let mode = InspectorMode(rawValue: initialInspectorMode) {
+                    inspectorMode = mode
+                    // A restored non-Outline mode was a deliberate pick — keep
+                    // auto-switch-to-Review from stomping it.
+                    if mode != .outline { userPickedInspectorMode = true }
+                }
+            }
+            applyInitialScrollIfNeeded()
+        }
+        .onChange(of: model.outline) { applyInitialScrollIfNeeded() }
+        .onChange(of: isOutlineVisible) { onInspectorChange?(isOutlineVisible, inspectorMode.rawValue) }
+        .onChange(of: inspectorMode) { onInspectorChange?(isOutlineVisible, inspectorMode.rawValue) }
+        .onChange(of: currentSection?.slug) { _, slug in onScrollAnchorChange?(slug) }
+    }
+
+    /// Fire the restore scroll once the outline carries the saved heading slug.
+    private func applyInitialScrollIfNeeded() {
+        guard !didApplyInitialScroll, let slug = initialScrollAnchor,
+              let id = model.blockID(forSlug: slug) else { return }
+        didApplyInitialScroll = true
+        scrollTarget = id
+        scrollGeneration += 1
+        onInitialScrollConsumed?()
     }
 
     private var layout: some View {
