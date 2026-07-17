@@ -1,19 +1,22 @@
 import Foundation
 
 /// Standalone HTML export: one self-contained file, styles inlined from the
-/// design tokens, no external assets (per the export spec).
+/// design tokens. Local images are inlined as base64 `data:` URIs (pass the
+/// document's directory as `baseURL` so relative `![](assets/x.png)` paths
+/// resolve); remote images and any that cannot be read stay as external
+/// `<img src>` references — never a silent drop (issue #3).
 public enum HTMLExporter {
 
-    public static func export(_ document: QuoinDocument, title: String = "Document") -> String {
+    public static func export(_ document: QuoinDocument, title: String = "Document", baseURL: URL? = nil) -> String {
         var body = ""
-        render(document.blocks, document: document, into: &body)
+        render(document.blocks, document: document, baseURL: baseURL, into: &body)
 
         if !document.footnotes.isEmpty {
             body += "<hr>\n<section class=\"footnotes\">\n"
             for footnote in document.footnotes {
                 body += "<div id=\"fn-\(escape(footnote.id))\"><sup>\(footnote.index)</sup> "
                 var content = ""
-                render(footnote.blocks, document: document, into: &content)
+                render(footnote.blocks, document: document, baseURL: baseURL, into: &content)
                 body += content + "</div>\n"
             }
             body += "</section>\n"
@@ -38,14 +41,14 @@ public enum HTMLExporter {
 
     // MARK: - Blocks
 
-    private static func render(_ blocks: [Block], document: QuoinDocument, into out: inout String) {
+    private static func render(_ blocks: [Block], document: QuoinDocument, baseURL: URL?, into out: inout String) {
         for block in blocks {
             switch block.kind {
             case .heading(let level, let inlines, let slug):
                 let tag = "h\(min(max(level, 1), 6))"
-                out += "<\(tag) id=\"\(escape(slug))\">\(render(inlines))</\(tag)>\n"
+                out += "<\(tag) id=\"\(escape(slug))\">\(render(inlines, baseURL: baseURL))</\(tag)>\n"
             case .paragraph(let inlines):
-                out += "<p>\(render(inlines))</p>\n"
+                out += "<p>\(render(inlines, baseURL: baseURL))</p>\n"
             case .codeBlock(let language, let code):
                 let lang = language.map { " class=\"language-\(escape($0))\"" } ?? ""
                 out += "<pre><code\(lang)>\(escape(code))</code></pre>\n"
@@ -54,7 +57,7 @@ public enum HTMLExporter {
             case .mathBlock(let latex):
                 out += "<p class=\"math-display\">\\[\(escape(latex))\\]</p>\n"
             case .table(let header, let rows, let alignments):
-                out += renderTable(header: header, rows: rows, alignments: alignments)
+                out += renderTable(header: header, rows: rows, alignments: alignments, baseURL: baseURL)
             case .list(let items, let ordered, let start):
                 let tag = ordered ? "ol" : "ul"
                 let startAttr = ordered && start != 1 ? " start=\"\(start)\"" : ""
@@ -67,7 +70,7 @@ public enum HTMLExporter {
                         out += "<li>"
                     }
                     var inner = ""
-                    render(item.blocks, document: document, into: &inner)
+                    render(item.blocks, document: document, baseURL: baseURL, into: &inner)
                     // Unwrap a single paragraph so simple items stay tight.
                     if item.blocks.count == 1, inner.hasPrefix("<p>"), inner.hasSuffix("</p>\n") {
                         inner = String(inner.dropFirst(3).dropLast(5))
@@ -77,11 +80,11 @@ public enum HTMLExporter {
                 out += "</\(tag)>\n"
             case .blockQuote(let children):
                 var inner = ""
-                render(children, document: document, into: &inner)
+                render(children, document: document, baseURL: baseURL, into: &inner)
                 out += "<blockquote>\n\(inner)</blockquote>\n"
             case .callout(let kind, let children):
                 var inner = ""
-                render(children, document: document, into: &inner)
+                render(children, document: document, baseURL: baseURL, into: &inner)
                 out += "<aside class=\"callout callout-\(kind.rawValue)\"><p class=\"callout-title\">\(kind.title)</p>\n\(inner)</aside>\n"
             case .frontMatter(let yaml):
                 out += "<pre class=\"front-matter\"><code>\(escape(yaml))</code></pre>\n"
@@ -101,7 +104,7 @@ public enum HTMLExporter {
         }
     }
 
-    private static func renderTable(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment]) -> String {
+    private static func renderTable(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment], baseURL: URL?) -> String {
         func align(_ index: Int) -> String {
             guard index < alignments.count else { return "" }
             switch alignments[index] {
@@ -113,13 +116,13 @@ public enum HTMLExporter {
         }
         var out = "<table>\n<thead><tr>"
         for (i, cell) in header.enumerated() {
-            out += "<th\(align(i))>\(render(cell.inlines))</th>"
+            out += "<th\(align(i))>\(render(cell.inlines, baseURL: baseURL))</th>"
         }
         out += "</tr></thead>\n<tbody>\n"
         for row in rows {
             out += "<tr>"
             for (i, cell) in row.enumerated() {
-                out += "<td\(align(i))>\(render(cell.inlines))</td>"
+                out += "<td\(align(i))>\(render(cell.inlines, baseURL: baseURL))</td>"
             }
             out += "</tr>\n"
         }
@@ -129,7 +132,7 @@ public enum HTMLExporter {
 
     // MARK: - Inlines
 
-    private static func render(_ inlines: [Inline]) -> String {
+    private static func render(_ inlines: [Inline], baseURL: URL?) -> String {
         var out = ""
         for inline in inlines {
             switch inline {
@@ -138,19 +141,18 @@ public enum HTMLExporter {
             case .code(let code):
                 out += "<code>\(escape(code))</code>"
             case .emphasis(let children):
-                out += "<em>\(render(children))</em>"
+                out += "<em>\(render(children, baseURL: baseURL))</em>"
             case .strong(let children):
-                out += "<strong>\(render(children))</strong>"
+                out += "<strong>\(render(children, baseURL: baseURL))</strong>"
             case .strikethrough(let children):
-                out += "<del>\(render(children))</del>"
+                out += "<del>\(render(children, baseURL: baseURL))</del>"
             case .highlight(let children, let color):
-                out += "<mark class=\"hl-\(color.rawValue)\">\(render(children))</mark>"
+                out += "<mark class=\"hl-\(color.rawValue)\">\(render(children, baseURL: baseURL))</mark>"
             case .link(let destination, let children):
                 let href = destination.map { escapeAttribute($0) } ?? "#"
-                out += "<a href=\"\(href)\">\(render(children))</a>"
+                out += "<a href=\"\(href)\">\(render(children, baseURL: baseURL))</a>"
             case .image(let source, let alt):
-                let src = source.map { escapeAttribute($0) } ?? ""
-                out += "<img src=\"\(src)\" alt=\"\(escapeAttribute(alt))\">"
+                out += renderImage(source: source, alt: alt, baseURL: baseURL)
             case .math(let latex):
                 out += "<span class=\"math-inline\">\\(\(escape(latex))\\)</span>"
             case .footnoteReference(let id, let index):
@@ -159,15 +161,15 @@ public enum HTMLExporter {
                 // Canonical CriticMarkup HTML (toolkit conventions).
                 switch kind {
                 case .insertion(let children):
-                    out += "<ins>\(render(children))</ins>"
+                    out += "<ins>\(render(children, baseURL: baseURL))</ins>"
                 case .deletion(let children):
-                    out += "<del>\(render(children))</del>"
+                    out += "<del>\(render(children, baseURL: baseURL))</del>"
                 case .substitution(let old, let new):
-                    out += "<del>\(render(old))</del><ins>\(render(new))</ins>"
+                    out += "<del>\(render(old, baseURL: baseURL))</del><ins>\(render(new, baseURL: baseURL))</ins>"
                 case .comment(let text):
                     out += "<span class=\"critic comment\">\(escape(text))</span>"
                 case .highlight(let children):
-                    out += "<mark class=\"critic\">\(render(children))</mark>"
+                    out += "<mark class=\"critic\">\(render(children, baseURL: baseURL))</mark>"
                 }
             case .softBreak:
                 out += " "
@@ -178,6 +180,63 @@ public enum HTMLExporter {
             }
         }
         return out
+    }
+
+    // MARK: - Images
+
+    /// Local images inline as base64 `data:` URIs so the exported file is
+    /// self-contained; remote images (and any local file we cannot read)
+    /// degrade to an external `<img src>` reference rather than a silent drop.
+    /// Resolution mirrors the on-screen renderer: absolute `/…` paths and
+    /// paths relative to `baseURL` (the document directory).
+    private static func renderImage(source: String?, alt: String, baseURL: URL?) -> String {
+        let altAttr = escapeAttribute(alt)
+        guard let source, !source.isEmpty else {
+            return "<img src=\"\" alt=\"\(altAttr)\">"
+        }
+        // Already-embedded or remote: keep verbatim (local-only policy never
+        // fetches remote bytes, so we cannot inline them).
+        if source.hasPrefix("data:")
+            || source.hasPrefix("http://") || source.hasPrefix("https://") {
+            return "<img src=\"\(escapeAttribute(source))\" alt=\"\(altAttr)\">"
+        }
+        let fileURL: URL?
+        if source.hasPrefix("/") {
+            fileURL = URL(fileURLWithPath: source)
+        } else if let baseURL {
+            fileURL = baseURL.appendingPathComponent(source).standardizedFileURL
+        } else {
+            fileURL = nil
+        }
+        if let fileURL, let uri = dataURI(for: fileURL) {
+            return "<img src=\"\(uri)\" alt=\"\(altAttr)\">"
+        }
+        // No base directory or unreadable/missing file: keep the original
+        // reference so the image is explicit, never silently gone.
+        return "<img src=\"\(escapeAttribute(source))\" alt=\"\(altAttr)\">"
+    }
+
+    private static func dataURI(for url: URL) -> String? {
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        let mime = mimeType(forPathExtension: url.pathExtension.lowercased())
+        return "data:\(mime);base64,\(data.base64EncodedString())"
+    }
+
+    private static func mimeType(forPathExtension ext: String) -> String {
+        switch ext {
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "webp": return "image/webp"
+        case "svg": return "image/svg+xml"
+        case "bmp": return "image/bmp"
+        case "tif", "tiff": return "image/tiff"
+        case "heic": return "image/heic"
+        case "heif": return "image/heif"
+        case "avif": return "image/avif"
+        case "ico": return "image/x-icon"
+        default: return "application/octet-stream"
+        }
     }
 
     // MARK: - Escaping

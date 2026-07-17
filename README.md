@@ -260,6 +260,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Source-level undo/redo through the session | ✅ |
 | First-H1 auto-rename of Untitled files | ✅ |
 | Export: PDF, HTML, Markdown, RTF, TXT — light or dark | ✅ |
+| Local images in export (HTML inlines base64 `data:`; PDF/Print draw; RTF names a placeholder; MD keeps `![](…)`) | ✅ |
 | Word count, reading time, per-element statistics | ✅ |
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
 | Dark mode (code canvas constant across appearances, per design spec) | ✅ |

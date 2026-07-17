@@ -464,6 +464,7 @@ struct ReaderScreen: View {
             ExportSheet(
                 documentName: fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled",
                 document: model.document,
+                documentDirectory: (model.fileURL ?? fileURL)?.deletingLastPathComponent(),
                 isPresented: $isExportVisible
             )
         }
@@ -635,6 +636,7 @@ struct ReaderScreen: View {
             guard isKeyWindow else { return }
             DocumentExporters.runPrintOperation(
                 for: model.document,
+                baseURL: (model.fileURL ?? fileURL)?.deletingLastPathComponent(),
                 jobTitle: fileURL?.deletingPathExtension().lastPathComponent ?? "Quoin Document"
             )
         }
