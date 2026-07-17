@@ -10,7 +10,11 @@ Format mirrors [`code-hygiene-ledger.md`](code-hygiene-ledger.md): **severity**
 
 ---
 
-> **Status:** R2 and R3 shipped; R1 narrowed but not yet fixed (see its note).
+> **Status:** R2 and R3 shipped; R1 narrowed, INTERMITTENT, not currently
+> reproducible (last checked on 1.0.2, 2026-07-16). See its note — the renderer
+> is proven height-neutral, so this is a state/timing-dependent live-view
+> symptom; capture it (screenshot + observations) if it recurs rather than
+> editing the reveal path blind.
 
 ## R1 — H · Revealing a wrapped paragraph explodes its line height — NARROWED, OPEN
 
