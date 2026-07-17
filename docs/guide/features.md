@@ -551,9 +551,10 @@ degrade predictably instead of failing in an opaque sandbox.
   HTML** option (on by default in the Export sheet) runs a built-in, dependency-
   free allowlist scrubber that removes `<script>/<style>/<iframe>/<object>/
   <embed>` elements, `on*` event handlers, `javascript:`/`vbscript:` URLs, and
-  remote auto-loading resources, while leaving benign structural HTML (tables,
-  spans, emphasis, links, comments, `data:` images) intact — so the saved file
-  fetches nothing off-device. Turn the toggle **off** if you need byte-exact raw
+  every remote auto-loading resource (media `src`, a remote stylesheet, `<base>`,
+  or SVG `<image>`, and a `<meta refresh>` that redirects off-device), while
+  leaving benign structural HTML (tables, spans, emphasis, links, comments,
+  `data:` images) intact — so the saved file fetches nothing off-device. Turn the toggle **off** if you need byte-exact raw
   HTML for full Markdown fidelity (the trade-off: scripts and trackers survive).
   The Shortcuts *Export Note* action and the iOS export always sanitize. (This
   is export-only — your `.md` source and Markdown export are never altered.)

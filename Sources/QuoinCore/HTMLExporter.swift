@@ -194,9 +194,11 @@ public enum HTMLExporter {
                 out += "<mark class=\"hl-\(color.rawValue)\">\(render(children, baseURL: baseURL, sanitize: sanitize))</mark>"
             case .link(let destination, let children):
                 // Under the sanitize policy, a `javascript:`/`vbscript:` link
-                // destination is neutralised to an inert anchor (issue #4).
+                // destination — or a `data:` document that would execute on
+                // click (`data:text/html`, xhtml, svg) — is neutralised to an
+                // inert anchor (issue #4).
                 let raw = destination ?? "#"
-                let href = (sanitize && HTMLSanitizer.isDangerousScheme(raw)) ? "#" : escapeAttribute(raw)
+                let href = (sanitize && HTMLSanitizer.isDangerousNavigationScheme(raw)) ? "#" : escapeAttribute(raw)
                 out += "<a href=\"\(href)\">\(render(children, baseURL: baseURL, sanitize: sanitize))</a>"
             case .image(let source, let alt):
                 out += renderImage(source: source, alt: alt, baseURL: baseURL, sanitize: sanitize)

@@ -184,6 +184,27 @@ final class HTMLExporterTests: XCTestCase {
                       "benign structural raw HTML must be preserved even when sanitizing")
     }
 
+    func testSanitizeNeutralisesJavascriptImageDestination() {
+        // HTMLExporter.renderImage neutralises a javascript: Markdown image
+        // source to an empty src under sanitize (issue #4).
+        let doc = MarkdownConverter.parse("![alt](javascript:alert(1))")
+        let html = HTMLExporter.export(doc, sanitizeRawHTML: true)
+        XCTAssertFalse(html.lowercased().contains("javascript:"),
+                       "javascript: markdown image source must be neutralised under sanitize")
+        XCTAssertTrue(html.contains("<img src=\"\" alt=\"alt\">"))
+    }
+
+    func testSanitizePreservesRemoteMarkdownImage() {
+        // Deliberate scope: author-authored remote Markdown images stay external
+        // even under sanitize (the interactive export WANTS them to resolve).
+        // Pins the contract so the remote-neutralization logic can't silently
+        // start dropping visible image refs.
+        let doc = MarkdownConverter.parse("![r](https://example.com/x.png)")
+        let html = HTMLExporter.export(doc, baseURL: nil, sanitizeRawHTML: true)
+        XCTAssertTrue(html.contains("src=\"https://example.com/x.png\""),
+                      "remote Markdown image must be preserved even under sanitize")
+    }
+
     func testSanitizeLeavesGeneratedMarkdownConstructsIntact() {
         // Sanitize is raw-HTML-only: normal Markdown still exports fully.
         let doc = MarkdownConverter.parse("**bold** and `code` and a [link](https://x.com).")

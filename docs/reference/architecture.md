@@ -1171,13 +1171,18 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   raw-text content), strips `on*` event-handler attributes and
   `javascript:`/`vbscript:` URLs, and drops **remote** auto-loading
   `src`/`srcset`/`poster`/`background` on `<img>/<source>/<audio>/<video>/
-  <track>/<input>` (the tracking-pixel / remote-embed vector), while preserving
-  benign structural HTML (tables, spans, emphasis, links, comments, `data:`
-  images, inline `style=`). The same pass neutralises `javascript:`/`vbscript:`
-  schemes in Markdown-derived link and image destinations. It is a conservative
-  export scrubber, not an HTML5 parser or a hard security boundary: it does not
-  decode HTML entities inside attribute values and does not scrub `url(...)`
-  inside inline `style=`. This is **export-only** — the `.md` source, the
+  <track>/<input>`, remote `href`/`xlink:href` on `<link>` (stylesheet /
+  preload), `<base>` (relative-URL rebasing), and SVG `<image>`, and a `<meta
+  http-equiv=refresh>` whose `content` auto-navigates to a remote URL (the full
+  no-interaction tracking-pixel / remote-embed / redirect surface), while
+  preserving benign structural HTML (tables, spans, emphasis, links, comments,
+  `data:` images, inline `style=`). The same pass neutralises
+  `javascript:`/`vbscript:` schemes in Markdown-derived link and image
+  destinations, and — on link/navigation targets only — active `data:` documents
+  (`data:text/html`, `application/xhtml`, `image/svg`) that would execute on
+  click. It is a conservative export scrubber, not an HTML5 parser or a hard
+  security boundary: it does not decode HTML entities inside attribute values
+  and does not scrub `url(...)` inside inline `style=`. This is **export-only** — the `.md` source, the
   round-trip, and Markdown export are untouched. Explicitly out of scope:
   *remote Markdown images* (`![](https://…)`) stay external, per the deliberate
   export choice (the interactive export WANTS them to resolve) — the sanitize

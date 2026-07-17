@@ -138,6 +138,84 @@ final class HTMLSanitizerTests: XCTestCase {
         XCTAssertTrue(out.contains("https://example.com"))
     }
 
+    // MARK: - Remote auto-loading href / redirect vectors (issue #4 review)
+
+    func testRemoteStylesheetLinkHrefDropped() {
+        // <link rel=stylesheet href=remote> fetches the CSS on load with no
+        // interaction — functionally identical to a tracking pixel.
+        let out = HTMLSanitizer.sanitize("<link rel=\"stylesheet\" href=\"https://tracker.example/x.css\">")
+        XCTAssertFalse(out.contains("tracker.example"))
+        XCTAssertFalse(out.lowercased().contains("href"))
+        XCTAssertTrue(out.contains("rel=\"stylesheet\""), "the inert <link> tag stays")
+    }
+
+    func testRemotePreloadFontLinkHrefDropped() {
+        let out = HTMLSanitizer.sanitize("<link rel=\"preload\" as=\"font\" href=\"https://evil/f.woff2\">")
+        XCTAssertFalse(out.contains("evil"))
+    }
+
+    func testLocalStylesheetLinkHrefKept() {
+        let out = HTMLSanitizer.sanitize("<link rel=\"stylesheet\" href=\"styles/app.css\">")
+        XCTAssertTrue(out.contains("href=\"styles/app.css\""))
+    }
+
+    func testRemoteBaseHrefDropped() {
+        // <base href=remote> rebases every relative URL onto a remote origin.
+        let out = HTMLSanitizer.sanitize("<base href=\"https://evil.com/\">")
+        XCTAssertFalse(out.contains("evil.com"))
+        XCTAssertFalse(out.lowercased().contains("href"))
+    }
+
+    func testRemoteSvgImageHrefDropped() {
+        // SVG <image> auto-loads from href/xlink:href, not src.
+        XCTAssertFalse(HTMLSanitizer.sanitize("<image href=\"https://tracker/p.png\">").contains("tracker"))
+        XCTAssertFalse(HTMLSanitizer.sanitize("<image xlink:href=\"https://tracker/p.png\">").contains("tracker"))
+    }
+
+    func testMetaRefreshToRemoteURLDropped() {
+        // <meta http-equiv=refresh content="0;url=remote"> auto-navigates
+        // off-device with zero interaction.
+        let out = HTMLSanitizer.sanitize("<meta http-equiv=\"refresh\" content=\"0;url=https://evil.com\">")
+        XCTAssertFalse(out.contains("evil.com"))
+        XCTAssertFalse(out.lowercased().contains("content="))
+    }
+
+    func testMetaRefreshCaseInsensitiveAndQuotedURLDropped() {
+        let out = HTMLSanitizer.sanitize("<META HTTP-EQUIV=\"Refresh\" CONTENT=\"5; URL='//evil.com/x'\">")
+        XCTAssertFalse(out.contains("evil.com"))
+    }
+
+    func testLocalMetaRefreshPreserved() {
+        // A same-page or relative refresh never leaves the device — keep it.
+        let out = HTMLSanitizer.sanitize("<meta http-equiv=\"refresh\" content=\"5\">")
+        XCTAssertTrue(out.contains("content=\"5\""))
+        let rel = HTMLSanitizer.sanitize("<meta http-equiv=\"refresh\" content=\"0;url=page2.html\">")
+        XCTAssertTrue(rel.contains("page2.html"))
+    }
+
+    // MARK: - Dangerous navigation schemes on links (issue #4 review)
+
+    func testDataHTMLDocumentLinkNeutralised() {
+        // data:text/html navigates to a document that runs script in this origin.
+        let out = HTMLSanitizer.sanitize("<a href=\"data:text/html,<script>alert(1)</script>\">x</a>")
+        XCTAssertFalse(out.lowercased().contains("data:text/html"))
+        XCTAssertEqual(out, "<a>x</a>")
+    }
+
+    func testDataSvgDocumentLinkNeutralised() {
+        let out = HTMLSanitizer.sanitize("<a href=\"data:image/svg+xml,<svg onload='x'/>\">x</a>")
+        XCTAssertFalse(out.lowercased().contains("data:image/svg"))
+    }
+
+    func testDataImageOnImgSrcStillPreserved() {
+        // A data:image loaded as an <img> is inert — navigation-scheme stripping
+        // must NOT touch the image allowlist.
+        let png = "data:image/png;base64,iVBORw0KGgo="
+        XCTAssertTrue(HTMLSanitizer.sanitize("<img src=\"\(png)\">").contains(png))
+        let svg = "data:image/svg+xml;base64,PHN2Zy8+"
+        XCTAssertTrue(HTMLSanitizer.sanitize("<img src=\"\(svg)\">").contains(svg))
+    }
+
     // MARK: - Benign HTML preserved
 
     func testBenignStructuralHTMLPreserved() {

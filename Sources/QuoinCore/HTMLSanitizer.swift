@@ -19,8 +19,14 @@ import Foundation
 ///  - neutralises auto-loading REMOTE resources — the tracking-pixel / remote
 ///    embed vector: `http(s)` and protocol-relative (`//host`) `src` /
 ///    `srcset` / `poster` / `background` on
-///    `<img>/<source>/<audio>/<video>/<track>/<input>` are dropped so a saved
-///    file fetches nothing off-device;
+///    `<img>/<source>/<audio>/<video>/<track>/<input>` are dropped, and so are
+///    remote `href`/`xlink:href` on `<link>` (stylesheet / preload), `<base>`
+///    (relative-URL rebasing), and SVG `<image>`, plus a `<meta
+///    http-equiv=refresh>` whose `content` auto-navigates to a remote URL — so
+///    a saved file fetches nothing off-device with zero interaction;
+///  - neutralises `data:` navigation targets that yield an active document
+///    (`data:text/html`, `data:application/xhtml`, `data:image/svg`) on
+///    `<a>`/`<area>` links, alongside `javascript:`/`vbscript:`;
 ///  - **preserves** benign structural HTML (tables, spans, emphasis, links,
 ///    HTML comments, `data:` images, inline `style=`).
 ///
@@ -51,6 +57,17 @@ public enum HTMLSanitizer {
     /// Auto-loading URL attributes on `remoteResourceTags` that must not point
     /// at a remote host in a private, self-contained file.
     static let remoteResourceAttributes: Set<String> = ["src", "srcset", "poster", "background"]
+    /// Tags that auto-load from a remote `href`/`xlink:href` (not `src`):
+    /// `<link>` (stylesheet / preload font), `<base>` (rebases every relative
+    /// URL onto a remote origin), and SVG `<image>`. A remote value here fetches
+    /// off-device on load with no interaction, exactly like a tracking pixel.
+    static let remoteHrefTags: Set<String> = ["link", "base", "image"]
+    /// The `href`-family attributes checked on `remoteHrefTags` (and on links
+    /// for dangerous navigation schemes).
+    static let hrefAttributes: Set<String> = ["href", "xlink:href"]
+    /// Navigation elements whose `href` is followed on click: a `data:` document
+    /// or `javascript:` here executes in the file's origin.
+    static let navigationTags: Set<String> = ["a", "area"]
 
     /// Scrubs a raw HTML fragment per the policy above.
     public static func sanitize(_ html: String) -> String {
@@ -126,6 +143,22 @@ public enum HTMLSanitizer {
         return lower.hasPrefix("javascript:") || lower.hasPrefix("vbscript:")
     }
 
+    /// True when a URL, *navigated to* from a link, yields an active document in
+    /// the file's origin: `javascript:`/`vbscript:`, or a `data:` document whose
+    /// media type renders as scriptable markup (`text/html`, `application/xhtml`,
+    /// `image/svg`). This is stricter than `isDangerousScheme` and is applied
+    /// ONLY to link/navigation contexts — a `data:image/png` (or `data:image/svg`)
+    /// loaded as an `<img>` is inert and stays allowlisted.
+    static func isDangerousNavigationScheme(_ value: String) -> Bool {
+        if isDangerousScheme(value) { return true }
+        let lower = strippedScheme(value)
+        guard lower.hasPrefix("data:") else { return false }
+        let mediatype = lower.dropFirst("data:".count).prefix { $0 != "," && $0 != ";" }
+        return mediatype.hasPrefix("text/html")
+            || mediatype.hasPrefix("application/xhtml")
+            || mediatype.hasPrefix("image/svg")
+    }
+
     /// True when a URL points at a remote host (`http(s)://` or `//host`).
     static func isRemoteURL(_ value: String) -> Bool {
         let lower = strippedScheme(value)
@@ -147,19 +180,63 @@ public enum HTMLSanitizer {
     // MARK: - Attribute filtering
 
     private static func filterAttributes(_ tag: ParsedTag) -> [Attribute] {
-        let isResource = remoteResourceTags.contains(tag.name.lowercased())
+        let lname = tag.name.lowercased()
+        let isResource = remoteResourceTags.contains(lname)
+        let isHrefResource = remoteHrefTags.contains(lname)
+        let isNavigation = navigationTags.contains(lname)
+        let metaRefresh = isMetaRefresh(tag)
         return tag.attributes.filter { attr in
             let an = attr.name.lowercased()
             if an.hasPrefix("on") { return false }              // event handler
-            if let v = attr.value, urlAttributes.contains(an), isDangerousScheme(v) {
+            guard let v = attr.value else { return true }
+            // Link destinations: strip javascript:/vbscript: AND active data:
+            // documents (the click-to-XSS vector).
+            if isNavigation, hrefAttributes.contains(an), isDangerousNavigationScheme(v) {
+                return false
+            }
+            if urlAttributes.contains(an), isDangerousScheme(v) {
                 return false                                    // javascript:/vbscript:
             }
-            if isResource, remoteResourceAttributes.contains(an), let v = attr.value {
+            if isResource, remoteResourceAttributes.contains(an) {
                 let remote = an == "srcset" ? srcsetHasRemote(v) : isRemoteURL(v)
                 if remote { return false }                      // remote auto-load
             }
+            // Remote <link>/<base>/SVG <image> href auto-loads off-device.
+            if isHrefResource, hrefAttributes.contains(an), isRemoteURL(v) {
+                return false
+            }
+            // <meta http-equiv=refresh content="…;url=remote">: drop the
+            // auto-navigation directive (a click-free off-device redirect).
+            if metaRefresh, an == "content", metaRefreshIsRemote(v) {
+                return false
+            }
             return true
         }
+    }
+
+    /// True when the tag is a `<meta http-equiv="refresh">` (case-insensitive).
+    private static func isMetaRefresh(_ tag: ParsedTag) -> Bool {
+        guard tag.name.lowercased() == "meta" else { return false }
+        return tag.attributes.contains { attr in
+            attr.name.lowercased() == "http-equiv"
+                && (attr.value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "refresh")
+        }
+    }
+
+    /// True when a `<meta http-equiv=refresh>` `content` value
+    /// (`"<seconds>[; url=<url>]"`) auto-navigates to a remote URL.
+    private static func metaRefreshIsRemote(_ content: String) -> Bool {
+        for part in content.split(separator: ";") {
+            let trimmed = part.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix("url=") else { continue }
+            var url = String(trimmed.dropFirst("url=".count)).trimmingCharacters(in: .whitespaces)
+            if let quote = url.first, quote == "\"" || quote == "'" {
+                url.removeFirst()
+                if url.last == quote { url.removeLast() }
+            }
+            return isRemoteURL(url)
+        }
+        return false
     }
 
     // MARK: - Tag parsing / serialization
