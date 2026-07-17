@@ -185,6 +185,12 @@ struct ReaderScreen: View {
                 blockSourceRangeProvider: { id in
                     model.document.blocks.first { $0.id == id }?.range
                 },
+                isTableBlockProvider: { id in
+                    if case .table = model.document.blocks.first(where: { $0.id == id })?.kind {
+                        return true
+                    }
+                    return false
+                },
                 onSelectionSourceRange: { range in model.selectionSourceRange = range },
                 focusModeEnabled: isFocusMode,
                 typewriterEnabled: isTypewriter,

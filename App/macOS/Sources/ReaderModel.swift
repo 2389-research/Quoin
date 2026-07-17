@@ -729,6 +729,14 @@ final class ReaderModel {
                 source: document.source, blocks: document.blocks, blockIndex: index)
         case .addTableRow, .addTableColumn:
             let block = document.blocks[index]
+            // Only a real table block may be rewritten by a table command.
+            // `TableEditing.parse` is deliberately lenient (borderless /
+            // column-mismatched slices) and MORE permissive than the AST's
+            // table recognizer — a setext heading ("Title\n-----") parses as
+            // a table slice. Gate on the AST kind (the single recognizer of
+            // record) so a non-table target is a quiet no-op, never a
+            // whole-block replacement that destroys the heading/paragraph.
+            guard case .table = block.kind else { return }
             guard let slice = document.source.substring(in: block.range),
                   let grown = command == .addTableRow
                     ? TableEditing.addingRow(to: slice)
@@ -741,6 +749,11 @@ final class ReaderModel {
             // SourceEdit; rebase it onto the block's absolute source range so
             // untouched blocks stay byte-lossless and only this table re-pads.
             let block = document.blocks[index]
+            // Same recognizer-divergence guard as above: gate on the AST kind,
+            // not the lenient `TableEditing.parse`, so right-clicking a setext
+            // heading or a malformed pipe paragraph can never rewrite it into a
+            // pipe table.
+            guard case .table = block.kind else { return }
             guard let slice = document.source.substring(in: block.range),
                   let relative = tableEdit(command, in: slice) else { return }
             edit = SourceEdit(

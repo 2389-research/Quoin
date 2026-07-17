@@ -145,6 +145,12 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// coordinator can map a projection selection to a source byte range for
     /// In-Selection replace.
     public let blockSourceRangeProvider: ((BlockID) -> ByteRange?)?
+    /// Whether a block is a GFM table per the AST — the single recognizer of
+    /// record for the context menu's Table submenu. The render layer holds
+    /// only a projection, so it asks the host; gating on the lenient
+    /// `TableEditing.parse` would surface the submenu on setext headings and
+    /// malformed pipe paragraphs (two-recognizers-diverge, CLAUDE.md).
+    public let isTableBlockProvider: ((BlockID) -> Bool)?
     /// The current text selection mapped to a source byte range (nil when
     /// empty or unmappable) — the find bar scopes In-Selection replace to it.
     public let onSelectionSourceRange: ((ByteRange?) -> Void)?
@@ -257,6 +263,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         editSourceToggleGeneration: Int = 0,
         blockSourceProvider: ((BlockID) -> String?)? = nil,
         blockSourceRangeProvider: ((BlockID) -> ByteRange?)? = nil,
+        isTableBlockProvider: ((BlockID) -> Bool)? = nil,
         onSelectionSourceRange: ((ByteRange?) -> Void)? = nil,
         focusModeEnabled: Bool = false,
         typewriterEnabled: Bool = false,
@@ -305,6 +312,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.editSourceToggleGeneration = editSourceToggleGeneration
         self.blockSourceProvider = blockSourceProvider
         self.blockSourceRangeProvider = blockSourceRangeProvider
+        self.isTableBlockProvider = isTableBlockProvider
         self.onSelectionSourceRange = onSelectionSourceRange
         self.focusModeEnabled = focusModeEnabled
         self.typewriterEnabled = typewriterEnabled

@@ -1458,9 +1458,12 @@ extension MarkdownReaderView {
                 items.append(commandItem("Delete Block", "delete"))
                 // Structural table editing (#14): a full row/column/align
                 // submenu, targeting the cell the click fell on. Only shown
-                // for a slice that actually parses as a pipe table.
-                if let slice = parent.blockSourceProvider?(id),
-                   TableEditing.parse(slice) != nil {
+                // for a block the AST recognizes as a table — the single
+                // recognizer of record. Gating on `TableEditing.parse` (which
+                // is lenient enough to accept setext headings and malformed
+                // pipe paragraphs) would surface the submenu where a table op
+                // would corrupt the block (two-recognizers-diverge, CLAUDE.md).
+                if parent.isTableBlockProvider?(id) == true {
                     let target = tableGridLocation(forCharIndex: index, blockID: id)
                     items.append(NSMenuItem.separator())
                     items.append(tableSubmenuItem(index: index, target: target))
