@@ -296,8 +296,8 @@ suggestions:
       </div>
     </div>
     <div class="gallery">
-      <figure><img src="{{ "images/gallery-math.png" | relURL }}" alt="A gallery of LaTeX math rendered natively by Vinculum — fractions, integrals, matrices, aligned equations"></figure>
-      <figure><img src="{{ "images/gallery-diagrams.png" | relURL }}" alt="A gallery of Mermaid diagram types rendered natively by MermaidKit — flowchart, sequence, state, class, and entity-relationship"></figure>
+      <figure><picture><source media="(prefers-color-scheme: dark)" srcset="{{ "images/gallery-math-dark.png" | relURL }}"><img src="{{ "images/gallery-math.png" | relURL }}" alt="A gallery of LaTeX math rendered natively by Vinculum — fractions, integrals, matrices, aligned equations"></picture></figure>
+      <figure><picture><source media="(prefers-color-scheme: dark)" srcset="{{ "images/gallery-diagrams-dark.png" | relURL }}"><img src="{{ "images/gallery-diagrams.png" | relURL }}" alt="A gallery of Mermaid diagram types rendered natively by MermaidKit — flowchart, sequence, state, class, and entity-relationship"></picture></figure>
     </div>
   </section>
 
@@ -319,7 +319,10 @@ suggestions:
         <p style="margin-top:14px"><a href="https://github.com/2389-research/Quoin/blob/main/docs/reference/architecture.md">How it works under the hood →</a></p>
       </div>
       <figure>
-        <img src="{{ "images/syntax-reveal.png" | relURL }}" alt="A block revealed as its literal Markdown source, character-for-character with the file">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="{{ "images/syntax-reveal-dark.png" | relURL }}">
+          <img src="{{ "images/syntax-reveal.png" | relURL }}" alt="A block revealed as its literal Markdown source, character-for-character with the file">
+        </picture>
         <figcaption>Click into a block and it reveals its literal source — hidden delimiters become 1-point clear glyphs.</figcaption>
       </figure>
     </div>
