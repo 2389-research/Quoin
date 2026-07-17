@@ -25,6 +25,20 @@ public enum QuoinURLScheme {
     /// `CFBundleURLTypes`).
     public static let scheme = "quoin"
 
+    /// The `NSUserActivity` type for "editing the open document" (#36; declared
+    /// in the app's Info.plist `NSUserActivityTypes`). Publishing the open
+    /// document under this type feeds Handoff, Siri suggestions, and window
+    /// restoration. The activity's `userInfo` carries a `quoin://` deep link —
+    /// NEVER an absolute file path or a security-scoped bookmark — so the
+    /// resuming side re-resolves it through ``resolvedPath(forRawPath:relativeTo:)``
+    /// and stays inside the sandbox boundary.
+    public static let editingActivityType = "ai.2389.Quoin.editing"
+
+    /// The `userInfo` key under which the activity carries its `quoin://` deep
+    /// link (as an absolute-string `quoin://open?path=…`). One name, used by
+    /// both the publish and the continue sides, so they can't drift apart.
+    public static let activityDeepLinkKey = "deepLink"
+
     /// A parsed, not-yet-resolved deep link. `rawPath` is percent-decoded but
     /// otherwise untrusted — it must be run through ``resolvedPath(forRawPath:relativeTo:)``
     /// against a concrete library root before any file is touched.
@@ -107,6 +121,36 @@ public enum QuoinURLScheme {
         // "/Library" vs "/LibraryOther") from slipping through.
         guard resolved.hasPrefix(root + "/") else { return nil }
         return resolved
+    }
+
+    /// Build a `quoin://open?path=…` deep link for `documentPath` (an absolute
+    /// POSIX path) expressed *relative to* `rootPath`. Returns `nil` when the
+    /// document is not strictly contained within the root — the sandbox holds no
+    /// access outside a granted library, so no portable link can name a document
+    /// there, and #36 must publish NO activity for such a document.
+    ///
+    /// This is the exact inverse of ``resolvedPath(forRawPath:relativeTo:)``: the
+    /// link it produces re-resolves back to `documentPath` under the same root.
+    /// The emitted `path` is *relative* (not absolute) so the link stays portable
+    /// across machines whose library lives at a different absolute location — the
+    /// resuming side re-anchors it to ITS root. Pure: no I/O.
+    public static func deepLink(forDocumentPath documentPath: String, relativeTo rootPath: String) -> URL? {
+        guard !documentPath.contains("\0") else { return nil }
+        let root = normalize(rootPath)
+        guard root.hasPrefix("/"), root != "/" else { return nil }
+        let doc = normalize(documentPath)
+        // Must live strictly under the root — the trailing slash stops a sibling
+        // whose name merely starts with the root from slipping through, and the
+        // root folder itself is not a document.
+        guard doc != root, doc.hasPrefix(root + "/") else { return nil }
+        let relative = String(doc.dropFirst(root.count + 1))
+        guard !relative.isEmpty else { return nil }
+
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = DeepLink.Action.open.rawValue
+        components.queryItems = [URLQueryItem(name: "path", value: relative)]
+        return components.url
     }
 
     /// Lexically normalize an absolute or relative POSIX path: collapse empty

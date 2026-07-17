@@ -125,6 +125,57 @@ final class QuoinURLSchemeTests: XCTestCase {
         XCTAssertNil(QuoinURLScheme.resolvedPath(forRawPath: "", relativeTo: "/Lib"))
     }
 
+    // MARK: - Activity payload (#36): building a quoin:// link from a document
+
+    func testBuildsRelativeDeepLinkForDocumentInRoot() {
+        let link = QuoinURLScheme.deepLink(forDocumentPath: "/Lib/Notes/Today.md", relativeTo: "/Lib")
+        XCTAssertEqual(link?.absoluteString, "quoin://open?path=Notes/Today.md")
+    }
+
+    func testBuiltDeepLinkPercentEncodesSpaces() {
+        let link = QuoinURLScheme.deepLink(forDocumentPath: "/Lib/My Notes/Day One.md", relativeTo: "/Lib")
+        // The query value is percent-encoded so the URL is well-formed…
+        XCTAssertEqual(link?.absoluteString, "quoin://open?path=My%20Notes/Day%20One.md")
+        // …and parse() decodes it straight back to the relative path.
+        XCTAssertEqual(QuoinURLScheme.parse(link!)?.rawPath, "My Notes/Day One.md")
+    }
+
+    func testBuiltDeepLinkRoundTripsThroughResolvedPath() {
+        // The inverse property: build → resolve returns the original document.
+        let doc = "/Lib/A/B/C.md"
+        let link = QuoinURLScheme.deepLink(forDocumentPath: doc, relativeTo: "/Lib/")
+        let parsed = QuoinURLScheme.parse(link!)!
+        let resolved = QuoinURLScheme.resolvedPath(forRawPath: parsed.rawPath, relativeTo: "/Lib")
+        XCTAssertEqual(resolved, doc)
+    }
+
+    func testNoDeepLinkForDocumentOutsideRoot() {
+        // The acceptance case: a document outside the granted library yields NO
+        // link, so #36 publishes no activity for it.
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Other/a.md", relativeTo: "/Lib"))
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/../escape.md", relativeTo: "/Lib"))
+    }
+
+    func testNoDeepLinkForSiblingWithRootAsNamePrefix() {
+        // "/Library" must not admit "/LibraryOther/a.md" (prefix-collision guard).
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/LibraryOther/a.md", relativeTo: "/Library"))
+    }
+
+    func testNoDeepLinkForRootItself() {
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib", relativeTo: "/Lib"))
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/", relativeTo: "/Lib"))
+    }
+
+    func testNoDeepLinkForDegenerateRoot() {
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/a.md", relativeTo: ""))
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/a.md", relativeTo: "/"))
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/a.md", relativeTo: "relative/root"))
+    }
+
+    func testNoDeepLinkForNulByteInDocumentPath() {
+        XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/a\0.md", relativeTo: "/Lib"))
+    }
+
     // MARK: - normalize()
 
     func testNormalizeCollapsesLexically() {

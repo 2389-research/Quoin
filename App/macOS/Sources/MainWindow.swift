@@ -29,6 +29,11 @@ struct MainWindow: View {
     private var activeTab: DocumentTab? {
         openTabs.first { $0.id == activeTabID }
     }
+    /// The document published as the current `NSUserActivity` (#36): Handoff /
+    /// Siri-suggestion / window-restoration handle for the active tab. Reused
+    /// across tab switches (same activity type); resigned when this window is
+    /// not key or its document leaves the library; invalidated on close.
+    @State private var currentActivity: NSUserActivity?
     @State private var isQuickOpenVisible = false
     @State private var isLibrarySearchVisible = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -257,12 +262,22 @@ struct MainWindow: View {
             // window's observer existed, so drain any pending link now that the
             // library is connected.
             consumePendingDeepLink()
+            // Publish the active document as the current activity (#36) once the
+            // library (its confinement root) is connected.
+            updateUserActivity()
         }
         // Every root change (chooser, starter library, folder-window) is
         // remembered as THIS window's folder.
         .onChange(of: library.rootURL) { _, url in
             if let url { persistedRootPath = url.standardizedFileURL.path }
+            // The confinement root moved: rebuild (or clear) the activity so its
+            // deep link is anchored to the new library — or nothing, if the
+            // active document now falls outside it (#36).
+            updateUserActivity()
         }
+        // Only the KEY window publishes the current activity; becoming/resigning
+        // key flips which window's document is the one the user is on (#36).
+        .onChange(of: controlActiveState) { updateUserActivity() }
         // Closing the window (red button) with tabs still open must release the
         // store's hold on each, or their sessions leak (kept watching + never
         // stopped). ⌘W already releases per tab; this covers the whole-window
@@ -270,9 +285,14 @@ struct MainWindow: View {
         // session flush registry.
         .onDisappear {
             openTabs.forEach { store.release($0.url) }
+            // Tear down the published activity with the window (#36).
+            currentActivity?.invalidate()
+            currentActivity = nil
         }
-        .onChange(of: openTabs) { persistTabs() }
-        .onChange(of: activeTabID) { persistTabs() }
+        // A rename can change the active tab's URL without changing activeTabID,
+        // so republish on any tab-list change too (keeps the deep link current).
+        .onChange(of: openTabs) { persistTabs(); updateUserActivity() }
+        .onChange(of: activeTabID) { persistTabs(); updateUserActivity() }
         // Sidebar keyboard selection (↑/↓ + the List's type-select) opens
         // documents, not just mouse clicks (UI #23). open() re-sets the
         // selection to the same URL, so this settles after one pass.
@@ -455,6 +475,42 @@ struct MainWindow: View {
             return
         }
         open(url)
+    }
+
+    /// Publish (or resign) the active document as the current `NSUserActivity`
+    /// (#36) so Handoff, Siri suggestions, and window restoration can resume it.
+    ///
+    /// The payload is a `quoin://` deep link built *relative to* this window's
+    /// library root — NEVER an absolute file path or a security-scoped bookmark,
+    /// so the resuming side re-resolves it through `QuoinURLScheme` and the
+    /// sandbox boundary holds. Only the KEY window publishes (a background
+    /// window's document isn't what the user is on), and a document that falls
+    /// outside the granted library publishes NOTHING (`deepLink` returns nil) —
+    /// the app has no portable, boundary-respecting handle for it.
+    ///
+    /// The activity object is reused across tab switches (one editing activity
+    /// per window); resigned when the window is not key or has no linkable
+    /// document; invalidated on close (`onDisappear`).
+    private func updateUserActivity() {
+        guard isKeyWindow,
+              let url = activeTab?.url,
+              let root = library.rootURL,
+              let link = QuoinURLScheme.deepLink(
+                forDocumentPath: url.standardizedFileURL.path,
+                relativeTo: root.standardizedFileURL.path)
+        else {
+            currentActivity?.resignCurrent()
+            return
+        }
+        let activity = currentActivity
+            ?? NSUserActivity(activityType: QuoinURLScheme.editingActivityType)
+        activity.title = url.deletingPathExtension().lastPathComponent
+        activity.userInfo = [QuoinURLScheme.activityDeepLinkKey: link.absoluteString]
+        activity.isEligibleForHandoff = true
+        // Spotlight indexing is a separate feature (#6) — don't claim it here.
+        activity.isEligibleForSearch = false
+        currentActivity = activity
+        activity.becomeCurrent()
     }
 
     /// Move the active tab by `delta` positions, wrapping around. A no-op

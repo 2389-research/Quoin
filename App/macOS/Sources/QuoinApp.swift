@@ -714,6 +714,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Handoff / current-activity resume (#36). Another device (or this Mac's
+    /// Handoff banner, or a Siri/Spotlight suggestion of the open document)
+    /// hands back an `NSUserActivity` whose `userInfo` carries a `quoin://` deep
+    /// link. Route it through the SAME `pendingDeepLink` slot that
+    /// `application(_:open:)` uses, so the key window resolves it against its own
+    /// library root and the sandbox boundary is enforced there. A payload that
+    /// is the wrong type, missing, or not a valid `quoin://` link is refused
+    /// (return `false`) rather than guessed at.
+    func application(
+        _ application: NSApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void
+    ) -> Bool {
+        guard userActivity.activityType == QuoinURLScheme.editingActivityType,
+              let raw = userActivity.userInfo?[QuoinURLScheme.activityDeepLinkKey] as? String,
+              let url = URL(string: raw),
+              let link = QuoinURLScheme.parse(url) else {
+            return false
+        }
+        Self.pendingDeepLink = link
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: Self.openDeepLinkNotification, object: nil)
+        return true
+    }
+
     /// Dock menu: the recent documents, one click from anywhere (UI #24).
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
         let paths = (UserDefaults.standard.stringArray(forKey: "QuoinRecentDocuments") ?? []).prefix(5)

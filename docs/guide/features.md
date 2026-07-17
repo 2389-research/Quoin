@@ -267,6 +267,13 @@ resolution can never quietly corrupt the document.
   isn't there are refused — Quoin only reaches files inside the folder you
   granted it. Handy for scripts, notes apps, and `Reveal in Finder`'s companion:
   a stable way to jump back to a document.
+- **Handoff** — the document you're editing is published as the app's current
+  activity, so it shows up in Handoff, Siri Suggestions, and window restoration
+  and can be resumed from the Mac's Handoff banner (and, once an iOS/iPadOS
+  reader ships, from another Apple device). The handle it carries is the same
+  boundary-respecting `quoin://` link — never an absolute path or a
+  security-scoped bookmark — so resuming re-resolves inside the library you
+  granted. A document outside a granted library publishes no activity.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

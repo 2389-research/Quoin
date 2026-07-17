@@ -64,6 +64,10 @@
 	<string>14.0</string>
 	<key>NSHumanReadableCopyright</key>
 	<string>© 2026 2389 Research · Chicago, Illinois</string>
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>ai.2389.Quoin.editing</string>
+	</array>
 	<key>SUEnableAutomaticChecks</key>
 	<true/>
 	<key>SUEnableInstallerLauncherService</key>

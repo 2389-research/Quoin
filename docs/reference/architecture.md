@@ -919,8 +919,31 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   process receives its read access through the drag pasteboard's own sandbox
   extension — no new entitlement is needed.
 
-Services menu and Handoff / `NSUserActivity` from #31 are deferred as separate
-issues; they are additive to this same shell.
+- **Handoff / current activity (#36).** The active document is published as an
+  `NSUserActivity` of type `ai.2389.Quoin.editing` (declared in
+  `NSUserActivityTypes`, generated from `project.yml`). The payload split
+  mirrors the deep-link one: the *decidable* part is pure and lives in
+  `QuoinCore`. `QuoinURLScheme.deepLink(forDocumentPath:relativeTo:)` is the
+  **no-I/O inverse** of `resolvedPath` — it builds a `quoin://open?path=…` link
+  whose `path` is *relative* to the library root (portable across machines whose
+  library sits at a different absolute location), and returns `nil` when the
+  document is not strictly under the root, so a document outside a granted
+  library publishes **no activity**. The link — never an absolute path or a
+  security-scoped bookmark — rides in `userInfo[QuoinURLScheme.activityDeepLinkKey]`.
+  `MainWindow.updateUserActivity()` publishes only from the KEY window (so a
+  background window's document isn't mistaken for the one in front), reusing one
+  activity object across tab switches and resigning it when the window is not
+  key or has no linkable document; `onDisappear` invalidates it. Resume comes
+  back through `AppDelegate.application(_:continue:restorationHandler:)`, which
+  parses the link and routes it through the *same* `pendingDeepLink` slot +
+  `openDeepLinkNotification` path as `application(_:open:)` — so all the
+  confinement above (lexical resolve, existence + markdown check, live security
+  scope) applies unchanged on the receiving side. The pure build/round-trip
+  logic is exercised by `QuoinURLSchemeTests`. macOS-only today; it becomes
+  real cross-device Handoff once an iOS/iPadOS reader ships. Spotlight indexing
+  (#6) is deliberately not claimed here (`isEligibleForSearch = false`).
+
+The Services menu is deferred as a separate issue, additive to this same shell.
 
 ## Testing strategy
 

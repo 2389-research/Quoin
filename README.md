@@ -279,7 +279,8 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
 | Duplicate a document/folder (unique ` 2` sibling) and Move to Trash (recoverable) — sidebar context menu + File menu | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
-| Services menu · Handoff / NSUserActivity | ⬜ planned |
+| Handoff / current activity — the open document publishes an `NSUserActivity` carrying a boundary-safe `quoin://` link (Handoff banner, Siri Suggestions, window restoration; cross-device once an iOS reader ships) | ✅ |
+| Services menu | ⬜ planned |
 
 A few of these surfaces, up close:
 
