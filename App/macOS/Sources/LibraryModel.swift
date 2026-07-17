@@ -389,12 +389,20 @@ final class LibraryModel {
         }
     }
 
-    /// New untitled document in the library root (design: first H1 renames
-    /// the file live once the editor supports it).
-    func createDocument(in folder: URL? = nil) -> URL? {
+    /// New document in the library root (design: first H1 renames the file
+    /// live once the editor supports it). Defaults to an empty "Untitled" —
+    /// the ⌘N path; the Services provider (#35) passes a `baseName`/`content`
+    /// pair from `NewDocumentSeed` to seed the file with a selection. Returns
+    /// nil with no library configured, which the Services path reads as its
+    /// cue to fall back to a save panel.
+    func createDocument(
+        in folder: URL? = nil,
+        baseName: String = "Untitled",
+        content: String = ""
+    ) -> URL? {
         guard let target = folder ?? rootURL else { return nil }
-        let candidate = Library.uniqueURL(baseName: "Untitled", extension: "md", in: target)
-        guard (try? Data("".utf8).write(to: candidate)) != nil else { return nil }
+        let candidate = Library.uniqueURL(baseName: baseName, extension: "md", in: target)
+        guard (try? Data(content.utf8).write(to: candidate)) != nil else { return nil }
         rescan()
         return candidate
     }

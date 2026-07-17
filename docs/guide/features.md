@@ -267,6 +267,14 @@ resolution can never quietly corrupt the document.
   isn't there are refused — Quoin only reaches files inside the folder you
   granted it. Handy for scripts, notes apps, and `Reveal in Finder`'s companion:
   a stable way to jump back to a document.
+- **Services menu** — select text in *any* app, then choose **Services ▸ New
+  Quoin Document with Selection** (in that app's application menu or its
+  right-click **Services** submenu). Quoin creates a new document in your
+  library, seeded with the selection, and opens it. The document is named from
+  the selection's first line — a leading heading or list marker is dropped so
+  the filename stays tidy. With no library configured, Quoin asks where to save
+  the new file instead. The write lands in the folder you already granted
+  Quoin — no new permission prompt.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

@@ -90,6 +90,21 @@ targets:
             CFBundleTypeRole: Viewer
             CFBundleURLSchemes:
               - quoin
+        # Services provider (#35): makes Quoin appear in the system Services
+        # menu and in other apps' contextual "Services" submenu. macOS reads
+        # this array to build the menu item and to route the message to
+        # NSApp.servicesProvider (set in AppDelegate). NSMessage is the
+        # @objc selector name (sans the :userData:error: suffix); NSSendTypes
+        # gates the item to appear only when the sender offers text. No
+        # NSReturnTypes — the service creates/opens a document, it returns
+        # nothing to the sender.
+        NSServices:
+          - NSMenuItem:
+              default: New Quoin Document with Selection
+            NSMessage: newDocumentWithSelection
+            NSPortName: Quoin
+            NSSendTypes:
+              - NSStringPboardType
         CFBundleDocumentTypes:
           - CFBundleTypeName: Markdown Document
             CFBundleTypeRole: Editor

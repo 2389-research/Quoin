@@ -115,6 +115,13 @@ struct MainWindow: View {
             guard isKeyWindow else { return }
             consumePendingDeepLink()
         }
+        // Services ▸ New Quoin Document with Selection (#35) arrived while
+        // running: the key window seeds a document from the selection and
+        // opens it (or falls back to a save panel with no library).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.newDocumentWithSelectionNotification)) { _ in
+            guard isKeyWindow else { return }
+            consumePendingSelectionSeed()
+        }
         // ⌘0 / View ▸ Show/Hide Sidebar (handoff keyboard map).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleSidebarNotification)) { _ in
             guard isKeyWindow else { return }
@@ -257,6 +264,9 @@ struct MainWindow: View {
             // window's observer existed, so drain any pending link now that the
             // library is connected.
             consumePendingDeepLink()
+            // Cold launch via Services (#35): the selection likewise arrived
+            // before any observer existed — drain it once the library connects.
+            consumePendingSelectionSeed()
         }
         // Every root change (chooser, starter library, folder-window) is
         // remembered as THIS window's folder.
@@ -451,6 +461,40 @@ struct MainWindow: View {
         let url = URL(fileURLWithPath: resolved)
         guard url.pathExtension.lowercased() == "md",
               FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        open(url)
+    }
+
+    /// Resolve and open a pending Services selection (#35), if one is waiting.
+    ///
+    /// With a library, the file is created inside it (Quoin already holds
+    /// security scope on the root — no new entitlement). With no library,
+    /// `createDocument` returns nil and we fall back to the powerbox save panel,
+    /// which the existing user-selected read-write entitlement permits — so the
+    /// service works even before a library is set up.
+    private func consumePendingSelectionSeed() {
+        guard let seed = AppDelegate.pendingSelectionSeed else { return }
+        AppDelegate.pendingSelectionSeed = nil
+        if let url = library.createDocument(baseName: seed.baseName, content: seed.content) {
+            open(url)
+        } else {
+            saveSelectionViaPanel(seed)
+        }
+    }
+
+    /// No-library fallback for the Services selection: a save panel (powerbox)
+    /// lets the user place the new document anywhere; the grant it returns is
+    /// what makes the write + subsequent open legal in the sandbox.
+    private func saveSelectionViaPanel(_ seed: NewDocumentSeed.Seed) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.markdownDocument]
+        panel.nameFieldStringValue = seed.baseName + ".md"
+        panel.message = "Choose where to save the new document."
+        panel.prompt = "Create"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard (try? Data(seed.content.utf8).write(to: url)) != nil else {
             NSSound.beep()
             return
         }

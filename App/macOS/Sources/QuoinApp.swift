@@ -569,6 +569,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// a cold launch — where the URL arrives before any window's observer is
     /// installed — can still drain it from the first window's `onAppear`.
     static let openDeepLinkNotification = Notification.Name("quoin.openDeepLink")
+    /// The Services provider ("New Quoin Document with Selection", #35) captured
+    /// a selection from another app. The seed is stashed in
+    /// `pendingSelectionSeed`; the key window creates + opens a document from it
+    /// (or falls back to a save panel when no library is configured). A slot
+    /// (not the notification's userInfo) is used so a cold launch — where the
+    /// service message arrives before any window's observer exists — can still
+    /// drain it from the first window's `onAppear`, exactly like a deep link.
+    static let newDocumentWithSelectionNotification = Notification.Name("quoin.newDocumentWithSelection")
     static let toggleSidebarNotification = Notification.Name("quoin.toggleSidebar")
     static let toggleOutlineNotification = Notification.Name("quoin.toggleOutline")
     static let toggleEditSourceNotification = Notification.Name("quoin.toggleEditSource")
@@ -659,6 +667,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Register as a Services PROVIDER (#35). The NSServices array in
+        // Info.plist declares the menu item + NSMessage; this hands macOS the
+        // object whose @objc `newDocumentWithSelection(_:userData:error:)`
+        // handles it. Quoin stays a services *requestor* too — NSTextView's
+        // built-in Services support is untouched by registering a provider.
+        NSApp.servicesProvider = self
         // Quoin has its own document tabs; the system window-tab items
         // ("Show Tab Bar" etc.) would only confuse the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false
@@ -690,6 +704,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// main actor from `application(_:open:)`, drained by MainWindow. `nil`
     /// between deliveries.
     static var pendingDeepLink: QuoinURLScheme.DeepLink?
+
+    /// A Services selection waiting to become a document (#35). Set on the main
+    /// actor from `newDocumentWithSelection(_:userData:error:)`, drained by
+    /// MainWindow (either its notification observer, warm, or its `onAppear`,
+    /// cold). `nil` between deliveries.
+    static var pendingSelectionSeed: NewDocumentSeed.Seed?
+
+    /// Services provider (#35): "New Quoin Document with Selection". macOS calls
+    /// this — the selector is the Info.plist `NSMessage` — with the sending
+    /// app's selection on `pboard`. We stash a `NewDocumentSeed` and hand off to
+    /// the key window (which owns the library + its security scope) via the same
+    /// activate-then-post handshake a `quoin://` deep link uses; the window
+    /// creates the file in the library, or falls back to a save panel when no
+    /// library is configured. Thin by design: all naming/content logic lives in
+    /// the unit-tested `NewDocumentSeed` seam.
+    @objc func newDocumentWithSelection(
+        _ pboard: NSPasteboard,
+        userData: String?,
+        error: AutoreleasingUnsafeMutablePointer<NSString>?
+    ) {
+        guard let text = pboard.string(forType: .string),
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            error?.pointee = "No text was available to make a document from." as NSString
+            return
+        }
+        Self.pendingSelectionSeed = NewDocumentSeed.make(fromSelection: text)
+        NSApp.activate(ignoringOtherApps: true)
+        NotificationCenter.default.post(name: Self.newDocumentWithSelectionNotification, object: nil)
+    }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
