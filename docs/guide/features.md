@@ -411,11 +411,15 @@ degrade predictably instead of failing in an opaque sandbox.
 
 ## Export & interop
 
-- Export to **Markdown** (round-trip), **plain text**, or **HTML** (via
-  **Export…**, ⇧⌘E), and **Print…** with ⌘P. **Page Setup…** (⇧⌘P) sets the
-  paper size and orientation the print job uses.
+- Export to **PDF**, **HTML**, **Markdown** (round-trip), **RTF**, or **plain
+  text** (via **Export…**, ⇧⌘E), and **Print…** with ⌘P. **Page Setup…** (⇧⌘P)
+  sets the paper size and orientation the print job uses. Exports render at
+  100% regardless of the reading-view zoom.
 
-  ![Export sheet with Markdown, plain text, and HTML options](../images/export-sheet.png)
+  ![Export sheet with PDF, HTML, Markdown, RTF, and plain-text options](../images/export-sheet.png)
+
+- **Share** the current document through the system share sheet (AirDrop, Mail,
+  Messages, or any share extension) from the toolbar Share button.
 
 - Everything is a plain file. Any tool that writes markdown — or RDFM /
   CriticMarkup — produces Quoin documents. There is no lock-in and no service:

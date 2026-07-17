@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/2389-research/Quoin/actions/workflows/ci.yml/badge.svg)](https://github.com/2389-research/Quoin/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/platform-macOS%2014%2B-blue)](https://www.apple.com/macos/)
-[![Swift](https://img.shields.io/badge/Swift-6.2-orange)](https://swift.org)
+[![Swift](https://img.shields.io/badge/Swift-6.0-orange)](https://swift.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 **A native WYSIWYG markdown editor for macOS with a review loop that lives
@@ -228,7 +228,7 @@ A scannable tour; the full walkthrough is in
 | Math (LaTeX, `$…$` / `$$…$$` / `\(…\)` / `\[…\]`) | ✅ | native TeX-style typesetting via Vinculum (~400 commands) |
 | Diagrams (Mermaid fenced blocks) | ✅ | native layout + drawing via MermaidKit |
 | Raw HTML blocks | 🟡 | shown as a labelled source card (no HTML engine, by design) |
-| Local images | ✅ | async decode at display size; drag-and-drop copies into `assets/` |
+| Local images | ✅ | async decode at display size; drag-and-drop **or paste (⌘V)** copies into `assets/` |
 | Remote images | 🟡 | placeholder by default (local-only policy) |
 
 Rich blocks — callouts, tables, task lists, and code — rendered natively:
@@ -263,6 +263,15 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Word count, reading time, per-element statistics | ✅ |
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
 | Dark mode (code canvas constant across appearances, per design spec) | ✅ |
+| Text zoom (⌘= / ⌘− / ⌃⌘0) — reading-view scale; exports render at 100% | ✅ |
+| Structural commands (Format ▸ Structure) — heading level/cycle, toggle bullet/numbered list, block quote, checkbox (⌃⌘↩) | ✅ |
+| List editing — Tab/⇧Tab indent, Return continues the list; word-granular undo | ✅ |
+| Wrap Lines / No-Wrap (View menu) | ✅ |
+| Continuous spell-check | ✅ |
+| Paste a clipboard image → copied into `assets/` with an `![](…)` reference | ✅ |
+| System Share (ShareLink — AirDrop / Mail / Messages) | ✅ |
+| Page Setup (⇧⌘P), Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥), context-aware Undo naming | ✅ |
+| File encoding detection on open (UTF-8 / UTF-16 / Latin-1), preserved on save | ✅ |
 | Accessibility — chrome scales with Dynamic Type; Reduce Motion & Reduce Transparency honored | ✅ |
 | Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
@@ -344,10 +353,10 @@ paths are in the [screenshot manifest](docs/guide/screenshots.md).
 ## Performance
 
 Budgets from the product spec, enforced in CI (`PerformanceTests`);
-representative benchmarks on a ~1.2 MB / 5,402-line / 2,701-block document
+representative benchmarks on a ~1.2 MB / 21,710-line / 2,804-block document
 ([`docs/reference/performance.md`](docs/reference/performance.md)):
 
-- Parse 1 MB of markdown to interactive: **< 1 s** (initial full parse ~345 ms)
+- Parse 1 MB of markdown to interactive: **< 1 s** (initial full parse ~415 ms)
 - Apply one byte-precise middle edit: **~0.8 ms**; incremental parse-after-edit
   fast path: **~9 ms**
 - Keystroke → paint: one block re-rendered, one region re-laid-out (fragment
@@ -367,7 +376,7 @@ full parse otherwise.
 ```mermaid
 flowchart TD
     e["SourceEdit arrives"] --> q{"Edit confined to<br/>one block's byte range?"}
-    q -->|no| full["Full re-parse<br/>(~345 ms / MB)"]
+    q -->|no| full["Full re-parse<br/>(~415 ms / MB)"]
     q -->|yes| s{"Any absolute-offset<br/>nodes in the document?<br/>(e.g. suggestion marks)"}
     s -->|"yes (stats.suggestionCount > 0)"| full
     s -->|no| fast["Incremental parse-after-edit<br/>(~9 ms): re-parse the touched<br/>block, splice its range"]

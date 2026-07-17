@@ -85,12 +85,18 @@ state entanglement): §1 secondary `toggleTask` / `measureVisibleRuns` /
 The dominant theme. Four units have absorbed too many responsibilities; each has
 clean, already-latent seams to split along.
 
+> This is the ORIGINAL findings table (2026‑07‑15). The **Status** section above
+> records what actually shipped vs. was declined — e.g. `updateNSView` and the
+> `Builder → FootnoteCollector` split are ✅ done; the `AttributedRenderer` and
+> `ReaderCoordinator` splits were deliberately declined (they grew, so their
+> counts here are refreshed). Read Status for current state.
+
 | Unit | Size | Split along |
 | --- | --- | --- |
-| `MarkdownReaderView.updateNSView` | **358 lines**, ~18 jobs | (a) `Coordinator.applyProjection(rendered:in:)` for the whole revision-apply block; (b) one `applyX` per generation-fired command (scroll target, search, format, focus, annotation, flash…), driven from an ordered list. |
-| `ReaderCoordinator` (`Coordinator`) | **2,691 lines**, ~35 props, 8 subsystems | Extract collaborators it owns and delegates to: `FocusDimmer`, `SearchHighlighter`, `LinkHoverController`, `AnnotationController`, `PreviewPanelManager`. Each already has private state that moves cleanly. |
-| `AttributedRenderer` | **2,379 lines**, ~6 jobs | Four-way split: `BlockRenderer`, `InlineRenderer`, `RevealProjector` (reveal + preview-panel + HeldPreview), `IncrementalPatchPlanner`; keep `AttributedRenderer` as the thin composing facade. |
-| `MarkdownConverter.Builder` | **~600 lines**, god-object | Extract `FootnoteCollector`, `InlineAssembler` (`assembleInlines`/`assembleCriticInlines`/`spliceInlineMath`), and a stats accumulator; leave `Builder` as the tree walk only. |
+| `MarkdownReaderView.updateNSView` (✅ shipped) | **358 lines**, ~18 jobs | (a) `Coordinator.applyProjection(rendered:in:)` for the whole revision-apply block; (b) one `applyX` per generation-fired command (scroll target, search, format, focus, annotation, flash…), driven from an ordered list. |
+| `ReaderCoordinator` (`Coordinator`) | **2,894 lines**, ~35 props, 8 subsystems | Extract collaborators it owns and delegates to: `FocusDimmer`, `SearchHighlighter`, `LinkHoverController`, `AnnotationController`, `PreviewPanelManager`. Each already has private state that moves cleanly. |
+| `AttributedRenderer` | **2,329 lines**, ~6 jobs | Four-way split: `BlockRenderer`, `InlineRenderer`, `RevealProjector` (reveal + preview-panel + HeldPreview), `IncrementalPatchPlanner`; keep `AttributedRenderer` as the thin composing facade. |
+| `MarkdownConverter.Builder` (✅ FootnoteCollector split shipped) | **~600 lines**, god-object | Extract `FootnoteCollector`, `InlineAssembler` (`assembleInlines`/`assembleCriticInlines`/`spliceInlineMath`), and a stats accumulator; leave `Builder` as the tree walk only. |
 
 Secondary function-level decomposition:
 - **M** `AttributedRenderer.renderInline` `.suggestion` case (~60 lines, nested 5-way switch) → extract `renderSuggestion(kind:markRange:attributes:)`.
@@ -140,7 +146,6 @@ and, in one case, tripled.
 
 - **M** `MarkdownReaderView`: ~45 stored members + a 40-argument positional `init` — call sites are unreadable and grow combinatorially. → Group callbacks into small `Sendable` config structs (`EditingCallbacks`, `ReviewCallbacks`, `FlashConfig`).
 - **M** `AttributedRenderer`: separator logic is five scattered methods asserting "THE single SeparatorPolicy derivation" that isn't a type. → Extract a real `SeparatorPolicy` value type (characters + clamp styling + length).
-- **M** `AttributedRenderer`: `renderMermaidFallback`/`renderMathBlockFallback` are the PRIMARY native paths — "Fallback" names the exception. → Rename to `renderMermaid`/`renderMathBlock`; reserve "fallback" for the source-card branch.
 - **M** `ReaderCoordinator`: `@objc` menu handlers smuggle payloads through `representedObject as? [Any]` positional arrays. → Box each in a tiny typed `@objc` reference type.
 - **M** `MarkdownConverter.Builder` rebinds mutable cursor state (`lineIndex`, `baseOffset`) mid-walk, so `absoluteRange` silently depends on call order. → Thread a small `SegmentCursor` value instead.
 - **L** `QuoinTextView`: `lastReportedEditingFrame: CGRect??` tri-state → explicit `enum LastFrameReport { case none, some(CGRect?) }`.

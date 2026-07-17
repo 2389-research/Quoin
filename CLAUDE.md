@@ -39,7 +39,9 @@ Swift/SwiftUI + TextKit 2, zero JavaScript at runtime, local-only.
 ## Dependency policy
 
 One code dependency: swift-markdown. Anything new requires written
-justification in the TRD first; the default answer is no.
+justification in `docs/reference/dependencies.md` first (plus an allowlist
+entry in `scripts/check-dependency-policy.sh`, which fails CI otherwise); the
+default answer is no.
 
 ## Layout
 
