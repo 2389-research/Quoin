@@ -247,7 +247,10 @@ ABOUTME: Fully self-contained (inline CSS/JS); asset URLs go through relURL. */ 
         </ul>
       </div>
       <figure>
-        <img src="{{ "images/review-panel.png" | relURL }}" alt="Review inspector cards beside a marked-up document: suggestion and comment cards with author, timestamp, and Accept / Reject / Dismiss">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="{{ "images/review-panel-dark.png" | relURL }}">
+          <img src="{{ "images/review-panel.png" | relURL }}" alt="Review inspector cards beside a marked-up document: suggestion and comment cards with author, timestamp, and Accept / Reject / Dismiss">
+        </picture>
         <figcaption>A spec under review — tracked changes inline, each mark an actionable card.</figcaption>
       </figure>
     </div>

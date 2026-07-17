@@ -77,12 +77,15 @@ only, not committed).
 | `05-dark-document` | `-QuoinForceDarkMode YES` | Showcase, dark appearance | — |
 | `06-dark-engines` | `-QuoinForceDarkMode YES` | Engines, dark appearance | — |
 | `07-syntax-reveal` | click into body | Active-block source reveal | — |
+| `07-syntax-reveal-dark` | click into body, `-QuoinForceDarkMode YES` | Active-block source reveal, dark | `docs/images/syntax-reveal-dark.png` — site |
 | `08-find-bar` | `-QuoinShotOpen engines.md -QuoinShotState find` | Find bar + match count | — |
 | `09-export-sheet` | `-QuoinShotOpen engines.md -QuoinShotState export` | Export (MD/HTML/PDF) sheet | — |
 | `10-quick-open` | `-QuoinShotState quickopen` | Quick-open panel with results | — |
 | `11-library-search` | `-QuoinShotState libsearch` | Library full-text search | — |
 | `12-gallery-diagrams` | `-QuoinShotOpen gallery-diagrams.md` | Diagram gallery | `docs/images/gallery-diagrams.png` — README |
+| `12-gallery-diagrams-dark` | `-QuoinShotOpen gallery-diagrams.md -QuoinForceDarkMode YES` | Diagram gallery, dark | `docs/images/gallery-diagrams-dark.png` — site |
 | `13-gallery-math` | `-QuoinShotOpen gallery-math.md` | Math gallery | `docs/images/gallery-math.png` — README |
+| `13-gallery-math-dark` | `-QuoinShotOpen gallery-math.md -QuoinForceDarkMode YES` | Math gallery, dark | `docs/images/gallery-math-dark.png` — site |
 | `14-gallery-blocks` | `-QuoinShotOpen gallery-blocks.md` | Blocks / callouts / tables | `docs/images/gallery-blocks.png` — README |
 | `15-review-panel` | `-QuoinShotState review` | Review inspector: suggestion + comment cards (21-suggestion fixture) | `docs/images/review-panel.png` — README, PRODUCT |
 | `15-review-panel-dark` | `-QuoinShotState review -QuoinForceDarkMode YES` | Review inspector, dark appearance | `docs/images/review-panel-dark.png` — README |

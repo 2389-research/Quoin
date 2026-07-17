@@ -148,6 +148,14 @@ final class ScreenshotTests: XCTestCase {
             row.click()
             Thread.sleep(forTimeInterval: 2)
             capture(name: "05-dark-document", window: window)
+
+            // Syntax reveal in dark: click into the body to activate a block.
+            let textView = app.textViews.firstMatch
+            if textView.exists {
+                textView.click()
+                Thread.sleep(forTimeInterval: 1.5)
+                capture(name: "07-syntax-reveal-dark", window: window)
+            }
         }
         let engines = app.staticTexts["engines"]
         if engines.waitForExistence(timeout: 3) {
@@ -205,17 +213,22 @@ final class ScreenshotTests: XCTestCase {
     func testCaptureFeatureGallery() throws {
         try FileManager.default.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
 
-        let shots: [(fixture: String, name: String)] = [
-            ("gallery-diagrams", "12-gallery-diagrams"),
-            ("gallery-math", "13-gallery-math"),
-            ("gallery-blocks", "14-gallery-blocks"),
+        // The site shows the diagram/math galleries with a `<picture>` dark
+        // source, so both galleries get a `-dark` companion; blocks stays
+        // light-only (README only).
+        let shots: [(fixture: String, name: String, dark: Bool)] = [
+            ("gallery-diagrams", "12-gallery-diagrams", false),
+            ("gallery-math", "13-gallery-math", false),
+            ("gallery-blocks", "14-gallery-blocks", false),
+            ("gallery-diagrams", "12-gallery-diagrams-dark", true),
+            ("gallery-math", "13-gallery-math-dark", true),
         ]
         for entry in shots {
             let app = XCUIApplication()
             app.launchArguments = [
                 "-QuoinLibraryPath", fixturesPath,
                 "-QuoinShotOpen", "\(entry.fixture).md",
-            ]
+            ] + (entry.dark ? ["-QuoinForceDarkMode", "YES"] : [])
             app.launch()
             let window = app.windows.firstMatch
             XCTAssertTrue(window.waitForExistence(timeout: 10))
