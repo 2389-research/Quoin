@@ -3,11 +3,17 @@ import Foundation
 /// Hard limits for the Quick Look "fast/bounded" render mode (issue #8).
 ///
 /// The Quick Look thumbnail/preview extension reuses the SAME parse/render
-/// path as the app, but under caps so a pathological `.md` file can never
-/// hang Finder or Spotlight: the input is truncated to a byte budget before
-/// parsing, and the parsed document is reduced to a bounded block list with
-/// expensive embeds (Mermaid diagrams, display math) swapped for lightweight
-/// placeholders — the extension NEVER runs the full Mermaid/Vinculum layout.
+/// path as the app, but under caps that keep a pathological `.md` file cheap
+/// to preview: the input is truncated to a byte budget BEFORE parsing, and the
+/// parsed document is reduced to a bounded block list with expensive embeds
+/// (Mermaid diagrams, display math) swapped for lightweight placeholders — the
+/// extension NEVER runs the full Mermaid/Vinculum layout. These are caps on
+/// input SIZE and layout WORK, not a wall-clock deadline; cmark-gfm is ~linear
+/// at these sizes, and the OS Quick Look agent's own watchdog is the final
+/// backstop for a stuck render (it yields no preview, never a Finder hang).
+/// Raw HTML (the one remote-reachable escape hatch) is neutralised to inert
+/// escaped text here, and the HTML preview additionally ships a restrictive CSP
+/// — see QuickLookContent.
 ///
 /// This is pure, platform-free logic (which blocks survive, how they are
 /// truncated, what the placeholders say) so it is unit-tested in
@@ -225,8 +231,23 @@ public enum BoundedPreview {
                          kind: .callout(kind: kind, children: reduceContainer(children, bounds: bounds, counter: &counter)),
                          range: block.range)
 
-        case .frontMatter, .reviewEndmatter, .tableOfContents, .thematicBreak, .htmlBlock:
-            // Cheap to render as-is; no embedded layout to worry about.
+        case .htmlBlock(let html):
+            // Raw HTML is the one escape hatch that could reach the network:
+            // a `<img src="https://tracker…">`, `<iframe>`, or remote
+            // `<link rel=stylesheet>` would fire when Quick Look renders the
+            // preview HTML in its own WebView — a tracking-pixel vector
+            // directly contrary to the local-only guarantee. Neutralise it to
+            // inert, escaped source text (a code block, clipped to the line
+            // budget) so the preview shows WHAT the HTML is without ever
+            // letting it fetch anything. (The HTML preview also carries a
+            // restrictive CSP as a second layer; see QuickLookContent.)
+            return Block(id: block.id,
+                         kind: .codeBlock(language: nil, code: clip(html, lines: bounds.maxCodeLines)),
+                         range: block.range)
+
+        case .frontMatter, .reviewEndmatter, .tableOfContents, .thematicBreak:
+            // Cheap to render as-is; no embedded layout to worry about, and
+            // HTMLExporter escapes their contents (no raw HTML reaches output).
             return block
         }
     }
@@ -282,7 +303,12 @@ public enum BoundedPreview {
             return .highlight(reduce(c), color)
         case .link(let destination, let c):
             return .link(destination: destination, children: reduce(c))
-        case .text, .code, .footnoteReference, .suggestion, .softBreak, .lineBreak, .html:
+        case .html(let raw):
+            // Neutralise inline raw HTML too: emit it as inert text (escaped
+            // downstream by HTMLExporter) rather than verbatim, so no inline
+            // `<img>`/tag can reach a remote resource from the preview.
+            return .text(raw)
+        case .text, .code, .footnoteReference, .suggestion, .softBreak, .lineBreak:
             return inline
         }
     }

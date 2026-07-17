@@ -246,6 +246,59 @@ final class BoundedPreviewTests: XCTestCase {
         XCTAssertFalse(html.contains("<img"))
     }
 
+    // MARK: - Raw HTML neutralisation (local-only guarantee)
+
+    func testRawHTMLBlockIsNeutralisedNotPassedThrough() {
+        // A tracking-pixel HTML block must NOT survive verbatim into the
+        // bounded model or the exported preview HTML — otherwise Quick Look's
+        // WebView would fetch the remote resource.
+        let source = "<img src=\"https://tracker.example.com/p.png?id=recipient\">"
+        let bounded = BoundedPreview.make(fromSource: source, bounds: .preview)
+        // No raw htmlBlock survives.
+        XCTAssertFalse(containsBlock(bounded.document.blocks) {
+            if case .htmlBlock = $0 { return true } else { return false }
+        }, "raw HTML block must be neutralised, not carried through")
+        let html = HTMLExporter.export(bounded.document, title: "t", baseURL: nil)
+        // The exported preview HTML must not contain a live remote <img>; the
+        // HTML source appears only as escaped, inert text.
+        XCTAssertFalse(html.contains("<img src=\"https://tracker.example.com"),
+                       "no live remote image tag may reach the preview HTML")
+        XCTAssertTrue(html.contains("tracker.example.com"),
+                      "the neutralised source is still shown (escaped) for context")
+    }
+
+    func testInlineRawHTMLIsNeutralised() {
+        let source = "Hello <img src=\"https://tracker.example.com/x.png\"> world."
+        let bounded = BoundedPreview.make(fromSource: source, bounds: .preview)
+        let inlines = allInlines(bounded.document.blocks)
+        XCTAssertFalse(inlines.contains { if case .html = $0 { return true }; return false },
+                       "inline raw HTML must be swapped for inert text")
+        let html = HTMLExporter.export(bounded.document, title: "t", baseURL: nil)
+        XCTAssertFalse(html.contains("<img src=\"https://tracker.example.com"),
+                       "no live remote inline image tag may reach the preview HTML")
+    }
+
+    func testHTMLExporterCSPMetaInjectedWhenRequested() {
+        let doc = MarkdownConverter.parse("# Hi")
+        let policy = "default-src 'none'; style-src 'unsafe-inline'; img-src data:"
+        let withCSP = HTMLExporter.export(doc, contentSecurityPolicy: policy)
+        XCTAssertTrue(
+            withCSP.contains("<meta http-equiv=\"Content-Security-Policy\" content=\"\(policy)\">"),
+            "the exact CSP meta tag must be present when a policy is passed")
+        // The meta lands inside <head>, before the closing </head>.
+        if let head = withCSP.range(of: "</head>") {
+            XCTAssertTrue(
+                withCSP[..<head.lowerBound].contains("Content-Security-Policy"),
+                "the CSP meta must be inside <head>")
+        } else {
+            XCTFail("exported HTML has no </head>")
+        }
+        // Default (nil) export carries no CSP meta.
+        let noCSP = HTMLExporter.export(doc)
+        XCTAssertFalse(noCSP.contains("Content-Security-Policy"),
+                       "app export must not inject a CSP by default")
+    }
+
     // MARK: - Robustness
 
     func testEmptyAndWhitespaceSourceDoesNotCrash() {

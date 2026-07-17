@@ -1024,14 +1024,22 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   core is a bounded preview model in `QuoinCore` (`BoundedPreview`), unit-tested
   by `BoundedPreviewTests`; the Quick Look classes stay thin.
 
-  - **Hard bounds so a pathological file can't hang Finder.** `PreviewBounds`
-    (`.thumbnail` = 256 KB / 40 blocks, `.preview` = 1 MB / 400 blocks) caps the
-    input **before** parsing — the extension reads at most `maxInputBytes + 1`
-    bytes with a `FileHandle` (never materialising a huge file), and
-    `BoundedPreview.truncatedSource` trims to a UTF-8 scalar boundary. The
-    parsed document is then reduced: top-level blocks capped, code blocks
-    clipped to N lines, tables/lists capped to N rows/items, footnotes gated by
-    bounds. Truncation is surfaced (a notice appended to the HTML preview).
+  - **Bounds on input size and layout work — not a wall-clock deadline.**
+    `PreviewBounds` (`.thumbnail` = 256 KB / 40 blocks, `.preview` = 1 MB / 400
+    blocks) caps the input **before** parsing — the extension reads at most
+    `maxInputBytes + 1` bytes with a `FileHandle` (never materialising a huge
+    file), and `BoundedPreview.truncatedSource` trims to a UTF-8 scalar
+    boundary. The parsed document is then reduced: top-level blocks capped, code
+    blocks clipped to N lines, tables/lists capped to N rows/items, footnotes
+    gated by bounds, and the expensive Mermaid/Vinculum layout is never run (see
+    the placeholder policy below). Truncation is surfaced (a notice appended to
+    the HTML preview). These are size/work caps: cmark-gfm is ~linear at these
+    input sizes, so eliminating the dominant costs is what keeps the preview
+    fast. There is deliberately **no** per-render timer inside the extension — a
+    sub-256 KB input that hit a quadratic path in the shared parser would not be
+    aborted by Quoin; the OS Quick Look agent's own watchdog terminates a stuck
+    extension (yielding no thumbnail/preview, never a Finder hang). Adding an
+    internal deadline is a possible follow-up if such an input ever surfaces.
   - **Placeholder policy — no Mermaid/Vinculum layout, no image I/O in the
     extension.** `BoundedPreview` walks the block/inline tree and swaps every
     expensive embed for a lightweight placeholder: a `mermaid` block → a
@@ -1039,6 +1047,20 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
     inline `math` → inline `code` (its LaTeX, no typesetting); `image` → a
     `🖼 alt` text reference. Substitution recurses into quotes, callouts, and
     list items, so nothing nested triggers layout or a file read either.
+  - **Raw HTML is neutralised, and the preview HTML carries a strict CSP.** Raw
+    HTML is the one escape hatch that could reach the network: a Quick Look
+    preview renders the returned HTML in the system's OWN WebView (outside the
+    extension sandbox, so the missing `network.client` entitlement does not
+    block a fetch the page initiates), and a `<img src="https://tracker…">`,
+    `<iframe>`, or remote `<link rel=stylesheet>` would fire as a tracking pixel
+    — contrary to the local-only guarantee. `BoundedPreview` therefore turns a
+    `htmlBlock` into an inert, escaped code block and inline `html` into escaped
+    text (belt), and `QuickLookContent.previewHTML` passes `HTMLExporter` a
+    restrictive `Content-Security-Policy`
+    (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src
+    data:`) that blocks every remote subresource even if some HTML slipped past
+    (suspenders). The interactive app export leaves the CSP nil — there the user
+    WANTS remote images to resolve.
   - **Preview = shared `HTMLExporter`.** `QuoinPreviewExtension` reduces the
     file with `.preview` bounds and returns the app's own `HTMLExporter` output
     as a data-based HTML `QLPreviewReply`. It links **only** `QuoinCore`

@@ -35,6 +35,19 @@ enum QuickLookContent {
         url.deletingPathExtension().lastPathComponent
     }
 
+    /// Restrictive Content-Security-Policy for the preview HTML. Quick Look
+    /// renders the returned HTML in its OWN WebView/host process, outside this
+    /// extension's sandbox, so the missing `network.client` entitlement does
+    /// NOT block a fetch the page itself initiates. This policy is the enforce-
+    /// ment: `default-src 'none'` blocks scripts, iframes, remote images,
+    /// remote stylesheets, fonts, and any connect/fetch; only inline styles
+    /// (the exporter inlines its `<style>`) and `data:` images/fonts are
+    /// allowed — both fully local. Even if raw HTML somehow slipped past the
+    /// reducer's neutralisation, it could not reach the network. (Belt: the
+    /// `BoundedPreview` reducer already turns raw HTML into inert text.)
+    static let previewCSP =
+        "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+
     /// Renders the bounded document to a self-contained HTML string for the
     /// data-based Quick Look preview. Reuses `HTMLExporter` — the same export
     /// path the app uses. `baseURL` is intentionally nil: the bounded model
@@ -42,7 +55,9 @@ enum QuickLookContent {
     /// is ever read (the extension has no entitlement to reach them anyway).
     static func previewHTML(for url: URL) -> String {
         let bounded = boundedDocument(at: url, bounds: .preview)
-        var html = HTMLExporter.export(bounded.document, title: title(for: url), baseURL: nil)
+        var html = HTMLExporter.export(
+            bounded.document, title: title(for: url), baseURL: nil,
+            contentSecurityPolicy: previewCSP)
         if bounded.blocksTruncated || bounded.inputTruncated {
             // Insert a small notice just before </main> so the reader knows
             // the preview is clipped.

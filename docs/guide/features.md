@@ -287,10 +287,12 @@ resolution can never quietly corrupt the document.
   press Space (Quick Look) in Finder or Spotlight — headings, prose, code,
   tables, and callouts, with lightweight placeholders standing in for diagrams
   and math (a `◆ Mermaid diagram` chip, the LaTeX for an equation). It is a
-  fast, bounded mode of the same engine — capped in size and render time so even
-  a huge or pathological file previews instantly and never stalls Finder. The
-  extensions get read-only access to just the file being previewed; nothing
-  leaves your machine.
+  fast, bounded mode of the same engine — the input is capped in size before
+  parsing and the expensive diagram/math layout is skipped entirely, so even a
+  huge file previews quickly. (There's no per-render wall-clock deadline inside
+  the extension; the system's own Quick Look agent is the final watchdog for a
+  stuck preview.) The extensions get read-only access to just the file being
+  previewed; nothing leaves your machine.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.
