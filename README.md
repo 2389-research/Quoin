@@ -216,7 +216,7 @@ A scannable tour; the full walkthrough is in
 | Feature | Status | Notes |
 | :--- | :---: | :--- |
 | CommonMark core (headings, emphasis, lists, links, images, code, quotes, breaks) | ✅ | via swift-markdown / cmark-gfm |
-| GFM tables | ✅ | per-column alignment, numeric columns right-aligned |
+| GFM tables | ✅ | per-column alignment, numeric columns right-aligned; structural editing (insert/delete/move row & column, set alignment, normalize) via right-click and the **Format ▸ Table** menu — no manual pipe surgery |
 | GFM task lists | ✅ | checkboxes toggle with a click and write back to source |
 | GFM strikethrough & autolinks | ✅ | |
 | Callouts / alerts (`> [!NOTE]` …) | ✅ | 5 semantic types: note, tip, important, warning, caution |

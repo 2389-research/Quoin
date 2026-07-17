@@ -1456,11 +1456,17 @@ extension MarkdownReaderView {
                 items.append(commandItem("Move Block Down", "moveDown"))
                 items.append(commandItem("Duplicate Block", "duplicate"))
                 items.append(commandItem("Delete Block", "delete"))
-                if let slice = parent.blockSourceProvider?(id),
-                   slice.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("|") {
+                // Structural table editing (#14): a full row/column/align
+                // submenu, targeting the cell the click fell on. Only shown
+                // for a block the AST recognizes as a table — the single
+                // recognizer of record. Gating on `TableEditing.parse` (which
+                // is lenient enough to accept setext headings and malformed
+                // pipe paragraphs) would surface the submenu where a table op
+                // would corrupt the block (two-recognizers-diverge, CLAUDE.md).
+                if parent.isTableBlockProvider?(id) == true {
+                    let target = tableGridLocation(forCharIndex: index, blockID: id)
                     items.append(NSMenuItem.separator())
-                    items.append(commandItem("Add Table Row", "addTableRow"))
-                    items.append(commandItem("Add Table Column", "addTableColumn"))
+                    items.append(tableSubmenuItem(index: index, target: target))
                 }
             }
             guard !items.isEmpty else { return }
@@ -1646,11 +1652,82 @@ extension MarkdownReaderView {
             NSPasteboard.general.setString(source, forType: .string)
         }
 
+        /// The table grid coordinates (row 0 = header, 0-based column) of a
+        /// right-click at rendered char `index` inside table block `id`. When
+        /// the table is the active (revealed) block, the storage text is its
+        /// verbatim source so the offset maps 1:1; otherwise the click's
+        /// rendered offset is mapped through `EditMapping` before the grid
+        /// lookup. Falls back to the header's first cell if anything is
+        /// unmappable — a safe, never-corrupting default.
+        private func tableGridLocation(
+            forCharIndex index: Int, blockID id: BlockID
+        ) -> (row: Int, column: Int) {
+            guard let source = parent.blockSourceProvider?(id),
+                  let blockRange = blockRanges[id] else { return (0, 0) }
+            let relRendered = max(0, index - blockRange.location)
+            let sourceOffset: Int
+            if id == parent.rendered.activeBlockID {
+                sourceOffset = relRendered
+            } else if let storage = textView?.textContentStorage?.textStorage,
+                      NSMaxRange(blockRange) <= storage.length {
+                let renderedSlice = (storage.string as NSString).substring(with: blockRange)
+                sourceOffset = EditMapping.sourceOffset(
+                    forRenderedOffset: relRendered,
+                    renderedText: renderedSlice, sourceText: source)
+            } else {
+                sourceOffset = relRendered
+            }
+            return TableEditing.location(forOffsetUTF16: sourceOffset, in: source) ?? (0, 0)
+        }
+
+        /// Builds the "Table" submenu (#14). Each item carries `[index, name,
+        /// row, column]`; `contextBlockCommand` decodes the target.
+        private func tableSubmenuItem(index: Int, target: (row: Int, column: Int)) -> NSMenuItem {
+            let root = NSMenuItem(title: "Table", action: nil, keyEquivalent: "")
+            let submenu = NSMenu(title: "Table")
+            func item(_ title: String, _ name: String) -> NSMenuItem {
+                let entry = NSMenuItem(
+                    title: title, action: #selector(contextBlockCommand(_:)), keyEquivalent: "")
+                entry.target = self
+                entry.representedObject = [index, name, target.row, target.column] as [Any]
+                return entry
+            }
+            submenu.addItem(item("Insert Row Above", "insertRowAbove"))
+            submenu.addItem(item("Insert Row Below", "insertRowBelow"))
+            submenu.addItem(item("Delete Row", "deleteRow"))
+            submenu.addItem(.separator())
+            submenu.addItem(item("Insert Column Left", "insertColumnLeft"))
+            submenu.addItem(item("Insert Column Right", "insertColumnRight"))
+            submenu.addItem(item("Delete Column", "deleteColumn"))
+            submenu.addItem(.separator())
+            submenu.addItem(item("Move Row Up", "moveRowUp"))
+            submenu.addItem(item("Move Row Down", "moveRowDown"))
+            submenu.addItem(item("Move Column Left", "moveColumnLeft"))
+            submenu.addItem(item("Move Column Right", "moveColumnRight"))
+            submenu.addItem(.separator())
+            let align = NSMenuItem(title: "Align Column", action: nil, keyEquivalent: "")
+            let alignMenu = NSMenu(title: "Align Column")
+            alignMenu.addItem(item("Left", "alignLeft"))
+            alignMenu.addItem(item("Center", "alignCenter"))
+            alignMenu.addItem(item("Right", "alignRight"))
+            alignMenu.addItem(item("None", "alignNone"))
+            align.submenu = alignMenu
+            submenu.addItem(align)
+            submenu.addItem(.separator())
+            submenu.addItem(item("Normalize Table", "normalize"))
+            root.submenu = submenu
+            return root
+        }
+
         @objc private func contextBlockCommand(_ sender: NSMenuItem) {
-            guard let payload = sender.representedObject as? [Any], payload.count == 2,
+            guard let payload = sender.representedObject as? [Any], payload.count >= 2,
                   let index = payload[0] as? Int,
                   let commandName = payload[1] as? String,
                   let id = blockID(atCharIndex: index) else { return }
+            // Table commands carry [index, name, row, column]; block commands
+            // carry [index, name].
+            let row = payload.count > 2 ? (payload[2] as? Int ?? 0) : 0
+            let column = payload.count > 3 ? (payload[3] as? Int ?? 0) : 0
             let command: BlockCommand? = switch commandName {
             case "moveUp": .moveUp
             case "moveDown": .moveDown
@@ -1658,6 +1735,21 @@ extension MarkdownReaderView {
             case "delete": .delete
             case "addTableRow": .addTableRow
             case "addTableColumn": .addTableColumn
+            case "insertRowAbove": .tableInsertRow(at: row, above: true)
+            case "insertRowBelow": .tableInsertRow(at: row, above: false)
+            case "deleteRow": .tableDeleteRow(at: row)
+            case "insertColumnLeft": .tableInsertColumn(at: column, left: true)
+            case "insertColumnRight": .tableInsertColumn(at: column, left: false)
+            case "deleteColumn": .tableDeleteColumn(at: column)
+            case "moveRowUp": .tableMoveRow(at: row, up: true)
+            case "moveRowDown": .tableMoveRow(at: row, up: false)
+            case "moveColumnLeft": .tableMoveColumn(at: column, left: true)
+            case "moveColumnRight": .tableMoveColumn(at: column, left: false)
+            case "alignLeft": .tableSetAlignment(at: column, alignment: .left)
+            case "alignCenter": .tableSetAlignment(at: column, alignment: .center)
+            case "alignRight": .tableSetAlignment(at: column, alignment: .right)
+            case "alignNone": .tableSetAlignment(at: column, alignment: .none)
+            case "normalize": .tableNormalize
             default: nil
             }
             if let command {

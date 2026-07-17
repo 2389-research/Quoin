@@ -10,8 +10,25 @@ public enum FormatCommand: Equatable, Sendable {
 
 /// Block-granularity commands from the context menu (ideas #9/#10/#11);
 /// the host applies them as byte-exact source edits (BlockEditing).
-public enum BlockCommand: Sendable {
-    case moveUp, moveDown, duplicate, delete, addTableRow, addTableColumn
+///
+/// The table cases (#14) carry the grid coordinates of the caret/right-click
+/// so the host can target the exact row/column; the host computes them from
+/// the click point through `TableEditing.location` and passes them here. Row 0
+/// is the header, columns are 0-based. The host still degrades gracefully: any
+/// command on a non-table or an out-of-range target is a quiet no-op.
+public enum BlockCommand: Equatable, Sendable {
+    case moveUp, moveDown, duplicate, delete
+    /// Append a blank row / column at the table's far edge (the legacy #11
+    /// convenience, kept for the "add at end" affordance).
+    case addTableRow, addTableColumn
+    case tableInsertRow(at: Int, above: Bool)
+    case tableDeleteRow(at: Int)
+    case tableInsertColumn(at: Int, left: Bool)
+    case tableDeleteColumn(at: Int)
+    case tableMoveRow(at: Int, up: Bool)
+    case tableMoveColumn(at: Int, left: Bool)
+    case tableSetAlignment(at: Int, alignment: TableAlignment)
+    case tableNormalize
 }
 
 /// Where the caret should land when a block activates, tagged with the
@@ -128,6 +145,12 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// coordinator can map a projection selection to a source byte range for
     /// In-Selection replace.
     public let blockSourceRangeProvider: ((BlockID) -> ByteRange?)?
+    /// Whether a block is a GFM table per the AST — the single recognizer of
+    /// record for the context menu's Table submenu. The render layer holds
+    /// only a projection, so it asks the host; gating on the lenient
+    /// `TableEditing.parse` would surface the submenu on setext headings and
+    /// malformed pipe paragraphs (two-recognizers-diverge, CLAUDE.md).
+    public let isTableBlockProvider: ((BlockID) -> Bool)?
     /// The current text selection mapped to a source byte range (nil when
     /// empty or unmappable) — the find bar scopes In-Selection replace to it.
     public let onSelectionSourceRange: ((ByteRange?) -> Void)?
@@ -240,6 +263,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         editSourceToggleGeneration: Int = 0,
         blockSourceProvider: ((BlockID) -> String?)? = nil,
         blockSourceRangeProvider: ((BlockID) -> ByteRange?)? = nil,
+        isTableBlockProvider: ((BlockID) -> Bool)? = nil,
         onSelectionSourceRange: ((ByteRange?) -> Void)? = nil,
         focusModeEnabled: Bool = false,
         typewriterEnabled: Bool = false,
@@ -288,6 +312,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.editSourceToggleGeneration = editSourceToggleGeneration
         self.blockSourceProvider = blockSourceProvider
         self.blockSourceRangeProvider = blockSourceRangeProvider
+        self.isTableBlockProvider = isTableBlockProvider
         self.onSelectionSourceRange = onSelectionSourceRange
         self.focusModeEnabled = focusModeEnabled
         self.typewriterEnabled = typewriterEnabled
