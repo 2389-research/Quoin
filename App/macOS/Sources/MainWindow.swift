@@ -143,6 +143,19 @@ struct MainWindow: View {
             guard isKeyWindow else { return }
             cycleTab(by: -1)
         }
+        // Window ▸ Select Tab 1–9 (⌘1–9): jump straight to the Nth tab. An
+        // index past the open-tab count is a no-op (the item stays enabled
+        // whenever a document is open — see WindowCommands).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.selectTabNotification)) { note in
+            guard isKeyWindow, let index = note.userInfo?["index"] as? Int,
+                  openTabs.indices.contains(index - 1) else { return }
+            activeTabID = openTabs[index - 1].id
+        }
+        // File ▸ Show in Finder: reveal the active tab's file.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.revealInFinderNotification)) { _ in
+            guard isKeyWindow, let url = activeTab?.url else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([url])
+        }
         // File ▸ Open… (⌘O): native panel, markdown files only.
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openFilePanelNotification)) { _ in
             guard isKeyWindow else { return }
@@ -468,9 +481,13 @@ struct MainWindow: View {
 
     // MARK: - Shortcuts (conflict-audited map from the handoff)
 
-    /// Only what has no menu-bar home: tab switching (⌘1–9) and the
-    /// no-document sidebar-move undo. Everything else moved into REAL
-    /// menus (File/Edit/View/Go/Format — QuoinApp.commands).
+    /// The one shortcut with no menu-bar home: the no-document sidebar-move
+    /// undo. ⌘Z is the universal Undo gesture — Edit ▸ Undo is its conceptual
+    /// home, but that item drives the document session (disabled with no
+    /// document open), so this catches ⌘Z to reverse a sidebar file move made
+    /// while no document is open. Tab switching (⌘1–9) moved into the Window
+    /// menu (issue #5); everything else lives in File/Edit/View/Go/Format
+    /// (QuoinApp.commands).
     private var windowShortcuts: some View {
         Group {
             // ⌘Z undoes sidebar file moves when no document is open;
@@ -478,14 +495,6 @@ struct MainWindow: View {
             if activeTabID == nil {
                 Button("") { library.undoLastMove() }
                     .keyboardShortcut("z", modifiers: .command)
-            }
-            ForEach(1..<10) { index in
-                Button("") {
-                    if openTabs.indices.contains(index - 1) {
-                        activeTabID = openTabs[index - 1].id
-                    }
-                }
-                .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
             }
         }
         .opacity(0)

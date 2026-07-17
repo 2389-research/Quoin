@@ -247,6 +247,9 @@ resolution can never quietly corrupt the document.
 - **Drag out to Finder** — drag any document (or folder) from the sidebar
   straight into the Finder or another app. Because documents are plain files,
   the drop is a real copy of the file — your original stays put in the library.
+  **File ▸ Show in Finder** reveals the document you're editing without hunting
+  for it in the tree (the sidebar's right-click **Reveal in Finder** does the
+  same for any selected file or folder).
 - **`quoin://` links** — a `quoin://open?path=…` link opens a document in the
   library. `path` may be relative to the library root
   (`quoin://open?path=Notes/Today.md`) or an absolute path *inside* it. Links
@@ -302,10 +305,11 @@ resolution can never quietly corrupt the document.
 
   ![Search Library panel showing full-text results across the library](../images/library-search.png)
 
-- **Tabs & navigation** — document tabs (⌘1–9 select by position; **Show Next
-  Tab** ⌃⇥ and **Show Previous Tab** ⌃⇧⇥ cycle through them from the Window
-  menu), jump history **Back** ⌘[ and **Forward** ⌘], a breadcrumb path, and
-  footnote click-to-jump with a hover preview and an ↩ backlink to return.
+- **Tabs & navigation** — document tabs (**Select Tab 1–9** ⌘1–9 pick a tab by
+  position; **Show Next Tab** ⌃⇥ and **Show Previous Tab** ⌃⇧⇥ cycle through
+  them — all in the Window menu), jump history **Back** ⌘[ and **Forward** ⌘],
+  a breadcrumb path, and footnote click-to-jump with a hover preview and an ↩
+  backlink to return.
 
   ![Footnote reference marker with a hover preview popover](../images/footnotes.png)
 

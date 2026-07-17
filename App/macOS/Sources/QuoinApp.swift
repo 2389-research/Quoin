@@ -192,6 +192,14 @@ private struct FileCommands: Commands {
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(hasDocument != true)
             Divider()
+            // Reveal the front document in Finder. The sidebar's context menu
+            // reveals a selected node; this acts on the active tab, so it's
+            // reachable without hunting for the file in the tree (issue #5).
+            // No key equivalent — Finder's own ⌘R meanings vary and the menu
+            // is enough for an infrequent action.
+            Button("Show in Finder") { post(AppDelegate.revealInFinderNotification) }
+                .disabled(hasDocument != true)
+            Divider()
             Button("Change Library Folder…") { post(AppDelegate.changeLibraryNotification) }
         }
     }
@@ -341,11 +349,12 @@ private struct MenuBarCommands: Commands {
 }
 
 /// Window menu: Quoin's own document tabs get standard Show Next/Previous
-/// Tab items (⌃⇥ / ⌃⇧⇥). System window tabbing is off
-/// (`allowsAutomaticWindowTabbing = false`), so these drive Quoin's tab
-/// bar, not native window tabs. They previously existed only as the
-/// invisible ⌘1–9 buttons in MainWindow (issue #29). Enabled only with a
-/// document — with none there is no tab to switch to.
+/// Tab items (⌃⇥ / ⌃⇧⇥) plus the direct Select Tab 1–9 items (⌘1–9). System
+/// window tabbing is off (`allowsAutomaticWindowTabbing = false`), so these
+/// drive Quoin's tab bar, not native window tabs. Show Next/Previous came in
+/// with #29; the numbered items lived only as invisible ⌘1–9 buttons in
+/// MainWindow until this (issue #5). Enabled only with a document — with none
+/// there is no tab to switch to.
 private struct WindowCommands: Commands {
     @FocusedValue(\.quoinHasDocument) private var hasDocument
 
@@ -357,6 +366,18 @@ private struct WindowCommands: Commands {
             Button("Show Previous Tab") { post(AppDelegate.previousTabNotification) }
                 .keyboardShortcut(.tab, modifiers: [.control, .shift])
                 .disabled(hasDocument != true)
+            Divider()
+            // ⌘1–9 select the Nth open tab directly. The item stays enabled
+            // whenever a document is open (the app-level menu can't count the
+            // key window's tabs); selecting past the last tab no-ops, exactly
+            // as the invisible buttons did.
+            ForEach(1..<10) { index in
+                Button("Select Tab \(index)") {
+                    post(AppDelegate.selectTabNotification, userInfo: ["index": index])
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(index)")), modifiers: .command)
+                .disabled(hasDocument != true)
+            }
             Divider()
         }
     }
@@ -551,6 +572,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let pageSetupNotification = Notification.Name("quoin.pageSetup")
     static let nextTabNotification = Notification.Name("quoin.nextTab")
     static let previousTabNotification = Notification.Name("quoin.previousTab")
+    /// Select the Nth open tab (⌘1–9). `userInfo["index"]` is 1-based; an
+    /// index past the open-tab count is a no-op (matches the old invisible
+    /// ⌘1–9 buttons this replaced).
+    static let selectTabNotification = Notification.Name("quoin.selectTab")
+    /// Reveal the KEY window's active document in Finder (File ▸ Show in
+    /// Finder). The sidebar's context menu reveals a SELECTED node; this
+    /// acts on the front document, so it works without a sidebar selection.
+    static let revealInFinderNotification = Notification.Name("quoin.revealInFinder")
     static let toggleFocusModeNotification = Notification.Name("quoin.toggleFocusMode")
     static let toggleSentenceFocusNotification = Notification.Name("quoin.toggleSentenceFocus")
     static let toggleTypewriterNotification = Notification.Name("quoin.toggleTypewriter")
