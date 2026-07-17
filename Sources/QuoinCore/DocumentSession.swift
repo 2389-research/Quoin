@@ -58,10 +58,25 @@ public actor DocumentSession {
     public private(set) var contentRevision = 0
 
     private var watcher: FileWatcher?
+    /// The app's registered `NSFilePresenter` for this document (#32), paired
+    /// with `watcher` over the same lifetime. Held in a `Sendable` handle
+    /// (not a bare stored property) for one reason: `NSFileCoordinator`
+    /// retains a registered presenter STRONGLY, so the presenter's own deinit
+    /// can't be the deregistration backstop — the session's nonisolated deinit
+    /// must call `removeFilePresenter`, and a nonisolated deinit may only touch
+    /// `Sendable` stored state. The handle is a no-op holder on Linux (the
+    /// presenter class doesn't exist there). See `DocumentFilePresenter` for
+    /// the replace-vs-complement rationale.
+    private let presenterHandle = FilePresenterHandle()
     private var continuations: [UUID: AsyncStream<QuoinDocument>.Continuation] = [:]
     /// Hash of content we ourselves just wrote, so the resulting file-system
     /// event is recognized as self-inflicted and not re-published.
     private var selfWriteHash: String?
+    /// The disk hash last surfaced to the conflict banner. A single external
+    /// write can reach the session twice — once via `FileWatcher`, once via
+    /// the file presenter — and the banner must not re-fire for the same disk
+    /// version. Cleared whenever the conflict is resolved.
+    private var conflictOfferedHash: String?
     private var undoStack: [SourceEdit] = []
     private var redoStack: [SourceEdit] = []
     /// Typing-coalescing state: while a run of single-character, contiguous,
@@ -113,7 +128,20 @@ public actor DocumentSession {
         return DocumentSession(source: decoded.source, fileURL: fileURL, encoding: decoded.encoding)
     }
 
+    /// Deregisters the file presenter if the session is torn down without an
+    /// explicit `stopWatching`. `NSFileCoordinator` retains the presenter
+    /// strongly, so this — not the presenter's own deinit — is the reliable
+    /// backstop. Legal from a nonisolated deinit because `presenterHandle` is
+    /// a `Sendable let`, and its `removeAndClear()` is thread-safe and
+    /// idempotent.
+    deinit {
+        presenterHandle.removeAndClear()
+    }
+
     /// Begins publishing snapshots for external file changes. Idempotent.
+    /// Registers both the kqueue `FileWatcher` (catches uncoordinated writers)
+    /// and the `NSFilePresenter` (coordinated participation, #32) over one
+    /// lifetime.
     public func startWatching() {
         guard watcher == nil, let fileURL else { return }
         let newWatcher = FileWatcher(
@@ -129,11 +157,52 @@ public actor DocumentSession {
         )
         watcher = newWatcher
         newWatcher.start()
+        registerPresenter()
     }
 
     public func stopWatching() {
         watcher?.cancel()
         watcher = nil
+        unregisterPresenter()
+    }
+
+    /// Registers a presenter with `NSFileCoordinator` for the current
+    /// `fileURL`. No-op on Linux and when already registered.
+    private func registerPresenter() {
+        #if canImport(Darwin)
+        guard presenterHandle.current == nil, let fileURL else { return }
+        let presenter = DocumentFilePresenter(session: self, url: fileURL)
+        presenterHandle.set(presenter)
+        NSFileCoordinator.addFilePresenter(presenter)
+        #endif
+    }
+
+    /// Deregisters and drops the presenter. No-op when none is registered.
+    private func unregisterPresenter() {
+        presenterHandle.removeAndClear()
+    }
+
+    // MARK: - File-presenter callbacks (bridged onto the actor)
+
+    /// A coordinated writer changed the file's contents. Funnels into the
+    /// same idempotent reload as the watcher; the hash guard collapses the
+    /// duplicate into a no-op.
+    func presenterDidObserveChange() {
+        reloadFromDisk()
+    }
+
+    /// The file moved through coordination. Shares the watcher's
+    /// move-following path (which also re-points the presenter).
+    func presenterDidObserveMove(to url: URL) {
+        followExternalMove(to: url)
+    }
+
+    /// The file is being deleted through coordination. Route into the same
+    /// vanish confirmation the watcher uses; a transient replace re-attaches,
+    /// a real delete detaches.
+    func presenterDidObserveDeletion() {
+        guard let fileURL, !isDetached else { return }
+        scheduleVanishCheck(for: fileURL)
     }
 
     public func setConflictHandler(_ handler: @escaping @Sendable (String) -> Void) {
@@ -164,11 +233,25 @@ public actor DocumentSession {
     /// adopt the new URL so saves keep targeting the user's file instead of
     /// resurrecting the old name. The watcher has already re-armed itself.
     private func followExternalMove(to url: URL) {
+        // Idempotent: the watcher (kqueue) and the presenter can each report
+        // the same move. Compare symlink-resolved paths (F_GETPATH already
+        // returns a resolved path) so a no-op move is dropped and the second
+        // reporter doesn't needlessly re-register the presenter.
+        guard fileURL?.resolvingSymlinksInPath().path
+            != url.resolvingSymlinksInPath().path else { return }
         vanishCheckTask?.cancel()
         vanishCheckTask = nil
         isDetached = false
         didReportDetachedEdit = false
         fileURL = url
+        // Re-point the presenter (if any) at the new location so the app
+        // stays a registered presenter for the moved file. The watcher
+        // re-armed its own descriptor; the presenter must be re-added under
+        // the new URL. No-op on Linux (the handle is always empty there).
+        if presenterHandle.current != nil {
+            unregisterPresenter()
+            registerPresenter()
+        }
     }
 
     // MARK: - Snapshots
@@ -252,7 +335,7 @@ public actor DocumentSession {
     /// check (atomic replaces briefly unlink the path) and then detaches.
     public func reloadFromDisk() {
         guard let fileURL else { return }
-        guard let data = try? FileCoordination.read(fileURL),
+        guard let data = try? FileCoordination.read(fileURL, filePresenter: presenterHandle.current),
               let decoded = Self.decode(data)
         else {
             scheduleVanishCheck(for: fileURL)
@@ -279,7 +362,13 @@ public actor DocumentSession {
         // cancelled so it can't overwrite the disk version while the user
         // decides.
         if isDirty {
+            // One external write can reach here twice (watcher + presenter).
+            // If the banner is already up for this exact disk version, don't
+            // re-fire it. A genuinely NEWER disk version (different hash) does
+            // re-fire so the banner reflects the latest bytes.
+            if hasUnresolvedConflict, conflictOfferedHash == hash { return }
             hasUnresolvedConflict = true
+            conflictOfferedHash = hash
             autosaveTask?.cancel()
             onConflict?(source)
             return
@@ -303,7 +392,7 @@ public actor DocumentSession {
     private func confirmVanished(expecting url: URL) {
         vanishCheckTask = nil
         guard fileURL == url, !isDetached else { return }
-        if let data = try? FileCoordination.read(url), Self.decode(data) != nil {
+        if let data = try? FileCoordination.read(url, filePresenter: presenterHandle.current), Self.decode(data) != nil {
             // Transient (mid-replace): route through the normal reload so
             // the hash/conflict logic applies.
             reloadFromDisk()
@@ -332,6 +421,7 @@ public actor DocumentSession {
     /// Merge-banner resolution: overwrite disk with the local version.
     public func resolveConflictKeepingMine() throws {
         hasUnresolvedConflict = false
+        conflictOfferedHash = nil
         try saveNow()
     }
 
@@ -339,6 +429,7 @@ public actor DocumentSession {
     /// unsaved local edits.
     public func resolveConflictTakingDisk(_ diskSource: String) {
         hasUnresolvedConflict = false
+        conflictOfferedHash = nil
         isDirty = false
         lastSaveError = nil
         autosaveTask?.cancel()
@@ -681,8 +772,10 @@ public actor DocumentSession {
             // holds an emoji) fall back to UTF-8 rather than fail the save.
             let data = source.data(using: fileEncoding) ?? Data(source.utf8)
             // Coordinated write (#32): serialize against the sync daemon so a
-            // synced library doesn't spawn "conflicted copy" files.
-            try FileCoordination.writeAtomic(data, to: url)
+            // synced library doesn't spawn "conflicted copy" files. Passing
+            // our own presenter excludes it from the coordination, so our save
+            // never echoes to our own presentedItemDidChange.
+            try FileCoordination.writeAtomic(data, to: url, filePresenter: presenterHandle.current)
             selfWriteHash = SHA256Hex.hash(of: source)
             lastSaveError = nil
         } catch {
@@ -719,7 +812,7 @@ public actor DocumentSession {
         // Conflict rule: if disk moved under us, re-parse and re-anchor by
         // identity — never by the stale offset.
         if let fileURL,
-           let data = try? FileCoordination.read(fileURL),
+           let data = try? FileCoordination.read(fileURL, filePresenter: presenterHandle.current),
            let diskSource = Self.decode(data)?.source,
            SHA256Hex.hash(of: diskSource) != viewed.sourceHash {
             // Disk moved under us. If we ALSO hold unsaved local edits,
@@ -728,6 +821,7 @@ public actor DocumentSession {
             // does when dirty) and refuse, rather than clobber.
             if isDirty {
                 hasUnresolvedConflict = true
+                conflictOfferedHash = SHA256Hex.hash(of: diskSource)
                 autosaveTask?.cancel()
                 onConflict?(diskSource)
                 throw SessionError.conflictUnresolved(fileURL)
@@ -759,6 +853,7 @@ public actor DocumentSession {
             // offsets don't apply to it, and memory now equals disk, so any
             // pending conflict is resolved toward the disk side.
             hasUnresolvedConflict = false
+            conflictOfferedHash = nil
             isDirty = false
             autosaveTask?.cancel()
             adoptExternal(MarkdownConverter.parse(newSource))

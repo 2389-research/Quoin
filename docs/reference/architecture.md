@@ -135,6 +135,36 @@ through iCloud/Dropbox/Drive doesn't race the sync daemon into "conflicted
 copy" files; a coordinated read also pulls down an undownloaded iCloud
 placeholder before opening rather than failing it as unreadable.
 
+**External-change detection: watcher + presenter (#32).** Two channels feed
+`reloadFromDisk()`, deliberately *complementary*, not redundant:
+
+- `FileWatcher` (kqueue) is the authoritative low-level detector. It catches
+  *every* write to the inode — including *uncoordinated* writers (a `vim` /
+  `sed` save that never touches `NSFileCoordinator`), which a file presenter is
+  not guaranteed to hear — and follows a live-inode move via `F_GETPATH`.
+- `DocumentFilePresenter` (`NSFilePresenter`, Darwin-only) makes the app a
+  first-class participant in file coordination: the sync daemon and other
+  coordinating writers now coordinate *around* our accesses (relinquish /
+  reacquire, deletion accommodation) and announce their writes through the
+  coordinated channel. It is registered/deregistered over the same lifetime as
+  the watcher (`startWatching` / `stopWatching`), held in a `Sendable`
+  `FilePresenterHandle` so the session's nonisolated `deinit` can deregister it
+  (`NSFileCoordinator` retains presenters strongly, so the presenter's own
+  deinit is not a reliable backstop). Callbacks arrive off the actor on the
+  presenter's `operationQueue` and hop on with a non-blocking
+  `Task { await … }`, so the queue never stalls (a blocked presenter queue is
+  the classic coordination deadlock).
+
+The two never double-apply a change: both funnel into the idempotent
+`reloadFromDisk()`, whose source-hash guard collapses a duplicate signal into a
+no-op, and a conflict-while-dirty is deduped by `conflictOfferedHash` so the
+banner fires once per distinct disk version. Self-writes are recognised twice
+over — session-initiated coordinated reads/writes pass the session's own
+presenter, which `NSFileCoordinator` never echoes back to it, and the existing
+`selfWriteHash` still absorbs the kqueue echo of our own save. Linux keeps
+building: the presenter class and coordinator calls are under
+`#if canImport(Darwin)`, and the handle is an inert empty box there.
+
 **Session ownership.** `OpenDocumentStore` is an app-global registry: exactly
 ONE `ReaderModel` (and thus one `DocumentSession` / autosaver) per file, keyed
 by the resolved + standardized URL and ref-counted across every window and tab.

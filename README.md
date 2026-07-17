@@ -255,6 +255,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Outline panel with live section tracking (manual collapse is authoritative) | ✅ |
 | Find in document (⌘F / ⌘G), library-wide search (⇧⌘F) | ✅ |
 | Live reload + non-blocking conflict banner on external change | ✅ |
+| Coordinated file access for synced libraries — `NSFileCoordinator` reads/writes + registered `NSFilePresenter` (iCloud/Dropbox/Drive) | ✅ |
 | Source-level undo/redo through the session | ✅ |
 | First-H1 auto-rename of Untitled files | ✅ |
 | Export: PDF, HTML, Markdown, RTF, TXT — light or dark | ✅ |
