@@ -13,11 +13,19 @@ import Foundation
 enum FileCoordination {
 
     /// Coordinated read of `url`'s contents.
-    static func read(_ url: URL) throws -> Data {
+    ///
+    /// `filePresenter` (the session's own `NSFilePresenter`, when registered)
+    /// is passed through so the coordinator excludes it — a coordinator never
+    /// messages the presenter it was initialized with, so our own reads don't
+    /// churn our own presenter callbacks. Typed `AnyObject?` to keep this one
+    /// signature Linux-buildable (`NSFilePresenter` is Darwin-only); it is
+    /// downcast inside the Darwin branch and ignored elsewhere.
+    static func read(_ url: URL, filePresenter: AnyObject? = nil) throws -> Data {
         #if canImport(Darwin)
         var coordinatorError: NSError?
         var accessorResult: Result<Data, Error>?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter as? NSFilePresenter)
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinatorError) { actualURL in
             accessorResult = Result { try Data(contentsOf: actualURL) }
         }
         if let coordinatorError { throw coordinatorError }
@@ -29,11 +37,17 @@ enum FileCoordination {
     }
 
     /// Coordinated atomic write of `data` to `url`.
-    static func writeAtomic(_ data: Data, to url: URL) throws {
+    ///
+    /// `filePresenter` is excluded from coordination the same way as in
+    /// `read` — our own coordinated write never echoes back to our own
+    /// presenter's `presentedItemDidChange`. (The kqueue `FileWatcher` still
+    /// sees the write; that echo is absorbed by `selfWriteHash`.)
+    static func writeAtomic(_ data: Data, to url: URL, filePresenter: AnyObject? = nil) throws {
         #if canImport(Darwin)
         var coordinatorError: NSError?
         var accessorError: Error?
-        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
+        let coordinator = NSFileCoordinator(filePresenter: filePresenter as? NSFilePresenter)
+        coordinator.coordinate(writingItemAt: url, options: .forReplacing, error: &coordinatorError) { actualURL in
             do { try data.write(to: actualURL, options: .atomic) }
             catch { accessorError = error }
         }
