@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import QuoinCore
 
 @main
 struct QuoinApp: App {
@@ -36,12 +37,10 @@ struct QuoinApp: App {
                 CheckForUpdatesCommand(updater: updater)
             }
             #endif
-            // Format menu: the whole formatting grammar lives in the menu
-            // bar (discoverable), not only behind invisible shortcuts.
-            FormatCommands()
-            ViewCommands()
-            GoCommands()
-            ExportCommands()
+            // Format / View / Go / Window / File-export menus, bundled into
+            // one Commands node so the top-level builder stays under its
+            // 10-child limit.
+            MenuBarCommands()
             // Help menu: real content, not just search (launch ledger L5/L14).
             CommandGroup(replacing: .help) {
                 Button("Markdown Guide") {
@@ -89,6 +88,16 @@ struct QuoinHasDocumentKey: FocusedValueKey {
     typealias Value = Bool
 }
 
+/// The key window's next Undo/Redo action, or nil when that stack is empty.
+/// Drives the Edit menu's item TITLE ("Undo Typing") and its enablement in
+/// one value — nil both disables the item and drops it back to bare "Undo".
+struct QuoinUndoActionKey: FocusedValueKey {
+    typealias Value = UndoActionName
+}
+struct QuoinRedoActionKey: FocusedValueKey {
+    typealias Value = UndoActionName
+}
+
 extension FocusedValues {
     var quoinIsEditingBlock: Bool? {
         get { self[QuoinIsEditingBlockKey.self] }
@@ -98,7 +107,35 @@ extension FocusedValues {
         get { self[QuoinHasDocumentKey.self] }
         set { self[QuoinHasDocumentKey.self] = newValue }
     }
+    var quoinUndoAction: UndoActionName? {
+        get { self[QuoinUndoActionKey.self] }
+        set { self[QuoinUndoActionKey.self] = newValue }
+    }
+    var quoinRedoAction: UndoActionName? {
+        get { self[QuoinRedoActionKey.self] }
+        set { self[QuoinRedoActionKey.self] = newValue }
+    }
+    var quoinFocusMode: Bool? {
+        get { self[QuoinFocusModeKey.self] }
+        set { self[QuoinFocusModeKey.self] = newValue }
+    }
+    var quoinSentenceFocus: Bool? {
+        get { self[QuoinSentenceFocusKey.self] }
+        set { self[QuoinSentenceFocusKey.self] = newValue }
+    }
+    var quoinTypewriter: Bool? {
+        get { self[QuoinTypewriterKey.self] }
+        set { self[QuoinTypewriterKey.self] = newValue }
+    }
 }
+
+/// The key window's PER-WINDOW writing-mode state (#29). The View-menu
+/// toggles read these so their checkmarks follow the focused document, and
+/// flip them by posting a notification the key window observes — @SceneStorage
+/// itself is unreachable from app-level Commands.
+struct QuoinFocusModeKey: FocusedValueKey { typealias Value = Bool }
+struct QuoinSentenceFocusKey: FocusedValueKey { typealias Value = Bool }
+struct QuoinTypewriterKey: FocusedValueKey { typealias Value = Bool }
 
 private func post(_ name: Notification.Name, userInfo: [String: Any]? = nil) {
     NotificationCenter.default.post(name: name, object: nil, userInfo: userInfo)
@@ -164,15 +201,25 @@ private struct FileCommands: Commands {
 /// family, which used to be invisible window-local shortcuts.
 private struct EditCommands: Commands {
     @FocusedValue(\.quoinHasDocument) private var hasDocument
+    // nil means "nothing to undo/redo" — disables the item AND drops its
+    // title back to bare "Undo"/"Redo" (HIG: name the action, disable on
+    // an empty stack). With no document these are nil too, so ⌘Z falls
+    // through to the no-document sidebar-move undo in MainWindow.
+    @FocusedValue(\.quoinUndoAction) private var undoAction
+    @FocusedValue(\.quoinRedoAction) private var redoAction
 
     var body: some Commands {
         CommandGroup(replacing: .undoRedo) {
-            Button("Undo") { post(AppDelegate.undoNotification) }
+            Button(undoAction.map { "Undo \($0.menuTitle)" } ?? "Undo") {
+                post(AppDelegate.undoNotification)
+            }
                 .keyboardShortcut("z", modifiers: .command)
-                .disabled(hasDocument != true)
-            Button("Redo") { post(AppDelegate.redoNotification) }
+                .disabled(undoAction == nil)
+            Button(redoAction.map { "Redo \($0.menuTitle)" } ?? "Redo") {
+                post(AppDelegate.redoNotification)
+            }
                 .keyboardShortcut("z", modifiers: [.command, .shift])
-                .disabled(hasDocument != true)
+                .disabled(redoAction == nil)
         }
         CommandGroup(after: .pasteboard) {
             Divider()
@@ -198,14 +245,27 @@ private struct EditCommands: Commands {
 }
 
 /// View menu: panel toggles + the writing-environment toggles as REAL
-/// checkmarked toggles (they're global @AppStorage preferences, so the
-/// menu binds the same keys the windows read — state can't lie).
+/// checkmarked toggles. Focus/Sentence/Typewriter are now PER-WINDOW (#29):
+/// their checkmarks read the key window's focused value and flip it by
+/// posting a toggle the key window observes (app-level Commands can't read
+/// @SceneStorage). Status Bar and text zoom stay global @AppStorage — they
+/// are app preferences, not per-document writing modes.
 private struct ViewCommands: Commands {
-    @AppStorage("QuoinFocusMode") private var isFocusMode = false
-    @AppStorage("QuoinTypewriter") private var isTypewriter = false
-    @AppStorage("QuoinFocusSentence") private var isSentenceFocus = false
+    @FocusedValue(\.quoinHasDocument) private var hasDocument
+    @FocusedValue(\.quoinFocusMode) private var focusMode
+    @FocusedValue(\.quoinSentenceFocus) private var sentenceFocus
+    @FocusedValue(\.quoinTypewriter) private var typewriter
     @AppStorage("QuoinShowStatusBar") private var showStatusBar = true
     @AppStorage("QuoinTextScale") private var textScale = 1.0
+
+    /// A checkmark that mirrors the key window's per-window state and toggles
+    /// it through a notification (the set value is ignored — the window owns
+    /// the truth and republishes it).
+    private func toggleBinding(
+        _ value: Bool?, _ notification: Notification.Name
+    ) -> Binding<Bool> {
+        Binding(get: { value ?? false }, set: { _ in post(notification) })
+    }
 
     var body: some Commands {
         // Replacing .sidebar also removes the system Toggle Sidebar
@@ -222,11 +282,13 @@ private struct ViewCommands: Commands {
             // Screen — binding it there produced two menu items on one chord.
             // Focus Mode stays reachable via this menu + the toolbar button;
             // a deliberate chord can be assigned from the keyboard map later.
-            Toggle("Focus Mode", isOn: $isFocusMode)
-            Toggle("Sentence Focus", isOn: $isSentenceFocus)
-                .disabled(!isFocusMode)
-            Toggle("Typewriter Scrolling", isOn: $isTypewriter)
+            Toggle("Focus Mode", isOn: toggleBinding(focusMode, AppDelegate.toggleFocusModeNotification))
+                .disabled(hasDocument != true)
+            Toggle("Sentence Focus", isOn: toggleBinding(sentenceFocus, AppDelegate.toggleSentenceFocusNotification))
+                .disabled(hasDocument != true || focusMode != true)
+            Toggle("Typewriter Scrolling", isOn: toggleBinding(typewriter, AppDelegate.toggleTypewriterNotification))
                 .keyboardShortcut("t", modifiers: [.command, .option])
+                .disabled(hasDocument != true)
             Divider()
             // Document text zoom. ⌘0 is Show/Hide Sidebar, so reset is ⌃⌘0.
             Button("Zoom In") { textScale = min((textScale > 0 ? textScale : 1) + 0.1, 2.5) }
@@ -261,6 +323,41 @@ private struct GoCommands: Commands {
     }
 }
 
+/// Bundles the discoverable menus (Format, View, Go, Window, File-export)
+/// into a single `Commands` node — the App's top-level `.commands` builder
+/// caps at ten children, and Window/Next-Previous-Tab (#29) was the eleventh.
+private struct MenuBarCommands: Commands {
+    var body: some Commands {
+        FormatCommands()
+        ViewCommands()
+        GoCommands()
+        WindowCommands()
+        ExportCommands()
+    }
+}
+
+/// Window menu: Quoin's own document tabs get standard Show Next/Previous
+/// Tab items (⌃⇥ / ⌃⇧⇥). System window tabbing is off
+/// (`allowsAutomaticWindowTabbing = false`), so these drive Quoin's tab
+/// bar, not native window tabs. They previously existed only as the
+/// invisible ⌘1–9 buttons in MainWindow (issue #29). Enabled only with a
+/// document — with none there is no tab to switch to.
+private struct WindowCommands: Commands {
+    @FocusedValue(\.quoinHasDocument) private var hasDocument
+
+    var body: some Commands {
+        CommandGroup(before: .windowArrangement) {
+            Button("Show Next Tab") { post(AppDelegate.nextTabNotification) }
+                .keyboardShortcut(.tab, modifiers: .control)
+                .disabled(hasDocument != true)
+            Button("Show Previous Tab") { post(AppDelegate.previousTabNotification) }
+                .keyboardShortcut(.tab, modifiers: [.control, .shift])
+                .disabled(hasDocument != true)
+            Divider()
+        }
+    }
+}
+
 /// File ▸ Export…/Print… — enabled only with a document to act on.
 private struct ExportCommands: Commands {
     @FocusedValue(\.quoinHasDocument) private var hasDocument
@@ -269,6 +366,12 @@ private struct ExportCommands: Commands {
         CommandGroup(after: .importExport) {
             Button("Export…") { post(AppDelegate.exportNotification) }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
+                .disabled(hasDocument != true)
+            // Page Setup… (⇧⌘P) sits directly above Print, the standard File-
+            // menu pairing. ⇧⌘P is free (⌘P is Print; we never take the
+            // system's ⌘P meaning). Both gate on a document to act on.
+            Button("Page Setup…") { post(AppDelegate.pageSetupNotification) }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(hasDocument != true)
             Button("Print…") { post(AppDelegate.printNotification) }
                 .keyboardShortcut("p", modifiers: .command)
@@ -406,6 +509,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let redoNotification = Notification.Name("quoin.redo")
     static let exportNotification = Notification.Name("quoin.export")
     static let printNotification = Notification.Name("quoin.print")
+    static let pageSetupNotification = Notification.Name("quoin.pageSetup")
+    static let nextTabNotification = Notification.Name("quoin.nextTab")
+    static let previousTabNotification = Notification.Name("quoin.previousTab")
+    static let toggleFocusModeNotification = Notification.Name("quoin.toggleFocusMode")
+    static let toggleSentenceFocusNotification = Notification.Name("quoin.toggleSentenceFocus")
+    static let toggleTypewriterNotification = Notification.Name("quoin.toggleTypewriter")
     static let newDocumentNotification = Notification.Name("quoin.newDocument")
     static let closeTabNotification = Notification.Name("quoin.closeTab")
     static let openFilePanelNotification = Notification.Name("quoin.openFilePanel")
