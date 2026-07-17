@@ -51,6 +51,10 @@ extension MarkdownReaderView {
         weak var activeFlashRing: FlashRingView?
         var appliedQuery: String?
         var appliedOrdinal: Int = -1
+        /// The options + In-Selection scope the current highlights were
+        /// scanned under; a toggle change re-scans just like a query change.
+        var appliedOptions = SearchOptions()
+        var appliedInSelection = false
         var appliedCaretGeneration: Int = -1
         var appliedFormatGeneration: Int = 0
         var appliedEditSourceToggleGeneration: Int = 0
@@ -694,6 +698,12 @@ extension MarkdownReaderView {
                   let textView else { return }
             let selection = textView.selectedRange()
 
+            // Find bar In-Selection replace scopes to the selection's source
+            // byte range; report it as the selection moves (nil when empty).
+            if let report = parent.onSelectionSourceRange {
+                report(selectionSourceRange(selection, in: textView))
+            }
+
             // Focus mode follows the caret across blocks.
             refreshFocusDimmingOnSelectionChange(in: textView)
             // Review panel linkage: caret-in-mark highlights its card.
@@ -741,6 +751,47 @@ extension MarkdownReaderView {
                 let hint = blockRanges[id].map { CaretHint.rendered(selection.location - $0.location) }
                 parent.onActivateBlock?(id, hint, nil)
             }
+        }
+
+        /// Maps a projection selection to its footprint in the document
+        /// SOURCE bytes, so In-Selection replace can scope to it. Each
+        /// endpoint is mapped inside the block that holds it (rendered→source
+        /// via `EditMapping`), then offset by that block's absolute source
+        /// range. Returns nil for an empty or unmappable selection — the find
+        /// bar then treats In-Selection replace as "select text first",
+        /// never a whole-document replace.
+        private func selectionSourceRange(_ selection: NSRange, in textView: NSTextView) -> ByteRange? {
+            guard selection.length > 0,
+                  let storage = textView.textContentStorage?.textStorage else { return nil }
+            let text = storage.string as NSString
+            func sourceByte(atCharIndex index: Int, blockProbe: Int) -> Int? {
+                let probe = min(max(0, blockProbe), max(0, text.length - 1))
+                guard let id = blockID(atCharIndex: probe),
+                      let blockRange = blockRanges[id],
+                      let blockSource = parent.blockSourceProvider?(id),
+                      let blockByteRange = parent.blockSourceRangeProvider?(id)
+                else { return nil }
+                let clampedRange = NSIntersectionRange(
+                    blockRange, NSRange(location: 0, length: text.length))
+                guard clampedRange.length == blockRange.length else { return nil }
+                let renderedSlice = text.substring(with: blockRange)
+                let relRendered = min(max(0, index - blockRange.location), blockRange.length)
+                let relSourceUTF16 = EditMapping.sourceOffset(
+                    forRenderedOffset: relRendered, renderedText: renderedSlice, sourceText: blockSource)
+                guard let relSourceByte = EditMapping.utf8Offset(
+                    inText: blockSource, utf16Offset: relSourceUTF16) else { return nil }
+                return blockByteRange.offset + min(relSourceByte, blockByteRange.length)
+            }
+            // The end maps within the block holding the LAST selected
+            // character, so a selection ending at a block boundary does not
+            // spill into the next block.
+            guard let lo = sourceByte(atCharIndex: selection.location, blockProbe: selection.location),
+                  let hi = sourceByte(
+                    atCharIndex: NSMaxRange(selection),
+                    blockProbe: max(selection.location, NSMaxRange(selection) - 1)),
+                  hi > lo
+            else { return nil }
+            return ByteRange(offset: lo, length: hi - lo)
         }
 
         private var lastStyledCaret = -1
@@ -2660,10 +2711,16 @@ extension MarkdownReaderView {
             let query: String
             let ordinal: Int
             let revision: Int
+            let options: SearchOptions
+            let inSelection: Bool
         }
 
-        func applySearch(query: String, activeOrdinal: Int) {
-            guard query != appliedQuery || activeOrdinal != appliedOrdinal else {
+        func applySearch(
+            query: String, activeOrdinal: Int,
+            options: SearchOptions = SearchOptions(), inSelection: Bool = false
+        ) {
+            guard query != appliedQuery || activeOrdinal != appliedOrdinal
+                    || options != appliedOptions || inSelection != appliedInSelection else {
                 // Already applied — a still-pending scan can only be for a
                 // stale intermediate query (typed and reverted); drop it.
                 cancelPendingSearchScan()
@@ -2674,11 +2731,14 @@ extension MarkdownReaderView {
                   let contentStorage = textView.textContentStorage
             else { return }
 
-            let trimmed = query.trimmingCharacters(in: .whitespaces)
+            // A regex pattern's leading/trailing whitespace is significant;
+            // only a literal query is trimmed (a whitespace-only literal is
+            // a no-op, never a document of blanks highlighted).
+            let searchTerm = options.regex ? query : query.trimmingCharacters(in: .whitespaces)
 
             // Clearing (find bar closed / emptied) stays immediate:
             // lingering highlights read as broken.
-            guard !trimmed.isEmpty else {
+            guard !searchTerm.isEmpty else {
                 cancelPendingSearchScan()
                 if hasAppliedSearchHighlights {
                     layoutManager.removeRenderingAttribute(.backgroundColor, for: contentStorage.documentRange)
@@ -2687,13 +2747,16 @@ extension MarkdownReaderView {
                 matchRanges = []
                 appliedQuery = query
                 appliedOrdinal = activeOrdinal
+                appliedOptions = options
+                appliedInSelection = inSelection
                 parent.onMatchCount(0)
                 return
             }
 
-            // ⌘G cycling: same query over the same content — recolor the
-            // two ordinals and scroll; never rescan the document.
-            if query == appliedQuery, activeOrdinal != appliedOrdinal {
+            // ⌘G cycling: same query + options over the same content —
+            // recolor the two ordinals and scroll; never rescan the document.
+            if query == appliedQuery, options == appliedOptions,
+               inSelection == appliedInSelection, activeOrdinal != appliedOrdinal {
                 let theme = parent.theme
                 if appliedOrdinal >= 0, appliedOrdinal < matchRanges.count,
                    let textRange = nsTextRange(matchRanges[appliedOrdinal], in: contentStorage) {
@@ -2716,14 +2779,18 @@ extension MarkdownReaderView {
             // projection): debounce the whole-document scan. A repeat call
             // with the same pending key must NOT push the deadline —
             // unrelated updateNSView passes would otherwise starve the scan.
-            let key = PendingSearchKey(query: query, ordinal: activeOrdinal, revision: appliedRevision)
+            let key = PendingSearchKey(
+                query: query, ordinal: activeOrdinal, revision: appliedRevision,
+                options: options, inSelection: inSelection)
             guard key != pendingSearchKey else { return }
             cancelPendingSearchScan()
             let work = DispatchWorkItem { [weak self] in
                 guard let self else { return }
                 self.pendingSearchScan = nil
                 self.pendingSearchKey = nil
-                self.performSearchScan(query: query, activeOrdinal: activeOrdinal)
+                self.performSearchScan(
+                    query: query, activeOrdinal: activeOrdinal,
+                    options: options, inSelection: inSelection)
             }
             pendingSearchScan = work
             pendingSearchKey = key
@@ -2740,16 +2807,21 @@ extension MarkdownReaderView {
         /// The document-wide scan + repaint — the old synchronous body of
         /// `applySearch`, now behind the debounce. Internal for the
         /// latency budget test.
-        func performSearchScan(query: String, activeOrdinal: Int) {
+        func performSearchScan(
+            query: String, activeOrdinal: Int,
+            options: SearchOptions = SearchOptions(), inSelection: Bool = false
+        ) {
             guard let textView,
                   let layoutManager = textView.textLayoutManager,
                   let contentStorage = textView.textContentStorage,
                   let storage = contentStorage.textStorage
             else { return }
-            let trimmed = query.trimmingCharacters(in: .whitespaces)
+            let searchTerm = options.regex ? query : query.trimmingCharacters(in: .whitespaces)
             defer {
                 appliedQuery = query
                 appliedOrdinal = activeOrdinal
+                appliedOptions = options
+                appliedInSelection = inSelection
                 parent.onMatchCount(matchRanges.count)
             }
 
@@ -2764,26 +2836,24 @@ extension MarkdownReaderView {
                 hasAppliedSearchHighlights = false
             }
             matchRanges = []
-            guard !trimmed.isEmpty else { return }
+            guard !searchTerm.isEmpty else { return }
 
             let haystack = storage.string as NSString
-            var searchRange = NSRange(location: 0, length: haystack.length)
-            while searchRange.length > 0 {
-                // Case-insensitive but diacritic-SENSITIVE, matching
-                // SourceReplace exactly — the highlight/count and Replace-All
-                // must recognize the same occurrences, or "1 of 3" replaces a
-                // different number (a diacritic-insensitive scan highlighted
-                // "café" for "cafe" that the replace then skipped). #23.
-                let found = haystack.range(
-                    of: trimmed,
-                    options: [.caseInsensitive],
-                    range: searchRange
-                )
-                guard found.location != NSNotFound else { break }
-                matchRanges.append(found)
-                let next = found.location + max(found.length, 1)
-                searchRange = NSRange(location: next, length: haystack.length - next)
+            // In-Selection scopes the scan to the current selection; with no
+            // selection the option is inert (whole document), matching the
+            // platform's Find behavior.
+            var scope: NSRange?
+            if inSelection {
+                let selection = textView.selectedRange()
+                if selection.length > 0 { scope = selection }
             }
+            // ONE matcher drives BOTH the highlight/count here and
+            // SourceReplace, so a query can never mean different occurrences
+            // to the "1 of 3" and to Replace-All (#23). A nil result is an
+            // invalid regex — highlight nothing; the find bar shows the
+            // invalid state independently (TextMatcher.isValidQuery).
+            matchRanges = TextMatcher.matches(
+                of: searchTerm, in: haystack, options: options, within: scope) ?? []
 
             let theme = parent.theme
             for (index, range) in matchRanges.enumerated() {

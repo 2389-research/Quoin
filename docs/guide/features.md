@@ -279,6 +279,23 @@ resolution can never quietly corrupt the document.
 
   ![Find bar showing a search term and match count within the current document](../images/find-bar.png)
 
+  The find bar carries four option toggles that apply to both the live
+  highlight/count and to Replace:
+
+  | Toggle | What it does |
+  | :--- | :--- |
+  | **Aa** — Match Case | Case-sensitive matching (off = case-insensitive). Accents are always significant — `cafe` never matches `café`. |
+  | **W** — Whole Word | Match only complete words (bounded by non-word characters). |
+  | **.\*** — Regular Expression | Interpret the query as a regular expression; an invalid pattern turns the field red and matches nothing. |
+  | **In Selection** | Limit find & replace to the current text selection. |
+
+  Match Case, Whole Word, and Regex are sticky across sessions; In Selection
+  is per-use. The same option set drives the highlight, the “_N of M_” count,
+  and Replace / Replace All, so the count you see is exactly what Replace All
+  acts on. Replace reports how many occurrences it changed (“Replaced _N_”).
+  Regex replacement text is inserted literally — `$1`-style capture-group
+  substitution is not performed.
+
   Search Library (⇧⌘F) runs full-text search across every document in the folder:
 
   ![Search Library panel showing full-text results across the library](../images/library-search.png)

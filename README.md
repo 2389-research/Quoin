@@ -197,7 +197,8 @@ A scannable tour; the full walkthrough is in
   preview, and ↩ backlinks.
 - **Organize** — library sidebar (folders = directories), document tabs,
   multi-folder windows, outline panel with live section tracking, quick open,
-  in-document find (⌘F / ⌘G), library-wide search (⇧⌘F), jump history.
+  in-document find & replace (⌘F / ⌘G) with match-case, whole-word, regex,
+  and in-selection options, library-wide search (⇧⌘F), jump history.
 - **Read & render** — CommonMark + GFM (tables, task lists, strikethrough,
   autolinks), callouts, highlights, code with 12 selectable syntax themes,
   native math and diagrams, live reload with a non-blocking external-change
@@ -253,7 +254,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Library sidebar (folders = directories), document tabs, quick open | ✅ |
 | Multi-folder windows — Open Folder in New Window; each window restores its folder on relaunch | ✅ |
 | Outline panel with live section tracking (manual collapse is authoritative) | ✅ |
-| Find in document (⌘F / ⌘G), library-wide search (⇧⌘F) | ✅ |
+| Find & replace in document (⌘F / ⌘G) — match case, whole word, regex, in selection; library-wide search (⇧⌘F) | ✅ |
 | Live reload + non-blocking conflict banner on external change | ✅ |
 | Coordinated file access for synced libraries — `NSFileCoordinator` reads/writes + registered `NSFilePresenter` (iCloud/Dropbox/Drive) | ✅ |
 | Source-level undo/redo through the session | ✅ |

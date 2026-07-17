@@ -59,6 +59,11 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// Live search query; matches are highlighted with rendering attributes
     /// (no layout impact, original backgrounds untouched).
     public let searchQuery: String
+    /// Match rules (case / whole word / regex) shared by the highlight scan
+    /// and `SourceReplace` — ONE recognizer for both (#23).
+    public let searchOptions: SearchOptions
+    /// Scope the find scan to the current text selection.
+    public let searchInSelection: Bool
     /// Which match is "current" (⌘G cycling); scrolled into view.
     public let activeMatchOrdinal: Int
     /// TOC navigation target; `scrollGeneration` bumps to re-apply, so
@@ -119,6 +124,13 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// A block's markdown source slice, for the context menu's Copy
     /// Markdown Source (the render layer holds only the projection).
     public let blockSourceProvider: ((BlockID) -> String?)?
+    /// A block's absolute byte range in the document source, so the
+    /// coordinator can map a projection selection to a source byte range for
+    /// In-Selection replace.
+    public let blockSourceRangeProvider: ((BlockID) -> ByteRange?)?
+    /// The current text selection mapped to a source byte range (nil when
+    /// empty or unmappable) — the find bar scopes In-Selection replace to it.
+    public let onSelectionSourceRange: ((ByteRange?) -> Void)?
     /// Focus mode: every block except the caret's recedes to a fraction
     /// of its ink. Rendering attributes only — no reflow, no re-render.
     public let focusModeEnabled: Bool
@@ -204,6 +216,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         rendered: RenderedDocument,
         theme: Theme = Theme(),
         searchQuery: String = "",
+        searchOptions: SearchOptions = SearchOptions(),
+        searchInSelection: Bool = false,
         activeMatchOrdinal: Int = 0,
         scrollTarget: BlockID? = nil,
         scrollGeneration: Int = 0,
@@ -219,6 +233,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         formatGeneration: Int = 0,
         editSourceToggleGeneration: Int = 0,
         blockSourceProvider: ((BlockID) -> String?)? = nil,
+        blockSourceRangeProvider: ((BlockID) -> ByteRange?)? = nil,
+        onSelectionSourceRange: ((ByteRange?) -> Void)? = nil,
         focusModeEnabled: Bool = false,
         typewriterEnabled: Bool = false,
         onAnchorJump: ((BlockID?) -> Void)? = nil,
@@ -247,6 +263,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.rendered = rendered
         self.theme = theme
         self.searchQuery = searchQuery
+        self.searchOptions = searchOptions
+        self.searchInSelection = searchInSelection
         self.activeMatchOrdinal = activeMatchOrdinal
         self.scrollTarget = scrollTarget
         self.scrollGeneration = scrollGeneration
@@ -262,6 +280,8 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.formatGeneration = formatGeneration
         self.editSourceToggleGeneration = editSourceToggleGeneration
         self.blockSourceProvider = blockSourceProvider
+        self.blockSourceRangeProvider = blockSourceRangeProvider
+        self.onSelectionSourceRange = onSelectionSourceRange
         self.focusModeEnabled = focusModeEnabled
         self.typewriterEnabled = typewriterEnabled
         self.onAnchorJump = onAnchorJump
@@ -705,7 +725,9 @@ public struct MarkdownReaderView: NSViewRepresentable {
         }
 
         QuoinPerformanceTrace.measure("render.search.apply", metadata: "query_empty=\(searchQuery.isEmpty)") {
-            coordinator.applySearch(query: searchQuery, activeOrdinal: activeMatchOrdinal)
+            coordinator.applySearch(
+                query: searchQuery, activeOrdinal: activeMatchOrdinal,
+                options: searchOptions, inSelection: searchInSelection)
         }
 
         if let formatCommand, formatGeneration != coordinator.appliedFormatGeneration {

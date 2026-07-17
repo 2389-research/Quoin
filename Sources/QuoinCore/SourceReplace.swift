@@ -3,43 +3,58 @@ import Foundation
 /// Find & replace over the document's RAW SOURCE, in bytes — because a
 /// replace changes what the file says, it must operate on the source of
 /// truth, not the rendered projection (the visual find is projection-based
-/// for navigation; replace is source-based for correctness). Matching is
-/// literal and case-insensitive, the least-surprising behavior for a
-/// replace field; every edit routes through the session, so undo and
-/// byte-losslessness come for free.
+/// for navigation; replace is source-based for correctness). Both paths
+/// draw their match rules from the SAME `TextMatcher`, so the highlight/count
+/// and Replace-All can never recognize different occurrences (#23). Every
+/// edit routes through the session, so undo and byte-losslessness come free.
 public enum SourceReplace {
 
-    /// Byte ranges of every literal (case-insensitive) occurrence of
-    /// `query` in `source`, left to right, non-overlapping.
-    public static func matches(of query: String, in source: String) -> [ByteRange] {
+    /// Byte ranges of every occurrence of `query` in `source` under
+    /// `options`, left to right, non-overlapping. `within` scopes the search
+    /// to a source byte range (In-Selection). An invalid regex yields no
+    /// matches (never a crash) — the find bar shows the invalid state.
+    public static func matches(
+        of query: String,
+        in source: String,
+        options: SearchOptions = SearchOptions(),
+        within scope: ByteRange? = nil
+    ) -> [ByteRange] {
         guard !query.isEmpty else { return [] }
-        var results: [ByteRange] = []
-        var searchStart = source.startIndex
-        while searchStart < source.endIndex,
-              let found = source.range(
-                of: query, options: [.caseInsensitive],
-                range: searchStart..<source.endIndex) {
-            let lower = source.utf8.distance(
-                from: source.utf8.startIndex, to: found.lowerBound.samePosition(in: source.utf8)!)
-            let upper = source.utf8.distance(
-                from: source.utf8.startIndex, to: found.upperBound.samePosition(in: source.utf8)!)
-            results.append(ByteRange(offset: lower, length: upper - lower))
-            // Advance past the match; never spin on a zero-width find.
-            searchStart = found.upperBound > found.lowerBound
-                ? found.upperBound : source.index(after: found.lowerBound)
+        let haystack = source as NSString
+
+        // Scope: byte range → UTF-16 NSRange for the matcher.
+        var nsScope: NSRange?
+        if let scope {
+            guard let lower = EditMapping.utf16Offset(inText: source, utf8Offset: scope.offset),
+                  let upper = EditMapping.utf16Offset(inText: source, utf8Offset: scope.upperBound)
+            else { return [] }
+            nsScope = NSRange(location: lower, length: upper - lower)
         }
-        return results
+
+        guard let nsRanges = TextMatcher.matches(
+            of: query, in: haystack, options: options, within: nsScope)
+        else { return [] }
+
+        // NSRange (UTF-16) → ByteRange (UTF-8); a match on a non-scalar
+        // boundary is impossible here (matcher ranges are whole matches).
+        return nsRanges.compactMap { r in
+            EditMapping.utf8Range(inText: source, utf16Range: r.location..<NSMaxRange(r))
+        }
     }
 
     /// The edit that replaces the FIRST match at or after `fromByteOffset`
     /// (wrapping to the start when none follow), or nil when there is no
     /// match. `nextSearchOffset` is where a follow-on "replace next" should
-    /// resume (just past the replacement).
+    /// resume (just past the replacement). `replacement` is inserted
+    /// literally — regex capture-group substitution is intentionally not
+    /// supported (a `$1` in the replacement is the two characters `$1`).
     public static func replaceNextEdit(
         of query: String, with replacement: String, in source: String,
-        fromByteOffset: Int
+        fromByteOffset: Int,
+        options: SearchOptions = SearchOptions(),
+        within scope: ByteRange? = nil
     ) -> (edit: SourceEdit, nextSearchOffset: Int)? {
-        let all = matches(of: query, in: source)
+        let all = matches(of: query, in: source, options: options, within: scope)
         guard !all.isEmpty else { return nil }
         let target = all.first { $0.offset >= fromByteOffset } ?? all[0]
         return (
@@ -53,9 +68,11 @@ public enum SourceReplace {
     /// splice from the first match to the last, so the session records one
     /// history entry. Nil when there are no matches.
     public static func replaceAllEdit(
-        of query: String, with replacement: String, in source: String
+        of query: String, with replacement: String, in source: String,
+        options: SearchOptions = SearchOptions(),
+        within scope: ByteRange? = nil
     ) -> SourceEdit? {
-        let all = matches(of: query, in: source)
+        let all = matches(of: query, in: source, options: options, within: scope)
         guard let first = all.first, let last = all.last else { return nil }
         let bytes = Array(source.utf8)
         // Rebuild the span [first.offset, last.end) with every match
