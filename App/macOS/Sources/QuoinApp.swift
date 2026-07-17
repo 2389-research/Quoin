@@ -189,12 +189,15 @@ private struct FileCommands: Commands {
             }
             Divider()
             // Document management: the current document (active tab) is the
-            // target. Duplicate has no chord (⌘D is Daily Note); Move to Trash
-            // is ⌘⌫, the Finder-standard move-to-trash key.
+            // target. Neither carries a key equivalent: ⌘D is Daily Note, and
+            // ⌘⌫ is AppKit's system deleteToBeginningOfLine: editing binding —
+            // a menu key equivalent would win over the first responder via
+            // NSApplication.sendEvent and turn a common in-line delete into a
+            // (not-in-app-undoable) document trash. Trashing stays menu/context
+            // only, matching Duplicate.
             Button("Duplicate") { post(AppDelegate.duplicateDocumentNotification) }
                 .disabled(hasDocument != true)
             Button("Move to Trash") { post(AppDelegate.trashDocumentNotification) }
-                .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(hasDocument != true)
             Divider()
             Button("Close Tab") { post(AppDelegate.closeTabNotification) }

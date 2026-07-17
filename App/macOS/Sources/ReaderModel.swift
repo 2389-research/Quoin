@@ -282,6 +282,18 @@ final class ReaderModel {
         }
     }
 
+    /// Drain any queued edits and force an immediate save WITHOUT tearing the
+    /// session down — used before a copy/duplicate so the on-disk bytes match
+    /// what the user sees (the autosave is 400ms-debounced, so a fast Duplicate
+    /// right after typing would otherwise copy the pre-flush file, #12). Safe to
+    /// call on a URL with no unsaved edits: `saveNow` no-ops when not dirty.
+    func flush() async {
+        let session = session
+        let pendingEdits = editPipelineTask
+        await pendingEdits?.value
+        try? await session?.saveNow()
+    }
+
     /// A new snapshot from the session (file change, checkbox, or our own
     /// edit). Skips re-rendering when both content and reveal state are
     /// unchanged.

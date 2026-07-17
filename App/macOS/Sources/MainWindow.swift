@@ -132,7 +132,9 @@ struct MainWindow: View {
         // open the copy (matching the sidebar context menu).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.duplicateDocumentNotification)) { _ in
             guard isKeyWindow, let url = activeTab?.url else { return }
-            if let copy = library.duplicate(url: url) { open(copy) }
+            // Flush the live session first so the copy captures unsaved
+            // keystrokes still inside the 400ms autosave debounce (#12).
+            Task { if let copy = await library.duplicateFlushingSession(url: url) { open(copy) } }
         }
         // File ▸ Move to Trash (⌘⌫): trash the active document. Its tabs then
         // close via the documentTrashedNotification observer below.
