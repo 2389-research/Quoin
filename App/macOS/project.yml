@@ -97,14 +97,20 @@ targets:
         # @objc selector name (sans the :userData:error: suffix); NSSendTypes
         # gates the item to appear only when the sender offers text. No
         # NSReturnTypes — the service creates/opens a document, it returns
-        # nothing to the sender.
+        # nothing to the sender. The send type is the MODERN UTI
+        # `public.utf8-plain-text` — the SAME string the handler reads
+        # (`pboard.string(forType: .string)`, whose raw type is
+        # public.utf8-plain-text). The legacy `NSStringPboardType` name usually
+        # maps through AppKit's equivalence table, but a sender that advertises
+        # only the UTI form can fail to match it, so the declared send type and
+        # the read type are kept identical.
         NSServices:
           - NSMenuItem:
               default: New Quoin Document with Selection
             NSMessage: newDocumentWithSelection
             NSPortName: Quoin
             NSSendTypes:
-              - NSStringPboardType
+              - public.utf8-plain-text
         CFBundleDocumentTypes:
           - CFBundleTypeName: Markdown Document
             CFBundleTypeRole: Editor

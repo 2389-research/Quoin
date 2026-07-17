@@ -666,13 +666,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// macOS logs "does not implement… returning NO" and opts the app out.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 
-    func applicationDidFinishLaunching(_ notification: Notification) {
-        // Register as a Services PROVIDER (#35). The NSServices array in
-        // Info.plist declares the menu item + NSMessage; this hands macOS the
-        // object whose @objc `newDocumentWithSelection(_:userData:error:)`
-        // handles it. Quoin stays a services *requestor* too — NSTextView's
-        // built-in Services support is untouched by registering a provider.
+    /// Register as a Services PROVIDER (#35) as EARLY as possible — before the
+    /// run loop starts. The NSServices array in Info.plist declares the menu
+    /// item + NSMessage; this hands macOS the object whose @objc
+    /// `newDocumentWithSelection(_:userData:error:)` handles it. Quoin stays a
+    /// services *requestor* too — NSTextView's built-in Services support is
+    /// untouched by registering a provider.
+    ///
+    /// This MUST be `applicationWillFinishLaunching`, not
+    /// `applicationDidFinishLaunching`: a COLD launch triggered by another app
+    /// picking "New Quoin Document with Selection" delivers the service message
+    /// as part of bringing Quoin up, and that can land BEFORE
+    /// `didFinishLaunching`. Registering the provider in `willFinishLaunching`
+    /// (Apple's guidance: register before the run loop) guarantees the provider
+    /// object exists when the launch-triggering message arrives, so the seed is
+    /// stashed and the cold-launch `onAppear` drain has something to consume.
+    func applicationWillFinishLaunching(_ notification: Notification) {
         NSApp.servicesProvider = self
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
         // Quoin has its own document tabs; the system window-tab items
         // ("Show Tab Bar" etc.) would only confuse the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false

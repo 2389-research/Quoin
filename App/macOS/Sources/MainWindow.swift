@@ -116,11 +116,17 @@ struct MainWindow: View {
             consumePendingDeepLink()
         }
         // Services ▸ New Quoin Document with Selection (#35) arrived while
-        // running: the key window seeds a document from the selection and
-        // opens it (or falls back to a save panel with no library).
+        // running. Deliberately NOT key-gated: prefer a window CONNECTED TO A
+        // LIBRARY over the frontmost one, so the selection quietly becomes a
+        // file in the open library instead of popping a save panel just because
+        // the key window happens to be library-less (#35 review). Every window
+        // gets a synchronous first refusal to claim the seed with its library
+        // (the claim is atomic on the main actor — no double create); a runloop
+        // hop then lets the save-panel fallback fire only if NOBODY claimed it
+        // (no library configured anywhere).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.newDocumentWithSelectionNotification)) { _ in
-            guard isKeyWindow else { return }
-            consumePendingSelectionSeed()
+            claimPendingSelectionSeed(fallbackToPanel: false)
+            DispatchQueue.main.async { claimPendingSelectionSeed(fallbackToPanel: true) }
         }
         // ⌘0 / View ▸ Show/Hide Sidebar (handoff keyboard map).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleSidebarNotification)) { _ in
@@ -266,7 +272,8 @@ struct MainWindow: View {
             consumePendingDeepLink()
             // Cold launch via Services (#35): the selection likewise arrived
             // before any observer existed — drain it once the library connects.
-            consumePendingSelectionSeed()
+            // Single window here, so the save-panel fallback is allowed inline.
+            claimPendingSelectionSeed(fallbackToPanel: true)
         }
         // Every root change (chooser, starter library, folder-window) is
         // remembered as THIS window's folder.
@@ -467,21 +474,37 @@ struct MainWindow: View {
         open(url)
     }
 
-    /// Resolve and open a pending Services selection (#35), if one is waiting.
+    /// Resolve a pending Services selection (#35), if one is waiting.
     ///
-    /// With a library, the file is created inside it (Quoin already holds
-    /// security scope on the root — no new entitlement). With no library,
-    /// `createDocument` returns nil and we fall back to the powerbox save panel,
-    /// which the existing user-selected read-write entitlement permits — so the
-    /// service works even before a library is set up.
-    private func consumePendingSelectionSeed() {
+    /// PREFERS a window with a library. If THIS window has one, it claims the
+    /// seed (atomically clearing the shared slot) and creates the file inside
+    /// the library — Quoin already holds security scope on the root, so no new
+    /// entitlement. If this window has NO library, the seed is LEFT for a window
+    /// that does (the deep-link sibling `consumePendingDeepLink` defers the same
+    /// way) — so the frontmost window being library-less no longer forces a save
+    /// panel when another window owns the library.
+    ///
+    /// The `fallbackToPanel` save-panel path fires only when there is genuinely
+    /// no library to create into (the no-library-configured case #35 must still
+    /// support): the powerbox save panel, which the existing user-selected
+    /// read-write entitlement permits. It is passed `false` on the warm
+    /// notification (and re-tried a runloop hop later once every library window
+    /// has had its synchronous first refusal) and `true` on the single-window
+    /// cold-launch path.
+    private func claimPendingSelectionSeed(fallbackToPanel: Bool) {
         guard let seed = AppDelegate.pendingSelectionSeed else { return }
-        AppDelegate.pendingSelectionSeed = nil
-        if let url = library.createDocument(baseName: seed.baseName, content: seed.content) {
-            open(url)
-        } else {
+        if library.rootURL != nil {
+            AppDelegate.pendingSelectionSeed = nil
+            if let url = library.createDocument(baseName: seed.baseName, content: seed.content) {
+                open(url)
+            } else {
+                saveSelectionViaPanel(seed)
+            }
+        } else if fallbackToPanel {
+            AppDelegate.pendingSelectionSeed = nil
             saveSelectionViaPanel(seed)
         }
+        // else: no library here — leave the seed for a window that has one.
     }
 
     /// No-library fallback for the Services selection: a save panel (powerbox)
