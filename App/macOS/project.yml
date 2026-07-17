@@ -111,6 +111,14 @@ targets:
             NSPortName: Quoin
             NSSendTypes:
               - public.utf8-plain-text
+        # Handoff / current-activity (issue #36). The open document is published
+        # as an NSUserActivity of this type; its userInfo carries a quoin://
+        # deep link (never an absolute path or bookmark), re-resolved through
+        # QuoinURLScheme on the receiving side so the sandbox boundary holds.
+        # Declaring the type here is what makes the activity eligible for
+        # Handoff and application(_:continue:) delivery.
+        NSUserActivityTypes:
+          - ai.2389.Quoin.editing
         CFBundleDocumentTypes:
           - CFBundleTypeName: Markdown Document
             CFBundleTypeRole: Editor

@@ -281,7 +281,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Duplicate a document/folder (unique ` 2` sibling) and Move to Trash (recoverable) — sidebar context menu + File menu | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
 | Services menu — **New Quoin Document with Selection** (creates a document from selected text in any app) | ✅ |
-| Handoff / NSUserActivity | ⬜ planned |
+| Handoff / current activity — the open document publishes an `NSUserActivity` carrying a boundary-safe `quoin://` link (Handoff banner, Siri Suggestions, window restoration; cross-device once an iOS reader ships) | ✅ |
 
 A few of these surfaces, up close:
 
