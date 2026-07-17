@@ -282,6 +282,28 @@ resolution can never quietly corrupt the document.
   boundary-respecting `quoin://` link — never an absolute path or a
   security-scoped bookmark — so resuming re-resolves inside the library you
   granted. A document outside a granted library publishes no activity.
+- **Shortcuts & Siri (App Intents)** — Quoin exposes a small set of actions to
+  the Shortcuts app, Spotlight, and Siri, so you can automate common library
+  tasks by voice, on a schedule, or from a keyboard shortcut. Five actions ship
+  ready to use, each with natural-language phrases (all mentioning "Quoin"):
+  - **Create Note** — "Create a note in Quoin" — makes a new note (from a title
+    and optional body) and opens it.
+  - **Append Text to Note** — "Add text to a Quoin note" — adds text to the end
+    of a note as a new line. It's a real, undoable, byte-lossless edit through
+    the same session path as typing — never a blind file rewrite — so an append
+    made while the note is open surfaces the usual reload/merge banner rather
+    than clobbering unsaved work.
+  - **Open Note** — "Open a note in Quoin" — brings Quoin forward with the note.
+  - **Search Library** — "Search Quoin for…" — fuzzy title + content search,
+    returning notes you can pass straight into another action.
+  - **Export Note** — exports a note as HTML, Markdown, or plain text and hands
+    back the file.
+
+  The document actions take a **Note** picker backed by your library's index —
+  the same scan the sidebar and quick open use — so notes resolve by name or
+  path. Everything stays local: the actions read and write only inside the
+  library folder you granted, with no network access, and they target your
+  most-recently-used library folder.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

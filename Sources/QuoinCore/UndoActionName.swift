@@ -19,6 +19,7 @@ public enum UndoActionName: String, Sendable, Equatable, CaseIterable {
     case editTable = "Edit Table"
     case structure = "Formatting"
     case replace = "Replace"
+    case append = "Append"
     case suggestion = "Resolve Suggestion"
     case bulkSuggestion = "Resolve All Suggestions"
     case comment = "Comment"

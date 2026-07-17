@@ -1005,6 +1005,56 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   real cross-device Handoff once an iOS/iPadOS reader ships. Spotlight indexing
   (#6) is deliberately not claimed here (`isEligibleForSearch = false`).
 
+- **App Intents / App Shortcuts (#7).** Quoin surfaces five actions to
+  Shortcuts, Spotlight, and Siri — Create Note, Append Text to Note, Open Note,
+  Search Library, Export Note — compiled *into* the main app (no separate
+  extension target). The same split as above holds: the *decidable* logic is
+  pure and in `QuoinCore`, the `@available(macOS 14)` / `canImport(AppIntents)`
+  structs in `App/macOS/Sources/Intents/` are a thin shell.
+
+  Two pure seams do the work. `LibraryQuery` (QuoinCore) resolves documents
+  against a `Library.scan` tree — the SAME index the sidebar and quick open use,
+  never a second discovery path: it flattens the tree to refs keyed by their
+  *root-relative path* (the entity identity, portable exactly like a `quoin://`
+  link's `path`), resolves ids back to refs, and ranks free-text queries
+  (exact filename/path → title equality → the shared `QuickOpen.fuzzyScore`).
+  `DocumentAppend.appendEdit(appending:to:)` builds the byte-precise append as a
+  length-0 insertion at `source.utf8.count` — every existing byte untouched, so
+  the round-trip invariant holds for the whole prefix for free; it normalizes
+  the caller's newlines, collapses their trailing newlines to exactly one, and
+  inserts a joining `\n` only when the source doesn't already end in one. Both
+  seams are unit-tested (`LibraryQueryTests`, `DocumentAppendTests`) on Linux CI
+  included; `DocumentSession.appendText` (the in-actor apply, the
+  `applyResolution` pattern) is covered by `DocumentSessionAppendTests`.
+
+  **No mutating intent ever writes raw bytes.** Create routes through a
+  `DocumentSession` (atomic, file-coordinated `writeAtomic`) into a
+  `Library.uniqueURL` collision-free name; Append opens a `DocumentSession` on
+  the target and calls `appendText`, which computes the edit IN-ACTOR against
+  the session's current source and applies it through the same `applyEdit`
+  pipeline as a keystroke — re-parse, publish, undoable, byte-lossless. An
+  append landing on a file that is open in a live window is just an external
+  write to that session: its watcher/presenter raises the standard reload (clean)
+  or merge banner (dirty), never silent loss.
+
+  The shell (`IntentLibraryAccess`, `@MainActor`) is what makes an intent work
+  while Quoin is backgrounded or not running: it resolves the most-recent
+  library's *app-scoped security bookmark* (the SAME `quoin.library.bookmark`
+  key `LibraryModel` persists), starts security-scoped access for the duration
+  of one intent (balanced `release()` in `defer`; the scope is process-wide, so
+  it survives the `await` hops), scans, and — for export — keeps the scope open
+  *through* the render so `HTMLExporter`'s local-image inlining can read.
+  Opening a note in the UI reuses the deep-link pipeline verbatim: it builds the
+  boundary-safe `quoin://open?path=…` link with
+  `QuoinURLScheme.deepLink(forDocumentPath:relativeTo:)` and hands it to
+  LaunchServices (`NSWorkspace.open`), so `application(_:open:)`'s confinement
+  applies unchanged, warm or cold. `QuoinShortcuts: AppShortcutsProvider`
+  declares the natural-language phrases (each carries `\(.applicationName)`);
+  the provider is discovered automatically at launch, so no Info.plist entry is
+  needed. Everything is local-only — no `network.client` use is added. A
+  multi-window user's intents target the most-recent library root (the same
+  default a plain new window uses).
+
 ## Testing strategy
 
 Quoin's tests are how the invariants above stay true — several of them exist
