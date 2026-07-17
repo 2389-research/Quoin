@@ -811,6 +811,35 @@ zoom, `Theme.textScale`), but its *structure* is exposed to VoiceOver — see
 - **Reduce Transparency** gives Quick Open and the find/replace bars an opaque
   `windowBackgroundColor` fallback.
 
+### Keyboard navigation of the chrome (issue #11)
+
+The pointer-free navigation surfaces keep their movement math in small pure
+enums in QuoinCore (platform-free, Linux-testable) so the wrap/skip/edge rules
+are pinned once instead of re-derived in SwiftUI:
+
+- **`ListSelection`** — arrow-key highlight movement for the result lists.
+  Quick Open (`QuickOpenPanel`) and the sidebar library search
+  (`LibrarySidebar.searchResults`) both feed keypresses through it: ↑/↓ wrap
+  around the ends, Home/End jump, `clamped` folds a stale highlight back into
+  range when an async query result replaces the list. The SwiftUI views own the
+  highlight as a plain `Int`; the view renders a visible accent selection and
+  Return opens it / Escape dismisses. Covered by `ListSelectionTests`.
+- **`OutlineKeyboard`** — the outline tree's keyboard cursor. Given the flat
+  `[HeadingInfo]` outline and the shared `collapsed` set, it maps ↑/↓/←/→ to a
+  `Response` (`move`/`collapse`/`expand`/`none`) using `OutlineCollapse`'s
+  visible-rows and positional-ancestor helpers (`parents(outline:)` is now
+  shared with the panel's chevron rendering). `OutlinePanel` owns a `focused`
+  cursor distinct from the reading-position `highlightID` (#37/#R3) and applies
+  the response; **collapse state is still mutated ONLY by explicit user action**
+  (chevron click or ←/→), so #74's manual-collapse-sticks rule is intact — the
+  reading follow never expands a branch. The chevron carries VoiceOver
+  disclosure semantics (`accessibilityValue` expanded/collapsed). Covered by
+  `OutlineKeyboardTests`. *Deferred (needs a running UI to verify):* the exact
+  focus-order handoff between the panel's `.focusable` container and the
+  per-row buttons under Full Keyboard Access — the movement logic is tested, but
+  which control first receives an arrow key is a live-focus behavior, not a pure
+  function.
+
 ### VoiceOver structure in the document body
 
 The whole document renders into one `QuoinTextView` (`NSTextView`), so VoiceOver

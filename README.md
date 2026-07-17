@@ -254,7 +254,8 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | ⌘B / ⌘I / ⇧⌘H / ⌘K + floating format pill | ✅ |
 | Library sidebar (folders = directories), document tabs, quick open | ✅ |
 | Multi-folder windows — Open Folder in New Window; each window restores its folder on relaunch | ✅ |
-| Outline panel with live section tracking (manual collapse is authoritative) | ✅ |
+| Outline panel with live section tracking (manual collapse is authoritative); keyboard tree — ↑/↓ walk rows, →/← expand/collapse, Return jumps | ✅ |
+| Keyboard-operable Quick Open & library search — ↑/↓ (wrap), Home/End, Return opens, Escape dismisses | ✅ |
 | Find & replace in document (⌘F / ⌘G) — match case, whole word, regex, in selection; library-wide search (⇧⌘F) | ✅ |
 | Live reload + non-blocking conflict banner on external change | ✅ |
 | Coordinated file access for synced libraries — `NSFileCoordinator` reads/writes + registered `NSFilePresenter` (iCloud/Dropbox/Drive) | ✅ |
