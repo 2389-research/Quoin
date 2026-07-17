@@ -789,7 +789,9 @@ now (iOS is a later platform); it builds against the same Swift-6 `QuoinCore`.
 ## Accessibility in the SwiftUI chrome
 
 The app shells (`App/macOS`, `App/iOS`) honor three system settings; the
-document body is out of scope (it has its own reading zoom, `Theme.textScale`).
+document body's *scaling* is out of scope for these (it has its own reading
+zoom, `Theme.textScale`), but its *structure* is exposed to VoiceOver — see
+"VoiceOver structure in the document body" below.
 
 - **Dynamic Type.** The handoff pins the type ramp as *final* (exact point
   sizes), so the chrome must scale with the "Larger text" setting **without**
@@ -808,6 +810,41 @@ document body is out of scope (it has its own reading zoom, `Theme.textScale`).
   `accessibilityReduceMotion` (the flip controller was already aware).
 - **Reduce Transparency** gives Quick Open and the find/replace bars an opaque
   `windowBackgroundColor` fallback.
+
+### VoiceOver structure in the document body
+
+The whole document renders into one `QuoinTextView` (`NSTextView`), so VoiceOver
+sees a single text field by default. A bounded structure pass (issue #10) makes
+the projection legible to assistive technologies:
+
+- **`BlockAccessibility`** (QuoinRender, platform-free, no AppKit) is the ONE
+  place that maps a `BlockKind` to a spoken announcement — *"Heading level 2,
+  Introduction"*, *"Code block, swift, 12 lines"*, *"Table, 3 columns, 4
+  rows"*, *"Note callout"* — and extracts a heading's level. It is pure so the
+  wording is unit-tested directly (`BlockAccessibilityTests`); the AppKit view
+  and the renderer both call it, so labels can't drift.
+- **Heading rotor.** `AttributedRenderer.render(block:)` tags each heading's
+  rendered range with `QuoinAttribute.headingLevel` (an `NSNumber`; layout-inert).
+  `QuoinTextView.accessibilityCustomRotors()` scans those runs each query and
+  vends an `.heading` `NSAccessibilityCustomRotor` whose item results carry the
+  heading's `targetRange` and a `BlockAccessibility` label — VoiceOver's
+  Headings rotor then jumps caret-to-heading. The search delegate is retained by
+  the view (the rotor holds it weakly) and answers next/previous relative to the
+  current item, with substring filtering.
+- **Attachment labels.** Math and diagram embeds are `NSTextAttachment` images.
+  The engines already stamp `image.accessibilityDescription` with spoken math
+  (Vinculum) / diagram narration (MermaidKit); the renderer surfaces those —
+  `MermaidRenderer.altText(source:)` and `MathImageRenderer.rendered(…)
+  .spokenDescription` — through `BlockAccessibility.diagramLabel` /
+  `equationLabel`, applied as an **idempotent overwrite** (never read-then-append:
+  Vinculum vends its shared cached `NSImage`, so re-prefixing would accumulate
+  "Equation, Equation, …" and mutate a value other threads read).
+- The `✓ done` chip is a pressable `NSAccessibilityElement` child of the view
+  (pre-existing; editor-modes plan Phase 2.3).
+
+Deferred (stated so the boundary is explicit): per-element rotors for tables /
+links / tasks, accessibility containers grouping sidebar / outline / find bar,
+and alternate actions on hover-only controls (tab close, copy-code).
 
 ## Native integration surface (macOS shell)
 

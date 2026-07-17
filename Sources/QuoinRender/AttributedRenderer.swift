@@ -1253,6 +1253,13 @@ public struct AttributedRenderer: Sendable {
         let tagged = NSMutableAttributedString(attributedString: content)
         let whole = NSRange(location: 0, length: tagged.length)
         tagged.addAttribute(QuoinAttribute.blockID, value: block.id.description, range: whole)
+        // Tag heading ranges with their level so the reader view can offer a
+        // VoiceOver "Headings" rotor (accessibility structure, #10). Purely a
+        // marker attribute — it carries no font/paragraph effect.
+        if let level = BlockAccessibility.headingLevel(for: block.kind), whole.length > 0 {
+            tagged.addAttribute(QuoinAttribute.headingLevel,
+                                value: NSNumber(value: level), range: whole)
+        }
         // Embed blocks flip to source on double-click, not single click, so a
         // click to admire a rendered diagram/table doesn't turn it into code.
         // The TOC is one too: its rendered form is the full linked outline
@@ -1570,11 +1577,19 @@ public struct AttributedRenderer: Sendable {
     }
 
     /// VoiceOver labels for attachment-rendered embeds — a diagram or
-    /// equation must never read as an unnamed image.
-    private func labelAttachmentImages(in attributed: NSMutableAttributedString, description: String) {
+    /// equation must never read as an unnamed image (#10).
+    ///
+    /// The label is computed from the engine's own accessibility text
+    /// (MermaidKit's diagram narration, Vinculum's spoken math) at the call
+    /// site and passed in whole. It is applied as an idempotent OVERWRITE,
+    /// never a read-then-append: Vinculum hands out its shared cached
+    /// `NSImage` (immutable-by-contract), so re-prefixing what's already
+    /// there would accumulate "Equation, Equation, …" across renders and
+    /// mutate a value other threads read.
+    private func labelAttachmentImages(in attributed: NSMutableAttributedString, label: String) {
         #if canImport(AppKit)
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, _, _ in
-            (value as? NSTextAttachment)?.image?.accessibilityDescription = description
+            (value as? NSTextAttachment)?.image?.accessibilityDescription = label
         }
         #endif
     }
@@ -1623,7 +1638,9 @@ public struct AttributedRenderer: Sendable {
             // Scale an oversized diagram down to the content column so it sits
             // inside its frame instead of poking out the right edge.
             attachment.refitImageAttachmentsToContentWidth()
-            labelAttachmentImages(in: attachment, description: "Mermaid diagram")
+            labelAttachmentImages(in: attachment,
+                                  label: BlockAccessibility.diagramLabel(
+                                      narration: MermaidRenderer.altText(source: source)))
             let style = paragraphStyle()
             style.paragraphSpacingBefore = 0
             style.paragraphSpacing = theme.paragraphSpacing
@@ -1670,7 +1687,13 @@ public struct AttributedRenderer: Sendable {
             // A wide equation (big matrix, long alignment) scales down to fit
             // the column rather than overflowing.
             attachment.refitImageAttachmentsToContentWidth()
-            labelAttachmentImages(in: attachment, description: "Math equation")
+            // Surface Vinculum's spoken-math description (cached alongside the
+            // image), role-prefixed, rather than a generic "Math equation".
+            let spoken = MathImageRenderer.rendered(
+                latex: latex, display: true, mathTheme: theme.mathTheme,
+                baseSize: theme.bodySize)?.spokenDescription
+            labelAttachmentImages(in: attachment,
+                                  label: BlockAccessibility.equationLabel(spokenDescription: spoken))
             let style = paragraphStyle()
             style.alignment = .center
             style.paragraphSpacingBefore = 0

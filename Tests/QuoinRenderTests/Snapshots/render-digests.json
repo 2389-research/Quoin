@@ -6,7 +6,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Headings & Thematic Breaks"
       },
@@ -43,7 +43,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "1. Headings"
       },
@@ -61,7 +61,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "H1: ATX HeadingZZ"
       },
@@ -79,7 +79,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "H2: ATX Heading"
       },
@@ -97,7 +97,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "H3: ATX Heading"
       },
@@ -115,7 +115,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "H4: ATX Heading"
       },
@@ -133,7 +133,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=5"
         ],
         "t" : "H5: ATX Heading"
       },
@@ -151,7 +151,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=6"
         ],
         "t" : "H6: ATX Heading"
       },
@@ -187,7 +187,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Heading with "
       },
@@ -196,7 +196,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "inline emphasis"
       },
@@ -205,7 +205,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : ", "
       },
@@ -215,7 +215,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "code"
       },
@@ -224,7 +224,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : ", and "
       },
@@ -234,7 +234,7 @@
         "link" : "quoin-anchor://links-inline-heading",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "a link",
         "underline" : "accent@35"
@@ -253,7 +253,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Setext Heading Level 1"
       },
@@ -271,7 +271,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "Setext Heading Level 2"
       },
@@ -289,7 +289,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "Heading IDs as plain text or extension syntax {#custom-heading-id .large .important}"
       },
@@ -344,7 +344,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Repeated heading"
       },
@@ -380,7 +380,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Repeated heading"
       },
@@ -434,7 +434,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "8. Thematic Breaks"
       },
@@ -717,7 +717,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Inline Formatting, Links & Images"
       },
@@ -754,7 +754,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "2. Paragraphs, Line Breaks, and Entities"
       },
@@ -988,7 +988,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "3. Inline Formatting"
       },
@@ -1006,7 +1006,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "3.1 Emphasis and Strong Emphasis"
       },
@@ -1466,7 +1466,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "3.2 Strikethrough and Highlight-Like Extensions"
       },
@@ -1623,7 +1623,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "3.3 Code Spans"
       },
@@ -1846,7 +1846,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "3.4 Inline HTML"
       },
@@ -2170,7 +2170,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "3.5 Emoji and Shortcodes"
       },
@@ -2242,7 +2242,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "4. Links, References, and Images"
       },
@@ -2260,7 +2260,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "4.1 Inline Links"
       },
@@ -2545,7 +2545,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "4.2 Autolinks and GFM Bare URLs"
       },
@@ -2659,7 +2659,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "4.3 Reference Links"
       },
@@ -2785,7 +2785,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "4.4 Images"
       },
@@ -2952,7 +2952,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "4.5 Link Labels That Look Weird"
       },
@@ -3019,7 +3019,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Lists & Task Lists"
       },
@@ -3056,7 +3056,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "6. Lists"
       },
@@ -3074,7 +3074,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.1 Unordered Lists"
       },
@@ -3326,7 +3326,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.2 Ordered Lists"
       },
@@ -3542,7 +3542,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.3 Mixed and Nested Lists"
       },
@@ -3749,7 +3749,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.4 Loose Lists"
       },
@@ -3917,7 +3917,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.5 Tight Lists"
       },
@@ -3989,7 +3989,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.6 List Marker Edge Cases"
       },
@@ -4152,7 +4152,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "6.7 Definition List Extension"
       },
@@ -4242,7 +4242,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "10. Task Lists"
       },
@@ -4595,7 +4595,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Blockquotes & Callouts"
       },
@@ -4632,7 +4632,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "5. Blockquotes"
       },
@@ -4689,7 +4689,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb22.00 fh16.00 hi16.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "Heading inside a blockquote"
       },
@@ -5137,7 +5137,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Code Spans & Code Blocks"
       },
@@ -5174,7 +5174,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "7. Code Spans and Code Blocks"
       },
@@ -5192,7 +5192,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "7.1 Indented Code Block"
       },
@@ -5321,7 +5321,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "7.2 Fenced Code Blocks"
       },
@@ -7716,7 +7716,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "7.3 Tilde Fences"
       },
@@ -7840,7 +7840,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "7.4 Fence Length Stress"
       },
@@ -7975,7 +7975,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "7.5 Code Block with Long Lines"
       },
@@ -8079,7 +8079,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Tables"
       },
@@ -8116,7 +8116,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "9. Tables"
       },
@@ -8134,7 +8134,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "9.1 Basic GFM Table"
       },
@@ -8395,7 +8395,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "9.2 Alignment"
       },
@@ -8511,7 +8511,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "9.3 Escaped Pipes and Inline Code"
       },
@@ -8710,7 +8710,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "9.4 Empty Cells and Wide Unicode"
       },
@@ -8866,7 +8866,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "9.5 Large Table"
       },
@@ -9395,7 +9395,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Raw HTML, Footnotes & Reference Definitions"
       },
@@ -9468,7 +9468,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "11. Raw HTML"
       },
@@ -9486,7 +9486,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.1 Inline HTML"
       },
@@ -9630,7 +9630,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.2 Block HTML"
       },
@@ -9919,7 +9919,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.3 Details/Summary"
       },
@@ -10244,7 +10244,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.4 HTML Table"
       },
@@ -10513,7 +10513,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.5 HTML Comments"
       },
@@ -10603,7 +10603,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "11.6 Potentially Sanitized HTML, Shown Safely as Code"
       },
@@ -10800,7 +10800,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "12. Footnotes and Definitions"
       },
@@ -11064,7 +11064,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "17. Reference Definitions"
       },
@@ -11259,7 +11259,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Unicode, Directionality & Ambiguity"
       },
@@ -11296,7 +11296,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "14. Unicode, Directionality, and Typography"
       },
@@ -11314,7 +11314,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "14.1 Mixed Scripts"
       },
@@ -11350,7 +11350,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "14.2 Right-to-Left Text"
       },
@@ -11422,7 +11422,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "14.3 Combining Marks and Emoji Sequences"
       },
@@ -11494,7 +11494,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "14.4 Typography Stress"
       },
@@ -11798,7 +11798,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "15. Edge Cases and Ambiguity"
       },
@@ -11816,7 +11816,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.1 Punctuation Around Links and URLs"
       },
@@ -11890,7 +11890,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.2 HTML vs Markdown Ambiguity"
       },
@@ -12075,7 +12075,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.3 Lazy Continuation in Lists"
       },
@@ -12129,7 +12129,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.4 Blank Lines in Lists"
       },
@@ -12192,7 +12192,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.5 Backslash Escapes That Do and Do Not Work"
       },
@@ -12264,7 +12264,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.6 Raw Angle Brackets"
       },
@@ -12338,7 +12338,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.7 Nested Brackets"
       },
@@ -12395,7 +12395,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.8 Empty and Odd Blocks"
       },
@@ -12504,7 +12504,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.9 Tabs and Spaces"
       },
@@ -12728,7 +12728,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "15.10 Backslash at End of File-Like Line"
       },
@@ -12777,7 +12777,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Math (inline, display & MathJax gallery)"
       },
@@ -12856,7 +12856,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.1 Inline and Block Math"
       },
@@ -13040,7 +13040,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "19. Extreme MathJax / TeX Gallery"
       },
@@ -13076,7 +13076,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.1 Math Delimiter Coverage"
       },
@@ -13350,7 +13350,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.2 Basic Symbols, Greek, Relations, Operators"
       },
@@ -13484,7 +13484,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.3 Fractions, Roots, Scripts, Stacked Accents"
       },
@@ -13589,7 +13589,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.4 Alignment Environments"
       },
@@ -13694,7 +13694,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.5 Cases and Piecewise Functions"
       },
@@ -13770,7 +13770,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.6 Matrices and Arrays"
       },
@@ -13875,7 +13875,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.7 Determinants, Linear Algebra, Eigenvalues"
       },
@@ -13980,7 +13980,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.8 Calculus, Limits, Integrals, Series"
       },
@@ -14114,7 +14114,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.9 Probability and Statistics"
       },
@@ -14219,7 +14219,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.10 Logic, Inference, Type Rules"
       },
@@ -14295,7 +14295,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.11 Commutative-Diagram-ish Array"
       },
@@ -14342,7 +14342,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.12 Braces, Delimiters, Over/Under Annotations"
       },
@@ -14418,7 +14418,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.13 Text, Fonts, Colors, Spacing"
       },
@@ -14543,7 +14543,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.14 Custom Macros and Operators"
       },
@@ -14747,7 +14747,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.15 Equation Numbering and Tags"
       },
@@ -14992,7 +14992,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.16 Long Equation Stress"
       },
@@ -15039,7 +15039,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.17 Fenced Math Code Block"
       },
@@ -15123,7 +15123,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.18 Fenced TeX / LaTeX Source Blocks"
       },
@@ -15368,7 +15368,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.19 AsciiMath-ish Text"
       },
@@ -15703,7 +15703,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.20 Raw MathML Block"
       },
@@ -15892,7 +15892,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.21 HTML + Math Boundary Stress"
       },
@@ -16201,7 +16201,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.22 Markdown Inside Math Boundaries Should Not Parse as Markdown"
       },
@@ -16320,7 +16320,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.23 Bad Math That Should Fail Locally"
       },
@@ -16485,7 +16485,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.24 MathJax Stress Table"
       },
@@ -16641,7 +16641,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.25 Mixed Mermaid + MathJax Prose"
       },
@@ -16773,7 +16773,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "19.26 MathJax Visual Regression Checklist"
       },
@@ -16957,7 +16957,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Mermaid Diagram Gallery"
       },
@@ -16994,7 +16994,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.2 Mermaid Diagram"
       },
@@ -17052,7 +17052,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.3 Sequence Diagram"
       },
@@ -17110,7 +17110,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "18. Extreme Mermaid Diagram Gallery"
       },
@@ -17146,7 +17146,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.1 Mermaid Feature Coverage Checklist"
       },
@@ -17844,7 +17844,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.2 Mermaid Initialization Directive Stress"
       },
@@ -17902,7 +17902,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.3 Flowchart — Complex Shapes, Subgraphs, Classes, Markdown-ish Labels"
       },
@@ -17960,7 +17960,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.4 Graph Alias Compatibility"
       },
@@ -18018,7 +18018,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.5 Swimlanes — Cross-Team Responsibility Flow"
       },
@@ -18076,7 +18076,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.6 Sequence Diagram — Autonumber, Actors, Branches, Parallelism, Critical Blocks"
       },
@@ -18134,7 +18134,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.7 Class Diagram — Namespaces, Annotations, Cardinality, Notes"
       },
@@ -18192,7 +18192,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.8 State Diagram — Composite States, Choices, Forks, Joins"
       },
@@ -18250,7 +18250,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.9 Entity Relationship Diagram — Markdown Fixture Schema"
       },
@@ -18308,7 +18308,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.10 User Journey — Renderer Developer Experience"
       },
@@ -18366,7 +18366,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.11 Gantt — Renderer Hardening Plan"
       },
@@ -18424,7 +18424,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.12 Pie Chart — Fixture Composition"
       },
@@ -18482,7 +18482,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.13 Quadrant Chart — Risk vs. Complexity"
       },
@@ -18540,7 +18540,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.14 Requirement Diagram — Test Contract"
       },
@@ -18598,7 +18598,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.15 GitGraph — Renderer Release Branches"
       },
@@ -18656,7 +18656,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.16 C4 Context Diagram"
       },
@@ -18714,7 +18714,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.17 C4 Container Diagram"
       },
@@ -18772,7 +18772,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.18 C4 Component Diagram"
       },
@@ -18830,7 +18830,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.19 C4 Dynamic Diagram"
       },
@@ -18888,7 +18888,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.20 C4 Deployment Diagram"
       },
@@ -18946,7 +18946,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.21 Mindmap — Extension Surface Area"
       },
@@ -19004,7 +19004,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.22 Timeline — Markdown Evolution Sample"
       },
@@ -19062,7 +19062,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.23 ZenUML — Alternate Sequence Syntax"
       },
@@ -19120,7 +19120,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.24 Sankey — Renderer Time Budget"
       },
@@ -19178,7 +19178,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.25 XY Chart — Performance Across Fixture Size"
       },
@@ -19236,7 +19236,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.26 XY Chart with Point Labels"
       },
@@ -19294,7 +19294,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.27 Block Diagram — Render Pipeline"
       },
@@ -19352,7 +19352,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.28 Packet Diagram — Bit Ranges"
       },
@@ -19410,7 +19410,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.29 Packet Diagram — Bit Count Syntax"
       },
@@ -19468,7 +19468,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.30 Kanban — Tasks with Metadata"
       },
@@ -19526,7 +19526,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.31 Architecture Diagram — Services, Groups, Junctions"
       },
@@ -19584,7 +19584,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.32 Radar Chart — Renderer Capability Comparison"
       },
@@ -19642,7 +19642,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.33 Event Modeling — Shopping Cart Example"
       },
@@ -19700,7 +19700,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.34 Treemap — Hierarchical Fixture Weight"
       },
@@ -19758,7 +19758,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.35 Venn — Overlapping Renderer Responsibilities"
       },
@@ -19816,7 +19816,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.36 Ishikawa — Fishbone Cause Analysis"
       },
@@ -19874,7 +19874,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.37 Wardley Map — Renderer Platform Strategy"
       },
@@ -19932,7 +19932,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.38 Cynefin — Feature Decision Map"
       },
@@ -19990,7 +19990,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.39 TreeView — Project Layout"
       },
@@ -20048,7 +20048,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "18.40 Mermaid Edge Cases That Should Not Poison the Page"
       },
@@ -20307,7 +20307,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Non-standard Extensions"
       },
@@ -20344,7 +20344,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.4 Admonition Fence Extension"
       },
@@ -20417,7 +20417,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.5 Attributes Extension"
       },
@@ -20481,7 +20481,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.6 Wiki Links and Embeds"
       },
@@ -20553,7 +20553,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "13.7 GitHub Conveniences"
       },
@@ -20674,7 +20674,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "11 — Suggestions (CriticMarkup)"
       },
@@ -20710,7 +20710,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "The five marks"
       },
@@ -20873,7 +20873,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "Marks with markdown inside"
       },
@@ -21017,7 +21017,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "Metadata references (RDFM)"
       },
@@ -21102,7 +21102,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "Degradation (must stay literal)"
       },
@@ -21325,7 +21325,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.25 ps12.00 psb32.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=1"
         ],
         "t" : "Torture & Large Content"
       },
@@ -21362,7 +21362,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "16. Large Content Section"
       },
@@ -21398,7 +21398,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "16.1 Fixture Story: The Renderer Observatory"
       },
@@ -21582,7 +21582,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "16.2 Repeated Mixed Blocks"
       },
@@ -21600,7 +21600,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Batch 1"
       },
@@ -22116,7 +22116,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Batch 2"
       },
@@ -22632,7 +22632,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Batch 3"
       },
@@ -23148,7 +23148,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Batch 4"
       },
@@ -23721,7 +23721,7 @@
         "fg" : "#1D1D1F8C",
         "p" : "lh1.35 ps8.00 psb16.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=4"
         ],
         "t" : "Batch 5"
       },
@@ -24300,7 +24300,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "16.3 Closing Stress Paragraph"
       },
@@ -24419,7 +24419,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.30 ps10.00 psb28.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=2"
         ],
         "t" : "20. Combined Extension Torture Section"
       },
@@ -24437,7 +24437,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "20.1 Nested List With Math, Mermaid Fence, Footnotes, and Table"
       },
@@ -24661,7 +24661,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "20.2 Blockquote With Mermaid and Math"
       },
@@ -24751,7 +24751,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "20.3 Details/Summary Containing Math and Diagram"
       },
@@ -25134,7 +25134,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "20.4 Display Math With Setext-Lookalike Interior Lines"
       },
@@ -25218,7 +25218,7 @@
         "fg" : "#1D1D1F",
         "p" : "lh1.35 ps8.00 psb22.00 fh0.00 hi0.00 ti0.00 al4 tabs12",
         "q" : [
-
+          "hlevel=3"
         ],
         "t" : "20.5 Final Extension Paragraph"
       },

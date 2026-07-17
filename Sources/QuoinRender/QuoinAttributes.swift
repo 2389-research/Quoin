@@ -52,6 +52,11 @@ public enum QuoinAttribute {
     /// Value: `String` — the footnote id spanning a rendered definition
     /// (marker, body, and ↩ backlink) in the appended footnote section.
     public static let footnoteDefinitionID = NSAttributedString.Key("quoin.footnoteDefinitionID")
+    /// Value: `NSNumber` (Int 1–6) — tags a heading block's rendered range
+    /// with its level. The reader view scans these runs to build the
+    /// VoiceOver "Headings" custom rotor (accessibility structure, #10);
+    /// it never affects layout.
+    public static let headingLevel = NSAttributedString.Key("quoin.headingLevel")
 }
 
 /// Custom URL schemes used for in-document interaction via the text view's

@@ -730,6 +730,92 @@ final class QuoinTextView: NSTextView {
         return children
     }
 
+    // MARK: - Heading rotor (accessibility structure, #10)
+
+    /// Retains the search delegate: `NSAccessibilityCustomRotor` holds its
+    /// `itemSearchDelegate` weakly, so the view must own it.
+    private lazy var headingRotorDelegate = HeadingRotorSearchDelegate(owner: self)
+
+    /// Exposes a VoiceOver "Headings" rotor so a listener can jump between
+    /// headings (VO-U / VO-arrow) instead of arrowing through every line.
+    /// Rebuilt from the current storage each query so it tracks edits; the
+    /// rotor is dropped entirely when the document has no headings.
+    override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        var rotors = super.accessibilityCustomRotors()
+        headingRotorDelegate.reload(from: textContentStorage?.textStorage)
+        if !headingRotorDelegate.items.isEmpty {
+            rotors.append(NSAccessibilityCustomRotor(
+                rotorType: .heading, itemSearchDelegate: headingRotorDelegate))
+        }
+        return rotors
+    }
+
+}
+
+/// Feeds the "Headings" rotor. Holds the current heading runs (range + spoken
+/// label) and answers next/previous queries relative to the caret or the
+/// last-visited item, with optional substring filtering.
+private final class HeadingRotorSearchDelegate: NSObject, NSAccessibilityCustomRotorItemSearchDelegate {
+    private weak var owner: NSTextView?
+    fileprivate private(set) var items: [(range: NSRange, label: String)] = []
+
+    init(owner: NSTextView) {
+        self.owner = owner
+    }
+
+    /// Scans the storage for `headingLevel`-tagged runs, in document order.
+    func reload(from storage: NSTextStorage?) {
+        guard let storage, storage.length > 0 else { items = []; return }
+        var found: [(range: NSRange, label: String)] = []
+        storage.enumerateAttribute(
+            QuoinAttribute.headingLevel,
+            in: NSRange(location: 0, length: storage.length)
+        ) { value, range, _ in
+            guard let level = (value as? NSNumber)?.intValue else { return }
+            let title = storage.attributedSubstring(from: range).string
+            found.append((range, BlockAccessibility.headingAnnouncement(level: level, title: title)))
+        }
+        items = found.sorted { $0.range.location < $1.range.location }
+    }
+
+    func rotor(
+        _ rotor: NSAccessibilityCustomRotor,
+        resultFor parameters: NSAccessibilityCustomRotor.SearchParameters
+    ) -> NSAccessibilityCustomRotor.ItemResult? {
+        guard let owner, !items.isEmpty else { return nil }
+
+        let filter = parameters.filterString.lowercased()
+        let pool = filter.isEmpty
+            ? Array(items.enumerated())
+            : items.enumerated().filter { $0.element.label.lowercased().contains(filter) }
+        guard !pool.isEmpty else { return nil }
+
+        // Anchor on the current item's location (nil on the first search).
+        let currentLocation = parameters.currentItem?.targetRange.location
+        let chosen: (offset: Int, element: (range: NSRange, label: String))?
+        switch parameters.searchDirection {
+        case .next:
+            if let loc = currentLocation {
+                chosen = pool.first { $0.element.range.location > loc }
+            } else {
+                chosen = pool.first
+            }
+        case .previous:
+            if let loc = currentLocation {
+                chosen = pool.last { $0.element.range.location < loc }
+            } else {
+                chosen = pool.last
+            }
+        @unknown default:
+            chosen = nil
+        }
+        guard let target = chosen else { return nil }
+
+        let result = NSAccessibilityCustomRotor.ItemResult(targetElement: owner)
+        result.targetRange = target.element.range
+        result.customLabel = target.element.label
+        return result
+    }
 }
 
 /// AX proxy for the drawn ✓ done chip: pressable by VoiceOver, routed to
