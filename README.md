@@ -286,6 +286,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Handoff / current activity — the open document publishes an `NSUserActivity` carrying a boundary-safe `quoin://` link (Handoff banner, Siri Suggestions, window restoration; cross-device once an iOS reader ships) | ✅ |
 | Core Spotlight indexing — documents, headings, front-matter tags, and body snippets in system search; tap a result to open it. Private, on-device, no network; stays in sync (stale items removed on move/delete) | ✅ |
 | Shortcuts / Siri (App Intents) — Create Note, Append Text to Note, Open Note, Search Library, Export Note, with App Shortcut phrases; mutating actions go through `DocumentSession` (atomic, byte-lossless), confined to the granted library, local-only | ✅ |
+| Quick Look — rendered thumbnails in Finder/open panels and a Space-bar preview in Finder/Spotlight, via two embedded app-extensions; a bounded, capped mode of the shared engine with diagram/math placeholders (thumbnail is a CoreText projection — full-fidelity thumbnail reuse of `AttributedRenderer` is deferred behind an extension-safe render-slice split) | ✅ |
 
 A few of these surfaces, up close:
 

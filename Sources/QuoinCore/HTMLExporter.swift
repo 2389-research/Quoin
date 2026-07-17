@@ -7,7 +7,20 @@ import Foundation
 /// `<img src>` references — never a silent drop (issue #3).
 public enum HTMLExporter {
 
-    public static func export(_ document: QuoinDocument, title: String = "Document", baseURL: URL? = nil) -> String {
+    /// Renders `document` to one self-contained HTML file.
+    ///
+    /// - Parameter contentSecurityPolicy: when non-nil, a
+    ///   `<meta http-equiv="Content-Security-Policy">` with this policy is
+    ///   emitted in `<head>`. The interactive app export leaves this nil (the
+    ///   user WANTS remote images to resolve in their browser); the Quick Look
+    ///   preview passes a restrictive policy so a hostile file's raw HTML can
+    ///   never make Quick Look's WebView fetch a remote resource (issue #8).
+    public static func export(
+        _ document: QuoinDocument,
+        title: String = "Document",
+        baseURL: URL? = nil,
+        contentSecurityPolicy: String? = nil
+    ) -> String {
         var body = ""
         render(document.blocks, document: document, baseURL: baseURL, into: &body)
 
@@ -22,13 +35,17 @@ public enum HTMLExporter {
             body += "</section>\n"
         }
 
+        let cspMeta = contentSecurityPolicy.map {
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"\(escapeAttribute($0))\">\n"
+        } ?? ""
+
         return """
         <!doctype html>
         <html lang="en">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
-        <title>\(escape(title))</title>
+        \(cspMeta)<title>\(escape(title))</title>
         <style>\(stylesheet)</style>
         </head>
         <body>

@@ -325,6 +325,17 @@ resolution can never quietly corrupt the document.
   path. Everything stays local: the actions read and write only inside the
   library folder you granted, with no network access, and they target your
   most-recently-used library folder.
+- **Quick Look thumbnails & previews** — with Quoin installed, `.md` files show
+  a rendered thumbnail in Finder and open panels, and a rich preview when you
+  press Space (Quick Look) in Finder or Spotlight — headings, prose, code,
+  tables, and callouts, with lightweight placeholders standing in for diagrams
+  and math (a `◆ Mermaid diagram` chip, the LaTeX for an equation). It is a
+  fast, bounded mode of the same engine — the input is capped in size before
+  parsing and the expensive diagram/math layout is skipped entirely, so even a
+  huge file previews quickly. (There's no per-render wall-clock deadline inside
+  the extension; the system's own Quick Look agent is the final watchdog for a
+  stuck preview.) The extensions get read-only access to just the file being
+  previewed; nothing leaves your machine.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

@@ -1157,6 +1157,81 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   needed. Everything is local-only — no `network.client` use is added. A
   multi-window user's intents target the most-recent library root (the same
   default a plain new window uses).
+- **Quick Look thumbnails & previews (#8).** Finder, Spotlight, and open/save
+  panels render `.md` files through two small app-extensions embedded in the
+  app's `PlugIns` (generated from `project.yml`): `QuoinThumbnailExtension` (a
+  `QLThumbnailProvider`) and `QuoinPreviewExtension` (a data-based
+  `QLPreviewProvider`). They are two bundles because thumbnail and preview are
+  *distinct* Quick Look extension points — one `NSExtension` dict per bundle.
+  Both declare only `net.daringfireball.markdown` in `QLSupportedContentTypes`
+  (the UTI the app imports for `.md`/`.markdown`/`.mdown`/`.mkd`);
+  `public.plain-text` is deliberately **not** claimed, so Quoin never hijacks
+  the preview of every `.txt` on the system. Each ships the **minimal** sandbox
+  — `app-sandbox` plus `files.user-selected.read-only` — and relies on the
+  read-only sandbox extension the Quick Look host hands it for the previewed
+  URL. No network, no broad file access.
+
+  *The one rule holds here too: this is the shared parse/render path in a
+  constrained, fast mode — not a parallel renderer.* The decidable, testable
+  core is a bounded preview model in `QuoinCore` (`BoundedPreview`), unit-tested
+  by `BoundedPreviewTests`; the Quick Look classes stay thin.
+
+  - **Bounds on input size and layout work — not a wall-clock deadline.**
+    `PreviewBounds` (`.thumbnail` = 256 KB / 40 blocks, `.preview` = 1 MB / 400
+    blocks) caps the input **before** parsing — the extension reads at most
+    `maxInputBytes + 1` bytes with a `FileHandle` (never materialising a huge
+    file), and `BoundedPreview.truncatedSource` trims to a UTF-8 scalar
+    boundary. The parsed document is then reduced: top-level blocks capped, code
+    blocks clipped to N lines, tables/lists capped to N rows/items, footnotes
+    gated by bounds, and the expensive Mermaid/Vinculum layout is never run (see
+    the placeholder policy below). Truncation is surfaced (a notice appended to
+    the HTML preview). These are size/work caps: cmark-gfm is ~linear at these
+    input sizes, so eliminating the dominant costs is what keeps the preview
+    fast. There is deliberately **no** per-render timer inside the extension — a
+    sub-256 KB input that hit a quadratic path in the shared parser would not be
+    aborted by Quoin; the OS Quick Look agent's own watchdog terminates a stuck
+    extension (yielding no thumbnail/preview, never a Finder hang). Adding an
+    internal deadline is a possible follow-up if such an input ever surfaces.
+  - **Placeholder policy — no Mermaid/Vinculum layout, no image I/O in the
+    extension.** `BoundedPreview` walks the block/inline tree and swaps every
+    expensive embed for a lightweight placeholder: a `mermaid` block → a
+    labelled code block (`◆ Mermaid diagram`); a `mathBlock` → `∑ <latex>`;
+    inline `math` → inline `code` (its LaTeX, no typesetting); `image` → a
+    `🖼 alt` text reference. Substitution recurses into quotes, callouts, and
+    list items, so nothing nested triggers layout or a file read either.
+  - **Raw HTML is neutralised, and the preview HTML carries a strict CSP.** Raw
+    HTML is the one escape hatch that could reach the network: a Quick Look
+    preview renders the returned HTML in the system's OWN WebView (outside the
+    extension sandbox, so the missing `network.client` entitlement does not
+    block a fetch the page initiates), and a `<img src="https://tracker…">`,
+    `<iframe>`, or remote `<link rel=stylesheet>` would fire as a tracking pixel
+    — contrary to the local-only guarantee. `BoundedPreview` therefore turns a
+    `htmlBlock` into an inert, escaped code block and inline `html` into escaped
+    text (belt), and `QuickLookContent.previewHTML` passes `HTMLExporter` a
+    restrictive `Content-Security-Policy`
+    (`default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src
+    data:`) that blocks every remote subresource even if some HTML slipped past
+    (suspenders). The interactive app export leaves the CSP nil — there the user
+    WANTS remote images to resolve.
+  - **Preview = shared `HTMLExporter`.** `QuoinPreviewExtension` reduces the
+    file with `.preview` bounds and returns the app's own `HTMLExporter` output
+    as a data-based HTML `QLPreviewReply`. It links **only** `QuoinCore`
+    (platform-free, extension-safe), so it builds strictly
+    `APPLICATION_EXTENSION_API_ONLY = YES`.
+  - **Thumbnail = shared model, CoreText draw.** macOS requires an
+    app-extension — and every library it links — to be
+    `APPLICATION_EXTENSION_API_ONLY = YES`. `QuoinRender` touches app-only
+    AppKit (`NSApp` appearance, print, pasteboard), so it **cannot** be linked
+    into an extension; reusing `AttributedRenderer` there is blocked by the
+    platform, not by choice. `QuoinThumbnailExtension` therefore links only
+    `QuoinCore` and does the final glyph draw in `ThumbnailRasterizer` with
+    CoreText (fully extension-safe) over the SAME bounded block model — a thin,
+    single-pass stack of styled lines from each block's plain text, not a second
+    Markdown parser. Splitting an extension-safe render slice out of
+    `QuoinRender` so the thumbnail can reuse `AttributedRenderer` at full
+    fidelity is the clean follow-up; until then the thumbnail's low-fidelity
+    projection is the deliberate trade that keeps the app build green and the
+    extension sandbox minimal.
 
 ## Testing strategy
 
