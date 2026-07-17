@@ -907,6 +907,51 @@ sandbox makes both of the #31 surfaces a security-boundary question, so the
 enforcement is split deliberately: the *decidable, testable* logic lives in
 `QuoinCore`; the shell only holds the plumbing.
 
+- **Document types & coexistence (#16).** The `CFBundleDocumentTypes` array
+  (generated from `App/macOS/project.yml`) declares Quoin's stance for two
+  Uniform Type Identifiers, chosen so Quoin reads as a *real editor* without
+  being a *bully*:
+    - **`net.daringfireball.markdown` — `Editor`, rank `Alternate`.** Quoin is a
+      genuine Markdown editor, so it claims the `Editor` role (it appears in
+      *Open With* and can be set as the default `.md` app). But the handler rank
+      stays `Alternate`, never `Owner`: Quoin does **not** aggressively seize
+      `.md` from whatever the user has already chosen (Typora, VS Code, iA
+      Writer, BBEdit…). Double-clicking a `.md` file opens it in whatever the
+      user set as default; Quoin is always one *Open With* away, and becomes the
+      default only if the user explicitly picks it. Quoin *imports* (does not
+      *own*) the Markdown UTI (`UTImportedTypeDeclarations`, conforming to
+      `public.plain-text`, extensions `md`/`markdown`/`mdown`/`mkd`) so the type
+      resolves even on a system where no other app declares it.
+    - **`public.plain-text` — `Viewer`, rank `Alternate`.** Quoin can open a
+      `.txt` handed to it via *Open With*, but declares only the `Viewer` role
+      and never claims ownership of plain text — it exerts no default-app
+      pressure on `.txt`. (The macOS panels still gate on it: File ▸ Open… and
+      the Services save panel allow `net.daringfireball.markdown` + plain text.)
+
+  Every open path — Finder double-click / *Open With*, File ▸ Open… (⌘O),
+  sidebar click, quick open, a `.md` dropped on the editor, Open Recent, and the
+  dock-recents menu — funnels through the one `MainWindow.open(_:)` (a real tab
+  + `OpenDocumentStore` session), never a detached one-off window. Delivery from
+  `AppDelegate.application(_:open:)` uses the same **slot** pattern as deep links
+  and Services seeds: the URL is appended to `AppDelegate.pendingOpenURLs` and an
+  `openDocumentNotification` fires, but a *cold* launch (the open arrives before
+  any window's observer is subscribed) is still honored because the first
+  window's `onAppear` drains the slot; a backgrounded-but-running app drains it
+  when a window becomes key. Draining is atomic (grab-then-clear) so a dropped
+  notification never loses an open and two windows can't race to open a file
+  twice — this replaces an earlier fixed-delay guess in the dock handler.
+
+  Open Recent's list rules are the pure, no-I/O `RecentDocuments` seam in
+  `QuoinCore`: `recording(_:into:limit:)` is the most-recently-used update
+  (front-insert, de-duplicate, cap at 20) and `present(in:limit:exists:)` prunes
+  to files that still exist (so a deleted recent never shows in a menu or reopens
+  to a dead path) — `exists` is injected so both are unit-tested off the
+  filesystem (`RecentDocumentsTests`). The shell only persists the array
+  (`UserDefaults`, key `RecentDocuments.defaultsKey`) and mirrors it to
+  `NSDocumentController.noteNewRecentDocumentURL`; the same list feeds the File ▸
+  Open Recent menu (10 entries), the dock menu (5), and quick open's empty-query
+  list (8).
+
 - **`quoin://` deep links.** The scheme is declared in the app's Info.plist
   (`CFBundleURLTypes`, generated from `App/macOS/project.yml`), which is what
   makes LaunchServices deliver `quoin://` URLs through

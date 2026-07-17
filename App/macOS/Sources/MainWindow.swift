@@ -108,11 +108,9 @@ struct MainWindow: View {
             }
         }
         .background(windowShortcuts)
-        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDocumentNotification)) { note in
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDocumentNotification)) { _ in
             guard isKeyWindow else { return }
-            if let url = note.userInfo?["url"] as? URL {
-                open(url)
-            }
+            drainPendingOpenURLs()
         }
         // A quoin:// deep link arrived while running (#31): the key window
         // resolves it against its own library and opens it.
@@ -271,6 +269,12 @@ struct MainWindow: View {
             connectLibrary()
             restoreTabs()
             applyShotState()
+            // Cold launch via Finder double-click / Open With (#16): the file
+            // open was delivered before this window's observer existed, so drain
+            // any pending file opens now that the window is up. Not key-gated —
+            // the FIRST window to appear at cold launch owns the drain (the slot
+            // clears atomically, so a later window sees nothing).
+            drainPendingOpenURLs()
             // Cold launch via quoin:// (#31): the URL was delivered before this
             // window's observer existed, so drain any pending link now that the
             // library is connected.
@@ -294,7 +298,14 @@ struct MainWindow: View {
         }
         // Only the KEY window publishes the current activity; becoming/resigning
         // key flips which window's document is the one the user is on (#36).
-        .onChange(of: controlActiveState) { updateUserActivity() }
+        // Becoming key also drains any pending open (#16): a Finder open / dock
+        // recent while Quoin was backgrounded posts before any window is key, so
+        // the key-gated observer above drops it — this backstops that case once
+        // activation makes a window key (replacing the old fixed-delay guess).
+        .onChange(of: controlActiveState) {
+            updateUserActivity()
+            if isKeyWindow { drainPendingOpenURLs() }
+        }
         // Closing the window (red button) with tabs still open must release the
         // store's hold on each, or their sessions leak (kept watching + never
         // stopped). ⌘W already releases per tab; this covers the whole-window
@@ -460,6 +471,19 @@ struct MainWindow: View {
         // recents (dock menu, Spotlight "recent items").
         library.recordOpen(url)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+    }
+
+    /// Open every file waiting in `AppDelegate.pendingOpenURLs` (#16) as a tab in
+    /// THIS window, draining the slot atomically so a dropped notification never
+    /// loses an open and two windows can't race to open the same file twice.
+    /// Every Finder / Open With / Open Recent / dock / editor-drop open lands
+    /// here, so they all share the ONE open path (`open`) — a real tab + session,
+    /// never detached state.
+    private func drainPendingOpenURLs() {
+        guard !AppDelegate.pendingOpenURLs.isEmpty else { return }
+        let urls = AppDelegate.pendingOpenURLs
+        AppDelegate.pendingOpenURLs = []
+        for url in urls { open(url) }
     }
 
     /// Resolve and open the pending `quoin://` deep link, if one is waiting and

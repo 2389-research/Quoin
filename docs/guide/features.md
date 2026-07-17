@@ -244,6 +244,18 @@ resolution can never quietly corrupt the document.
 - **Library** — pick a folder and its tree becomes your sidebar (⌘0). Folders
   are directories; documents are plain files. **Open Folder in New Window** (in
   the File menu) gives each window its own folder, restored on relaunch.
+- **Open in Finder** — Quoin registers as a Markdown *editor*, so it appears in
+  Finder's **Open With ▸ Quoin** for any `.md` file and can be set as your
+  default Markdown app if you want. It does **not** grab `.md` on install,
+  though: double-clicking keeps opening whatever app you already chose, and Quoin
+  stays one *Open With* away until you pick it yourself — it coexists politely
+  with Typora, VS Code, iA Writer, and the rest. A plain `.txt` opened via *Open
+  With* works too, but Quoin never claims to own plain text. Every open — Finder,
+  ⌘O, the sidebar, a dropped file — lands as a tab in the current window.
+- **Open Recent** — **File ▸ Open Recent** (and the Dock icon's right-click menu)
+  list the documents you opened most recently, whether you opened them from the
+  library, from Finder, or by any other route; picking one reopens it as a tab.
+  Files you've since deleted drop off the list. **Clear Menu** empties it.
 - **Drag out to Finder** — drag any document (or folder) from the sidebar
   straight into the Finder or another app. Because documents are plain files,
   the drop is a real copy of the file — your original stays put in the library.
