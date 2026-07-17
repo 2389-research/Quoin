@@ -436,6 +436,10 @@ private struct FormatCommands: Commands {
         post(AppDelegate.structureNotification, userInfo: ["op": op])
     }
 
+    private func postTable(_ op: String) {
+        post(AppDelegate.tableCommandNotification, userInfo: ["op": op])
+    }
+
     var body: some Commands {
         CommandMenu("Format") {
             Group {
@@ -499,6 +503,34 @@ private struct FormatCommands: Commands {
                 Divider()
                 Button("Toggle Checkbox") { postStructure("checkbox") }
                     .keyboardShortcut(.return, modifiers: [.command, .control])
+            }
+            .disabled(isEditingBlock != true)
+            Divider()
+            // Table (#14): structural edits on the active table block, targeting
+            // the caret's cell. Enabled only while a block is being edited —
+            // the model quietly no-ops when that block is not a table.
+            Menu("Table") {
+                Button("Insert Row Above") { postTable("insertRowAbove") }
+                Button("Insert Row Below") { postTable("insertRowBelow") }
+                Button("Delete Row") { postTable("deleteRow") }
+                Divider()
+                Button("Insert Column Left") { postTable("insertColumnLeft") }
+                Button("Insert Column Right") { postTable("insertColumnRight") }
+                Button("Delete Column") { postTable("deleteColumn") }
+                Divider()
+                Button("Move Row Up") { postTable("moveRowUp") }
+                Button("Move Row Down") { postTable("moveRowDown") }
+                Button("Move Column Left") { postTable("moveColumnLeft") }
+                Button("Move Column Right") { postTable("moveColumnRight") }
+                Divider()
+                Menu("Align Column") {
+                    Button("Left") { postTable("alignLeft") }
+                    Button("Center") { postTable("alignCenter") }
+                    Button("Right") { postTable("alignRight") }
+                    Button("None") { postTable("alignNone") }
+                }
+                Divider()
+                Button("Normalize Table") { postTable("normalize") }
             }
             .disabled(isEditingBlock != true)
             Divider()
@@ -607,6 +639,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openWelcomeNotification = Notification.Name("quoin.openWelcome")
     static let formatNotification = Notification.Name("quoin.format")
     static let structureNotification = Notification.Name("quoin.structure")
+    /// Format ▸ Table structural edit (#14). `userInfo["op"]` names the
+    /// operation; it acts on the active table block at the caret's cell.
+    static let tableCommandNotification = Notification.Name("quoin.tableCommand")
     static let undoNotification = Notification.Name("quoin.undo")
     static let redoNotification = Notification.Name("quoin.redo")
     static let exportNotification = Notification.Name("quoin.export")

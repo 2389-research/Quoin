@@ -679,6 +679,13 @@ struct ReaderScreen: View {
                   let command = structureCommand(for: op) else { return }
             model.applyStructure(command)
         }
+        // Format ▸ Table (#14): structural edits on the active table block at
+        // the caret's cell. The model no-ops when the active block is not a
+        // table, so the shared handler can stay simple.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.tableCommandNotification)) { note in
+            guard isKeyWindow, let op = note.userInfo?["op"] as? String else { return }
+            model.performTableMenu(op)
+        }
         // File ▸ Page Setup… (⇧⌘P) — configure the shared print info.
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.pageSetupNotification)) { _ in
             guard isKeyWindow else { return }

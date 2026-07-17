@@ -199,6 +199,34 @@ re-parses with the real parser and self-calibrates against the old slice
 before it trusts the new one, so a wrong guess always degrades to the
 always-correct full parse rather than corrupting the document.
 
+**Structural source-edit engines.** Commands that mutate structure — not raw
+keystrokes — are pure, platform-free builders in QuoinCore that turn a block's
+SOURCE SLICE into a `SourceEdit`; the model rebases the edit onto the block's
+absolute range and applies it through the same session pipeline, so undo,
+byte-losslessness for untouched blocks, and re-projection are free. Three
+families exist: `StructureEditing` (line-prefix edits — heading level,
+list/quote/checkbox toggles), `BlockEditing` (move / duplicate / delete a whole
+block, plus append-row/append-column table convenience), and — for #14 —
+`TableEditing`'s structural table engine. That engine parses a GFM pipe table
+(`TableEditing.parse` → a rectangular `ParsedTable` of header, per-column
+`TableAlignment`, and body rows, CRLF-safe and tolerant of missing outer pipes
+or ragged rows) and emits slice-relative edits for insert/delete row, insert/
+delete column, move row/column, set a column's alignment, and normalize (re-pad
++ regenerate the delimiter row). Every operation re-renders the whole table
+with normalized padding, so existing cell text and alignment always survive and
+only the affected table is re-padded; a slice whose second line is not a valid
+delimiter row is not a table, so every operation returns nil and the command is
+a quiet no-op (the header row and the last remaining column are likewise
+protected). The macOS reader surfaces the commands through the table
+right-click submenu — `TableEditing.location` maps the click's rendered offset
+(via `EditMapping` when the table is not the active block, 1:1 when it is) to a
+grid row/column so the command targets the exact cell — and through the
+**Format ▸ Table** menu, which targets the caret's cell. Because the engine only
+produces source edits and does not touch the projection or reveal styler, the
+viewport/caret and patch-vs-full invariants are unaffected. `TableEditing`'s
+operations are exhaustively unit-tested (simple, aligned, ragged, malformed,
+single-row, single-column, CRLF, escaped pipes) in `TableStructureEditingTests`.
+
 ```mermaid
 flowchart TD
     E[SourceEdit] --> K{Where does the edit land?}

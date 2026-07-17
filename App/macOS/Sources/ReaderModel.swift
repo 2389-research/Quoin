@@ -735,6 +735,19 @@ final class ReaderModel {
                     : TableEditing.addingColumn(to: slice)
             else { return }
             edit = SourceEdit(range: block.range, replacement: grown)
+        case .tableInsertRow, .tableDeleteRow, .tableInsertColumn, .tableDeleteColumn,
+             .tableMoveRow, .tableMoveColumn, .tableSetAlignment, .tableNormalize:
+            // Structural table edits (#14): the engine emits a SLICE-RELATIVE
+            // SourceEdit; rebase it onto the block's absolute source range so
+            // untouched blocks stay byte-lossless and only this table re-pads.
+            let block = document.blocks[index]
+            guard let slice = document.source.substring(in: block.range),
+                  let relative = tableEdit(command, in: slice) else { return }
+            edit = SourceEdit(
+                range: ByteRange(
+                    offset: block.range.offset + relative.range.offset,
+                    length: relative.range.length),
+                replacement: relative.replacement)
         }
         guard let edit else { return }
         let actionName: UndoActionName
@@ -742,11 +755,74 @@ final class ReaderModel {
         case .moveUp, .moveDown: actionName = .moveBlock
         case .duplicate: actionName = .duplicateBlock
         case .delete: actionName = .deleteBlock
-        case .addTableRow, .addTableColumn: actionName = .editTable
+        case .addTableRow, .addTableColumn, .tableInsertRow, .tableDeleteRow,
+             .tableInsertColumn, .tableDeleteColumn, .tableMoveRow, .tableMoveColumn,
+             .tableSetAlignment, .tableNormalize:
+            actionName = .editTable
         }
         // nil caret: keep the current reveal state — a block command must
         // not fling the caret or open the block it touched.
         applyAbsolute(edit, caretUTF8: nil, actionName: actionName)
+    }
+
+    /// Maps a structural table `BlockCommand` to a slice-relative `SourceEdit`
+    /// (#14). Pure delegation to `TableEditing`; a non-table slice or an
+    /// out-of-range target yields nil and the command no-ops.
+    private func tableEdit(_ command: BlockCommand, in slice: String) -> SourceEdit? {
+        switch command {
+        case let .tableInsertRow(row, above):
+            return TableEditing.insertRowEdit(in: slice, at: row, above: above)
+        case let .tableDeleteRow(row):
+            return TableEditing.deleteRowEdit(in: slice, at: row)
+        case let .tableInsertColumn(column, left):
+            return TableEditing.insertColumnEdit(in: slice, at: column, left: left)
+        case let .tableDeleteColumn(column):
+            return TableEditing.deleteColumnEdit(in: slice, at: column)
+        case let .tableMoveRow(row, up):
+            return TableEditing.moveRowEdit(in: slice, at: row, up: up)
+        case let .tableMoveColumn(column, left):
+            return TableEditing.moveColumnEdit(in: slice, at: column, left: left)
+        case let .tableSetAlignment(column, alignment):
+            return TableEditing.setAlignmentEdit(in: slice, at: column, to: alignment)
+        case .tableNormalize:
+            return TableEditing.normalizeEdit(in: slice)
+        default:
+            return nil
+        }
+    }
+
+    /// Format ▸ Table menu command (#14): the keyboard/menu counterpart to the
+    /// context-menu submenu. Acts on the active table block, targeting the cell
+    /// under the caret (`caretInActiveBlock`). A quiet no-op when the active
+    /// block is not a table or the op is unknown — so the menu item can stay
+    /// enabled while any block is edited without misbehaving elsewhere.
+    func performTableMenu(_ op: String) {
+        guard let id = activeBlockID,
+              let block = document.blocks.first(where: { $0.id == id }),
+              case .table = block.kind,
+              let slice = document.source.substring(in: block.range) else { return }
+        let (row, column) = TableEditing.location(
+            forOffsetUTF16: caretInActiveBlock ?? 0, in: slice) ?? (0, 0)
+        let command: BlockCommand?
+        switch op {
+        case "insertRowAbove": command = .tableInsertRow(at: row, above: true)
+        case "insertRowBelow": command = .tableInsertRow(at: row, above: false)
+        case "deleteRow": command = .tableDeleteRow(at: row)
+        case "insertColumnLeft": command = .tableInsertColumn(at: column, left: true)
+        case "insertColumnRight": command = .tableInsertColumn(at: column, left: false)
+        case "deleteColumn": command = .tableDeleteColumn(at: column)
+        case "moveRowUp": command = .tableMoveRow(at: row, up: true)
+        case "moveRowDown": command = .tableMoveRow(at: row, up: false)
+        case "moveColumnLeft": command = .tableMoveColumn(at: column, left: true)
+        case "moveColumnRight": command = .tableMoveColumn(at: column, left: false)
+        case "alignLeft": command = .tableSetAlignment(at: column, alignment: .left)
+        case "alignCenter": command = .tableSetAlignment(at: column, alignment: .center)
+        case "alignRight": command = .tableSetAlignment(at: column, alignment: .right)
+        case "alignNone": command = .tableSetAlignment(at: column, alignment: .none)
+        case "normalize": command = .tableNormalize
+        default: command = nil
+        }
+        if let command { perform(command, on: id) }
     }
 
     /// A structural line-prefix command (#25) — heading level, list/quote

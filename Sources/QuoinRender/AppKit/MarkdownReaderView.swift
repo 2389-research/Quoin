@@ -10,8 +10,25 @@ public enum FormatCommand: Equatable, Sendable {
 
 /// Block-granularity commands from the context menu (ideas #9/#10/#11);
 /// the host applies them as byte-exact source edits (BlockEditing).
-public enum BlockCommand: Sendable {
-    case moveUp, moveDown, duplicate, delete, addTableRow, addTableColumn
+///
+/// The table cases (#14) carry the grid coordinates of the caret/right-click
+/// so the host can target the exact row/column; the host computes them from
+/// the click point through `TableEditing.location` and passes them here. Row 0
+/// is the header, columns are 0-based. The host still degrades gracefully: any
+/// command on a non-table or an out-of-range target is a quiet no-op.
+public enum BlockCommand: Equatable, Sendable {
+    case moveUp, moveDown, duplicate, delete
+    /// Append a blank row / column at the table's far edge (the legacy #11
+    /// convenience, kept for the "add at end" affordance).
+    case addTableRow, addTableColumn
+    case tableInsertRow(at: Int, above: Bool)
+    case tableDeleteRow(at: Int)
+    case tableInsertColumn(at: Int, left: Bool)
+    case tableDeleteColumn(at: Int)
+    case tableMoveRow(at: Int, up: Bool)
+    case tableMoveColumn(at: Int, left: Bool)
+    case tableSetAlignment(at: Int, alignment: TableAlignment)
+    case tableNormalize
 }
 
 /// Where the caret should land when a block activates, tagged with the

@@ -96,8 +96,19 @@ the file on disk stays clean markdown you own.
   names the step it will reverse — **Undo Typing**, **Undo Move Block**, **Undo
   Edit Properties** — and disables when there's nothing left to undo.
 - **Block operations** — right-click any block for **Duplicate Block**,
-  **Delete Block**, **Move Block Up/Down**, and (on a table) **Add Table Row**
-  and **Add Table Column**. Each is a byte-exact source splice.
+  **Delete Block**, and **Move Block Up/Down**. Each is a byte-exact source
+  splice.
+- **Structural table editing** — right-click a table (or use the **Format ▸
+  Table** menu) to edit it without counting pipes: **Insert Row Above/Below**,
+  **Delete Row**, **Insert Column Left/Right**, **Delete Column**, **Move Row
+  Up/Down**, **Move Column Left/Right**, **Align Column** (Left / Center /
+  Right / None), and **Normalize Table** (re-pads every cell and regenerates
+  the delimiter row). The row/column the command acts on is the one your click
+  or caret is in. Existing cell text and per-column alignment always survive a
+  structural edit; only the affected table is re-padded, and a ragged or
+  malformed table degrades to a safe no-op rather than corrupting. The header
+  row and last remaining column are protected — a table always keeps a header
+  and at least one column.
 - **Byte-lossless** — anything you don't touch is saved exactly as it was, down
   to whitespace and delimiter style. See
   [invariants](../reference/invariants.md).
