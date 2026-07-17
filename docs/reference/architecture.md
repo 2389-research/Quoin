@@ -670,6 +670,59 @@ document body is out of scope (it has its own reading zoom, `Theme.textScale`).
 - **Reduce Transparency** gives Quick Open and the find/replace bars an opaque
   `windowBackgroundColor` fallback.
 
+## Native integration surface (macOS shell)
+
+The macOS shell wires Quoin into the system the way a native editor is expected
+to — Finder document types (Open With, `Reveal in Finder`), a dock-recents
+menu, and, added for #31, a `quoin://` URL scheme plus sidebar drag-out. The
+sandbox makes both of the #31 surfaces a security-boundary question, so the
+enforcement is split deliberately: the *decidable, testable* logic lives in
+`QuoinCore`; the shell only holds the plumbing.
+
+- **`quoin://` deep links.** The scheme is declared in the app's Info.plist
+  (`CFBundleURLTypes`, generated from `App/macOS/project.yml`), which is what
+  makes LaunchServices deliver `quoin://` URLs through
+  `AppDelegate.application(_:open:)` alongside plain `file://` opens. That
+  method branches on `QuoinURLScheme.isDeepLink`, parses with
+  `QuoinURLScheme.parse`, stashes the result in `AppDelegate.pendingDeepLink`,
+  and posts `openDeepLinkNotification`. The key `MainWindow` drains the slot
+  (`consumePendingDeepLink`) — a slot rather than notification `userInfo` so a
+  *cold* launch, where the URL arrives before any window's observer exists, can
+  still drain it from the first window's `onAppear`.
+
+  Confinement is layered. `QuoinURLScheme.resolvedPath(forRawPath:relativeTo:)`
+  is a **pure, no-I/O** resolver: it collapses `.`/`..` lexically and refuses
+  any result that is not strictly under `root + "/"`, so traversal
+  (`../../etc/passwd`), absolute paths elsewhere, and root-name-prefix
+  collisions (`/LibraryOther` vs `/Library`) are rejected by string math alone.
+  The window then requires the file to exist and be markdown, and opens it
+  through the library's already-active security scope — the app holds *no*
+  sandbox access outside the granted root, so an out-of-library link fails even
+  if the lexical check were somehow bypassed. A malformed or out-of-scope link
+  beeps; it never guesses. The pure logic is exercised by
+  `QuoinURLSchemeTests` (traversal, NUL bytes, prefix collisions, encoding).
+
+  Residual, by design: a symlink *planted inside* the library that points
+  outside passes the lexical check, but the sandbox evaluates the resolved
+  target and denies the read — and planting it already requires write access to
+  the user's own library. Multi-library windows resolve a link only against the
+  key window's current root.
+
+- **Drag-out to Finder / other apps.** `documentDragProvider(for:isDirectory:)`
+  (LibrarySidebar) backs every sidebar `.onDrag`. It vends `public.file-url`
+  (via `NSURL`) — unchanged, so the intra-sidebar move drop
+  (`handleFileDrop`, keyed on `public.file-url`) is unaffected — *and*, for leaf
+  files, a `registerFileRepresentation` of the file's real content type so a
+  drag OUT lands as a genuine file copy in Finder or an attachment elsewhere.
+  It registers `coordinated: true`: the item provider reads the existing file
+  with file coordination and must never move or delete the original, so a
+  drag-out can never remove a document from the library. The destination
+  process receives its read access through the drag pasteboard's own sandbox
+  extension — no new entitlement is needed.
+
+Services menu and Handoff / `NSUserActivity` from #31 are deferred as separate
+issues; they are additive to this same shell.
+
 ## Testing strategy
 
 Quoin's tests are how the invariants above stay true — several of them exist

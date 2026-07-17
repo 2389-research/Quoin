@@ -80,6 +80,16 @@ targets:
         SUScheduledCheckInterval: 86400
         # Sandboxed apps must let Sparkle launch its installer via XPC.
         SUEnableInstallerLauncherService: true
+        # quoin:// deep links (issue #31). The action is the URL host and the
+        # target is the `path` query item, resolved against — and confined to —
+        # the sandboxed library root (QuoinURLScheme). Registering the scheme
+        # here is what makes LaunchServices route quoin:// URLs to the app via
+        # application(_:open:).
+        CFBundleURLTypes:
+          - CFBundleURLName: ai.2389.Quoin.deeplink
+            CFBundleTypeRole: Viewer
+            CFBundleURLSchemes:
+              - quoin
         CFBundleDocumentTypes:
           - CFBundleTypeName: Markdown Document
             CFBundleTypeRole: Editor

@@ -262,6 +262,9 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
 | Dark mode (code canvas constant across appearances, per design spec) | ✅ |
 | Accessibility — chrome scales with Dynamic Type; Reduce Motion & Reduce Transparency honored | ✅ |
+| Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
+| `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
+| Services menu · Handoff / NSUserActivity | ⬜ planned |
 
 A few of these surfaces, up close:
 

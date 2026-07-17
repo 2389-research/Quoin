@@ -1,4 +1,5 @@
 import AppKit
+import QuoinCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -394,6 +395,12 @@ private struct AboutCommands: Commands {
 /// Handles Finder "Open With Quoin" for individual files.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openDocumentNotification = Notification.Name("quoin.openDocument")
+    /// A `quoin://` deep link was received (#31). The parsed link is stashed in
+    /// `pendingDeepLink`; the key window resolves it against ITS library root
+    /// and drains the slot. A slot (not the notification's userInfo) is used so
+    /// a cold launch — where the URL arrives before any window's observer is
+    /// installed — can still drain it from the first window's `onAppear`.
+    static let openDeepLinkNotification = Notification.Name("quoin.openDeepLink")
     static let toggleSidebarNotification = Notification.Name("quoin.toggleSidebar")
     static let toggleOutlineNotification = Notification.Name("quoin.toggleOutline")
     static let toggleEditSourceNotification = Notification.Name("quoin.toggleEditSource")
@@ -488,8 +495,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         close.keyEquivalentModifierMask = [.command, .shift]
     }
 
+    /// A `quoin://` deep link waiting to be resolved by a window that holds
+    /// security scope on a library root containing its target (#31). Set on the
+    /// main actor from `application(_:open:)`, drained by MainWindow. `nil`
+    /// between deliveries.
+    static var pendingDeepLink: QuoinURLScheme.DeepLink?
+
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
+            // quoin:// deep links (#31) resolve against the library root, not
+            // the raw path — route them separately from plain file opens.
+            if QuoinURLScheme.isDeepLink(url) {
+                guard let link = QuoinURLScheme.parse(url) else {
+                    // A malformed deep link is refused, not guessed at.
+                    NSSound.beep()
+                    continue
+                }
+                Self.pendingDeepLink = link
+                NSApp.activate(ignoringOtherApps: true)
+                NotificationCenter.default.post(name: Self.openDeepLinkNotification, object: nil)
+                continue
+            }
             NotificationCenter.default.post(
                 name: Self.openDocumentNotification,
                 object: nil,

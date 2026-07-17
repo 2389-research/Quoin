@@ -242,6 +242,16 @@ resolution can never quietly corrupt the document.
 - **Library** — pick a folder and its tree becomes your sidebar (⌘0). Folders
   are directories; documents are plain files. **Open Folder in New Window** (in
   the File menu) gives each window its own folder, restored on relaunch.
+- **Drag out to Finder** — drag any document (or folder) from the sidebar
+  straight into the Finder or another app. Because documents are plain files,
+  the drop is a real copy of the file — your original stays put in the library.
+- **`quoin://` links** — a `quoin://open?path=…` link opens a document in the
+  library. `path` may be relative to the library root
+  (`quoin://open?path=Notes/Today.md`) or an absolute path *inside* it. Links
+  that point outside the library, use `..` to climb out, or name a file that
+  isn't there are refused — Quoin only reaches files inside the folder you
+  granted it. Handy for scripts, notes apps, and `Reveal in Finder`'s companion:
+  a stable way to jump back to a document.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

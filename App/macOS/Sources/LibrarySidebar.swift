@@ -165,6 +165,41 @@ struct LibrarySidebar: View {
     }
 }
 
+/// A drag provider for a library item (#31, drag-out-to-Finder).
+///
+/// It vends TWO representations so one drag serves both directions:
+///   • `public.file-url` (from the `NSURL` object) — what the intra-sidebar
+///     move drop reads back in `handleFileDrop`, so library moves are
+///     unchanged; and
+///   • for a leaf file, a *file representation* of the item's real content
+///     type, so dragging OUT lands as a genuine file copy in Finder or an
+///     attachment in another app, not a bare URL reference.
+///
+/// The file representation is registered `coordinated: true`: the item
+/// provider reads the existing file with file coordination and MUST NOT move
+/// or delete the original — dragging a document out never removes it from the
+/// library. Folders keep the URL-only provider (Finder still copies the tree).
+func documentDragProvider(for url: URL, isDirectory: Bool) -> NSItemProvider {
+    let provider = NSItemProvider(object: url as NSURL)
+    provider.suggestedName = url.lastPathComponent
+    guard !isDirectory else { return provider }
+    let typeIdentifier = (try? url.resourceValues(forKeys: [.contentTypeKey]).contentType?.identifier)
+        ?? UTType(filenameExtension: url.pathExtension)?.identifier
+        ?? UTType.data.identifier
+    provider.registerFileRepresentation(
+        forTypeIdentifier: typeIdentifier,
+        fileOptions: [],
+        visibility: .all
+    ) { completion in
+        // The file already exists on disk. `coordinated: true` tells the item
+        // provider to read it via file coordination and leave the original in
+        // place — never move or delete it.
+        completion(url, true, nil)
+        return nil
+    }
+    return provider
+}
+
 /// Loads file URLs off the drag pasteboard and performs the library move.
 @discardableResult
 func handleFileDrop(_ providers: [NSItemProvider], into folder: URL, library: LibraryModel) -> Bool {
@@ -225,7 +260,7 @@ private struct LibraryRow: View {
                             .quoinScaledFont(size: 12.5)
                     }
                 }
-                .onDrag { NSItemProvider(object: node.url as NSURL) }
+                .onDrag { documentDragProvider(for: node.url, isDirectory: true) }
                 // Dropping a file onto a folder moves it there (⌘Z undoes);
                 // the target folder highlights while hovered (UI #21).
                 .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
@@ -255,7 +290,7 @@ private struct LibraryRow: View {
             }
         } else {
             row
-                .onDrag { NSItemProvider(object: node.url as NSURL) }
+                .onDrag { documentDragProvider(for: node.url, isDirectory: false) }
         }
     }
 
