@@ -477,14 +477,23 @@ struct MainWindow: View {
         // Only a window with a library can resolve a path — leave the slot for
         // a window that has one (e.g. this one, once connectLibrary lands).
         guard let root = library.rootURL else { return }
-        AppDelegate.pendingDeepLink = nil
         guard let resolved = QuoinURLScheme.resolvedPath(
             forRawPath: link.rawPath,
             relativeTo: root.standardizedFileURL.path)
         else {
+            // A root-confined link (a Spotlight tap, #6) names its document by
+            // an absolute path that lives under exactly ONE library root. If
+            // that isn't this window's root, LEAVE the slot for the window that
+            // owns it — beeping or opening a same-named file from this library
+            // would be the wrong document. External quoin:// links carry a
+            // portable relative path any window may resolve, so a genuine
+            // failure there still beeps (and clears the slot) as before.
+            if link.confinedToContainingRoot { return }
+            AppDelegate.pendingDeepLink = nil
             NSSound.beep()
             return
         }
+        AppDelegate.pendingDeepLink = nil
         let url = URL(fileURLWithPath: resolved)
         guard url.pathExtension.lowercased() == "md",
               FileManager.default.fileExists(atPath: url.path) else {

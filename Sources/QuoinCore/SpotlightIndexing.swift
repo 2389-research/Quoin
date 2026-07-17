@@ -6,11 +6,24 @@ import Foundation
 /// tapped Spotlight result back through the existing `quoin://` deep-link /
 /// open path.
 ///
-/// The identifier IS the library-relative path — the exact `path` a
-/// `quoin://open?path=…` link carries — so a tapped Spotlight item resolves
-/// through the SAME `QuoinURLScheme` confinement (``QuoinURLScheme/resolvedPath(forRawPath:relativeTo:)``)
-/// every other open goes through: no parallel open path, and no way to escape
-/// the granted library root.
+/// The identifier is the document's **root-scoped absolute path**. Core
+/// Spotlight's `CSSearchableIndex.default()` is a SINGLE app-wide index, but
+/// each window owns its own `LibraryModel` and can hold a different root
+/// (multi-folder windows, #61). A bare library-relative id (`Notes/Today.md`)
+/// would therefore COLLIDE across libraries — two roots each containing
+/// `Notes/Today.md` would fight over one index slot (overwriting each other's
+/// title/snippet, deleting each other's items, and opening the wrong file on
+/// tap). The absolute path is unique across libraries (a path lives under
+/// exactly one root), so every window's items are naturally namespaced.
+///
+/// The id still round-trips through the SAME `QuoinURLScheme` confinement
+/// (``QuoinURLScheme/resolvedPath(forRawPath:relativeTo:)``) every other open
+/// goes through: no parallel open path, and no way to escape the granted
+/// library root. Because it is absolute, a tapped item routes to the library
+/// that OWNS the document (the tap link is `confinedToContainingRoot`), never
+/// to a same-named file in whichever window is key. It is a per-device index
+/// value that never leaves the machine, so it need not be machine-portable the
+/// way the #36 Handoff link (relative) must be.
 ///
 /// ALL device/framework glue (CSSearchableIndex, CSSearchableItemAttributeSet)
 /// lives in the macOS app behind `canImport(CoreSpotlight)`. Nothing here
@@ -36,12 +49,14 @@ public enum SpotlightIndexing {
     /// macOS glue needs to fill a `CSSearchableItemAttributeSet`, and nothing
     /// platform-specific.
     public struct IndexedDocument: Equatable, Sendable {
-        /// Stable identifier == library-relative path (e.g. `Notes/Today.md`).
+        /// Stable, root-scoped identifier == the document's absolute path (e.g.
+        /// `/Work/Notes/Today.md`). Unique across libraries so the app-wide
+        /// index never collides; see the type doc.
         public let identifier: String
         /// Display title: front-matter `title`, else the first heading, else
         /// the filename stem.
         public let title: String
-        /// The library-relative path (identical to `identifier`), shown as the
+        /// The library-relative path (e.g. `Notes/Today.md`), shown as the
         /// item's subtitle.
         public let relativePath: String
         /// Heading titles in document order.
@@ -74,16 +89,33 @@ public enum SpotlightIndexing {
 
     // MARK: - Stable identifier (⇄ deep link)
 
-    /// The stable identifier for a document at `documentPath` inside `rootPath`
-    /// — its library-relative path, IDENTICAL to the `path` a `quoin://open`
-    /// deep link would carry. `nil` when the document is not strictly contained
-    /// within the root (nothing outside a granted library is indexable). Pure:
-    /// no I/O.
+    /// The stable, root-scoped identifier for a document at `documentPath`
+    /// inside `rootPath` — its normalized ABSOLUTE path. `nil` when the document
+    /// is not strictly contained within the root (nothing outside a granted
+    /// library is indexable, and the root folder itself is not a document).
+    /// Pure: no I/O.
     ///
-    /// Derived FROM `QuoinURLScheme.deepLink(forDocumentPath:relativeTo:)` so
-    /// the identifier and the open link can never drift apart — the id round-
+    /// Absolute (not relative) so it is unique across libraries: the app-wide
+    /// `CSSearchableIndex.default()` holds items from every window's root, and a
+    /// bare relative id would collide when two roots share a relative path (see
+    /// the type doc). Containment is validated by the SAME check the deep link
+    /// uses (``QuoinURLScheme/deepLink(forDocumentPath:relativeTo:)`` — refuses
+    /// the root itself, out-of-root paths, and NUL bytes), and the id round-
     /// trips back through ``documentPath(forIdentifier:relativeTo:)``.
     public static func identifier(forDocumentPath documentPath: String, relativeTo rootPath: String) -> String? {
+        // Reuse the deep link purely as the containment/validity gate; the id
+        // itself is the absolute path so it stays globally unique.
+        guard QuoinURLScheme.deepLink(forDocumentPath: documentPath, relativeTo: rootPath) != nil
+        else { return nil }
+        return QuoinURLScheme.normalize(documentPath)
+    }
+
+    /// The library-relative path for a document at `documentPath` inside
+    /// `rootPath` (e.g. `Notes/Today.md`) — the display subtitle, and the
+    /// exact `path` a portable `quoin://open` deep link carries. `nil` under the
+    /// same containment rules as ``identifier(forDocumentPath:relativeTo:)``.
+    /// Pure: no I/O.
+    public static func relativePath(forDocumentPath documentPath: String, relativeTo rootPath: String) -> String? {
         guard let link = QuoinURLScheme.deepLink(forDocumentPath: documentPath, relativeTo: rootPath),
               let components = URLComponents(url: link, resolvingAgainstBaseURL: false),
               let path = components.queryItems?.first(where: { $0.name == "path" })?.value,
@@ -101,10 +133,13 @@ public enum SpotlightIndexing {
 
     // MARK: - Attribute derivation
 
-    /// Build the full indexed snapshot for a parsed document.
+    /// Build the full indexed snapshot for a parsed document. `identifier` is
+    /// the root-scoped absolute id (uniqueness key); `relativePath` is the
+    /// display subtitle.
     public static func indexedDocument(
         for document: QuoinDocument,
         identifier: String,
+        relativePath: String,
         filenameStem: String,
         snippetLimit: Int = defaultSnippetLimit,
         textContentLimit: Int = defaultTextContentLimit
@@ -113,7 +148,7 @@ public enum SpotlightIndexing {
         return IndexedDocument(
             identifier: identifier,
             title: title(for: document, filenameStem: filenameStem),
-            relativePath: identifier,
+            relativePath: relativePath,
             headings: headings(for: document),
             keywords: keywords(for: document),
             snippet: truncate(body, limit: snippetLimit),
@@ -200,6 +235,33 @@ public enum SpotlightIndexing {
     /// Sorted for deterministic behavior/tests.
     public static func staleIdentifiers(previouslyIndexed: Set<String>, current: Set<String>) -> [String] {
         previouslyIndexed.subtracting(current).sorted()
+    }
+
+    // MARK: - Persisted-root registry (bounded storage)
+
+    /// LRU-touch a registry of persisted root paths and report which roots
+    /// overflow a `limit`. The macOS glue persists one `[id: Date]` blob per
+    /// distinct root ever opened; without a bound those blobs accumulate forever
+    /// (a user opens many folders over a lifetime and none is pruned when a
+    /// library is disconnected). This keeps at most `limit` roots' blobs:
+    /// `rootPath` is moved to the most-recent end (deduped), and any roots that
+    /// fall off the front are returned as `evicted` so the caller can delete
+    /// their persisted maps. Pure: no I/O.
+    ///
+    /// Evicting a root's map only means the NEXT time that (least-recently-used)
+    /// root is opened, its stale-set diff starts from empty — it re-indexes its
+    /// current files fresh. Bounded, rare, and never a correctness hazard for an
+    /// active library.
+    public static func prunedRootRegistry(
+        _ registry: [String], touching rootPath: String, limit: Int
+    ) -> (registry: [String], evicted: [String]) {
+        var next = registry.filter { $0 != rootPath }
+        next.append(rootPath)
+        guard limit > 0, next.count > limit else { return (next, []) }
+        let overflow = next.count - limit
+        let evicted = Array(next.prefix(overflow))
+        next.removeFirst(overflow)
+        return (next, evicted)
     }
 
     // MARK: - Internals

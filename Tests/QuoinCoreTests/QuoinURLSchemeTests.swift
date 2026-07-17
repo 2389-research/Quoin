@@ -176,6 +176,72 @@ final class QuoinURLSchemeTests: XCTestCase {
         XCTAssertNil(QuoinURLScheme.deepLink(forDocumentPath: "/Lib/a\0.md", relativeTo: "/Lib"))
     }
 
+    // MARK: - openLink (Spotlight identifier → quoin:// link, #6)
+
+    func testOpenLinkRoundTripsRelativeIdentifierThroughResolvedPath() {
+        // openLink → parse → resolvedPath is the exact chain the Spotlight tap
+        // path relies on; pin the whole round-trip.
+        let id = "Notes/Today.md"
+        guard let url = QuoinURLScheme.openLink(relativePath: id) else {
+            return XCTFail("expected a link")
+        }
+        XCTAssertEqual(QuoinURLScheme.parse(url)?.rawPath, id)
+        XCTAssertEqual(
+            QuoinURLScheme.resolvedPath(forRawPath: QuoinURLScheme.parse(url)!.rawPath, relativeTo: "/Lib"),
+            "/Lib/Notes/Today.md")
+    }
+
+    func testOpenLinkRoundTripsRootScopedAbsoluteIdentifier() {
+        // The Spotlight uid is an ABSOLUTE path; openLink must carry it verbatim
+        // and it must resolve back only under its owning root.
+        let id = "/Work/Notes/Today.md"
+        guard let url = QuoinURLScheme.openLink(relativePath: id),
+              let parsed = QuoinURLScheme.parse(url) else {
+            return XCTFail("expected a link")
+        }
+        XCTAssertEqual(parsed.rawPath, id)
+        XCTAssertEqual(QuoinURLScheme.resolvedPath(forRawPath: parsed.rawPath, relativeTo: "/Work"), id)
+        XCTAssertNil(QuoinURLScheme.resolvedPath(forRawPath: parsed.rawPath, relativeTo: "/Personal"))
+    }
+
+    func testOpenLinkPercentEncodesSpecialCharacters() {
+        // A path containing '?', '#', spaces, or unicode must survive encoding
+        // and decode back byte-for-byte (a naive concatenation would corrupt it).
+        let id = "My Notes/Q? & #Café.md"
+        guard let url = QuoinURLScheme.openLink(relativePath: id) else {
+            return XCTFail("expected a link")
+        }
+        XCTAssertEqual(QuoinURLScheme.parse(url)?.rawPath, id)
+    }
+
+    func testOpenLinkRejectsEmptyAndNulIdentifiers() {
+        XCTAssertNil(QuoinURLScheme.openLink(relativePath: ""))
+        XCTAssertNil(QuoinURLScheme.openLink(relativePath: "a\0.md"))
+    }
+
+    // MARK: - spotlightDeepLink (root-confined routing, #6)
+
+    func testSpotlightDeepLinkIsConfinedToContainingRoot() {
+        // The Spotlight tap link is stamped confined so it routes only to the
+        // window whose library owns the document.
+        let link = QuoinURLScheme.spotlightDeepLink(identifier: "/Work/Notes/Today.md")
+        XCTAssertEqual(link?.action, .open)
+        XCTAssertEqual(link?.rawPath, "/Work/Notes/Today.md")
+        XCTAssertEqual(link?.confinedToContainingRoot, true)
+    }
+
+    func testSpotlightDeepLinkRejectsEmptyAndNulIdentifiers() {
+        XCTAssertNil(QuoinURLScheme.spotlightDeepLink(identifier: ""))
+        XCTAssertNil(QuoinURLScheme.spotlightDeepLink(identifier: "a\0.md"))
+    }
+
+    func testExternalParsedLinkIsNotConfined() {
+        // A plain parsed quoin:// link (external / Handoff) stays non-confined,
+        // so any window may resolve its portable relative path.
+        let link = QuoinURLScheme.parse(url("quoin://open?path=Notes/Today.md"))
+        XCTAssertEqual(link?.confinedToContainingRoot, false)
+    }
+
     // MARK: - normalize()
 
     func testNormalizeCollapsesLexically() {

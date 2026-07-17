@@ -95,8 +95,13 @@ final class SpotlightIndexer {
                 // for a `.txt`/`.markdown` sibling would surface in Spotlight
                 // but refuse to open on tap. Keep the indexed set == openable set.
                 guard node.url.pathExtension.lowercased() == "md" else { return }
+                let absPath = node.url.standardizedFileURL.path
+                // The id is the ROOT-SCOPED absolute path (unique across the
+                // app-wide index); the relative path is the display subtitle.
                 guard let id = SpotlightIndexing.identifier(
-                    forDocumentPath: node.url.standardizedFileURL.path, relativeTo: rootPath)
+                        forDocumentPath: absPath, relativeTo: rootPath),
+                      let relativePath = SpotlightIndexing.relativePath(
+                        forDocumentPath: absPath, relativeTo: rootPath)
                 else { return }
                 currentIDs.insert(id)
                 let modDate = (try? node.url.resourceValues(
@@ -115,7 +120,8 @@ final class SpotlightIndexer {
                 }
                 let document = MarkdownConverter.parse(text)
                 let derived = SpotlightIndexing.indexedDocument(
-                    for: document, identifier: id, filenameStem: node.name)
+                    for: document, identifier: id, relativePath: relativePath,
+                    filenameStem: node.name)
                 items.append(makeItem(derived))
                 nextIndexed[id] = modDate
             case .folder:
@@ -159,6 +165,15 @@ final class SpotlightIndexer {
     // MARK: - Persistence (per root, so the stale diff survives launches)
 
     private static let persistPrefix = "quoin.spotlight.indexed."
+    /// Registry of persisted root paths, LRU-ordered (oldest first). Bounds the
+    /// per-root `indexed.<root>` blobs so they can't accumulate forever as a
+    /// user opens many folders over time (none is pruned on library removal —
+    /// there is no such lifecycle signal — so we cap by recency instead).
+    private static let persistRegistryKey = "quoin.spotlight.roots"
+    /// How many roots' maps to retain. Generous — a user with dozens of active
+    /// libraries keeps them all; only the long tail of once-opened folders is
+    /// swept.
+    private static let maxPersistedRoots = 32
 
     private static func persistKey(rootPath: String) -> String {
         persistPrefix + rootPath
@@ -175,10 +190,30 @@ final class SpotlightIndexer {
     }
 
     private static func persist(_ map: [String: Date], rootPath: String) {
+        var registry = UserDefaults.standard.stringArray(forKey: persistRegistryKey) ?? []
         if map.isEmpty {
+            // This root has no indexed documents: drop its blob AND its registry
+            // entry so a removed/empty library leaves nothing behind.
             UserDefaults.standard.removeObject(forKey: persistKey(rootPath: rootPath))
+            registry.removeAll { $0 == rootPath }
+            setRegistry(registry)
+            return
+        }
+        UserDefaults.standard.set(map, forKey: persistKey(rootPath: rootPath))
+        // Touch this root as most-recent and evict the long tail of stale roots.
+        let (next, evicted) = SpotlightIndexing.prunedRootRegistry(
+            registry, touching: rootPath, limit: maxPersistedRoots)
+        for path in evicted {
+            UserDefaults.standard.removeObject(forKey: persistKey(rootPath: path))
+        }
+        setRegistry(next)
+    }
+
+    private static func setRegistry(_ registry: [String]) {
+        if registry.isEmpty {
+            UserDefaults.standard.removeObject(forKey: persistRegistryKey)
         } else {
-            UserDefaults.standard.set(map, forKey: persistKey(rootPath: rootPath))
+            UserDefaults.standard.set(registry, forKey: persistRegistryKey)
         }
     }
 }

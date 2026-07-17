@@ -50,10 +50,20 @@ public enum QuoinURLScheme {
 
         public let action: Action
         public let rawPath: String
+        /// When `true`, only a window whose library root CONTAINS the resolved
+        /// document may honor this link — a window that can't resolve it leaves
+        /// the pending slot alone rather than beeping (so another window can
+        /// claim it). Set for Core Spotlight taps (#6): the tapped item names a
+        /// document by its absolute, root-scoped path, and it must route to the
+        /// library that owns it, never to a same-named file in a different
+        /// library that merely happens to be the key window. External `quoin://`
+        /// links (which carry a portable *relative* path) leave this `false`.
+        public let confinedToContainingRoot: Bool
 
-        public init(action: Action, rawPath: String) {
+        public init(action: Action, rawPath: String, confinedToContainingRoot: Bool = false) {
             self.action = action
             self.rawPath = rawPath
+            self.confinedToContainingRoot = confinedToContainingRoot
         }
     }
 
@@ -168,6 +178,25 @@ public enum QuoinURLScheme {
         components.host = DeepLink.Action.open.rawValue
         components.queryItems = [URLQueryItem(name: "path", value: relativePath)]
         return components.url
+    }
+
+    /// Build the ``DeepLink`` for a tapped Core Spotlight result (#6). The
+    /// tapped item's `uniqueIdentifier` is the document's *root-scoped* path
+    /// (see ``/QuoinCore/SpotlightIndexing/identifier(forDocumentPath:relativeTo:)``);
+    /// this validates it exactly as ``parse(_:)`` does (an empty path or a NUL
+    /// byte is refused — a hostile identifier can't smuggle a malformed link)
+    /// and stamps ``DeepLink/confinedToContainingRoot`` so the resume side
+    /// routes it ONLY to the library that owns the document, never to a
+    /// same-named file in whichever library is key. The link still re-resolves
+    /// through ``resolvedPath(forRawPath:relativeTo:)`` on the receiving side,
+    /// so the library-root confinement holds. Pure: no I/O.
+    public static func spotlightDeepLink(identifier: String) -> DeepLink? {
+        guard let url = openLink(relativePath: identifier),
+              let link = parse(url) else { return nil }
+        return DeepLink(
+            action: link.action,
+            rawPath: link.rawPath,
+            confinedToContainingRoot: true)
     }
 
     /// Lexically normalize an absolute or relative POSIX path: collapse empty
