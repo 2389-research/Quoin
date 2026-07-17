@@ -278,6 +278,7 @@ private struct LibraryRow: View {
                         draftName = node.name
                         isRenaming = true
                     }
+                    Button("Duplicate") { library.duplicate(url: node.url) }
                     Divider()
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([node.url])
@@ -325,6 +326,11 @@ private struct LibraryRow: View {
                 Button("Rename") {
                     draftName = node.name
                     isRenaming = true
+                }
+            }
+            Button("Duplicate") {
+                if let copy = library.duplicate(url: node.url) {
+                    if node.kind == .document { onOpen(copy) }
                 }
             }
             Button("Reveal in Finder") {

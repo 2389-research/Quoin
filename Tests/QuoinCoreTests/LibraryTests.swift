@@ -58,6 +58,45 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(suffixed.lastPathComponent, "Beta 2.md")
     }
 
+    func testDuplicateCreatesSuffixedSiblingAndKeepsOriginal() throws {
+        let alpha = root.appendingPathComponent("Alpha.md")
+        let copy = try Library.duplicate(alpha)
+        XCTAssertEqual(copy.lastPathComponent, "Alpha 2.md")
+        // Original survives; the copy carries the same bytes.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: alpha.path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: copy.path))
+        XCTAssertEqual(
+            try Data(contentsOf: copy),
+            try Data(contentsOf: alpha))
+    }
+
+    func testDuplicateWalksPastExistingSuffixes() throws {
+        let alpha = root.appendingPathComponent("Alpha.md")
+        try Data("dup".utf8).write(to: root.appendingPathComponent("Alpha 2.md"))
+        // "Alpha 2.md" is taken, so the next duplicate lands on "Alpha 3.md".
+        let copy = try Library.duplicate(alpha)
+        XCTAssertEqual(copy.lastPathComponent, "Alpha 3.md")
+    }
+
+    func testDuplicateOfACopyChainsSuffixes() throws {
+        let alpha = root.appendingPathComponent("Alpha.md")
+        let first = try Library.duplicate(alpha)
+        XCTAssertEqual(first.lastPathComponent, "Alpha 2.md")
+        // Duplicating the copy uses "Alpha 2" as the base → "Alpha 2 2.md",
+        // never overwriting the original or the first copy.
+        let second = try Library.duplicate(first)
+        XCTAssertEqual(second.lastPathComponent, "Alpha 2 2.md")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: first.path))
+    }
+
+    func testDuplicateFolderCopiesSubtree() throws {
+        let projects = root.appendingPathComponent("Projects")
+        let copy = try Library.duplicate(projects)
+        XCTAssertEqual(copy.lastPathComponent, "Projects 2")
+        XCTAssertTrue(FileManager.default.fileExists(
+            atPath: copy.appendingPathComponent("Gamma.md").path))
+    }
+
     func testUniqueURLAppendsIncrementingSuffix() throws {
         // No collision → the base name is used as-is.
         let free = Library.uniqueURL(baseName: "Notes", extension: "md", in: root)

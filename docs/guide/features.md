@@ -247,6 +247,14 @@ resolution can never quietly corrupt the document.
 - **Drag out to Finder** — drag any document (or folder) from the sidebar
   straight into the Finder or another app. Because documents are plain files,
   the drop is a real copy of the file — your original stays put in the library.
+- **Manage documents** — right-click any document or folder in the sidebar for
+  **Rename**, **Duplicate**, **Reveal in Finder**, and **Move to Trash**.
+  Duplicate copies the file to the next free ` 2`, ` 3`… name beside the
+  original (never overwriting) and opens the copy. Move to Trash uses the
+  system Trash, so a deleted document is recoverable from the Finder — it is
+  never permanently erased — and any open tabs for it close automatically.
+  The same **Duplicate** and **Move to Trash** actions sit in the File menu and
+  act on the current document; Move to Trash is **⌘⌫**.
 - **`quoin://` links** — a `quoin://open?path=…` link opens a document in the
   library. `path` may be relative to the library root
   (`quoin://open?path=Notes/Today.md`) or an absolute path *inside* it. Links

@@ -152,6 +152,21 @@ public enum Library {
         return directory + "/" + name
     }
 
+    /// Copies a file or folder to a collision-free sibling name — the Finder
+    /// "Duplicate" gesture. `Alpha.md` becomes `Alpha 2.md`, then `Alpha 3.md`;
+    /// the ` 2`, ` 3`… suffix comes from `uniqueURL` so it never overwrites.
+    /// Returns the copy's URL so the caller can select/open it.
+    public static func duplicate(_ url: URL, fileManager: FileManager = .default) throws -> URL {
+        let destination = uniqueURL(
+            baseName: url.deletingPathExtension().lastPathComponent,
+            extension: url.pathExtension,
+            in: url.deletingLastPathComponent(),
+            fileManager: fileManager
+        )
+        try fileManager.copyItem(at: url, to: destination)
+        return destination
+    }
+
     /// Renames a document, keeping its extension; a name collision gets a
     /// " 2", " 3"… suffix silently (design rule: never a modal).
     public static func rename(_ url: URL, to newName: String, fileManager: FileManager = .default) throws -> URL {

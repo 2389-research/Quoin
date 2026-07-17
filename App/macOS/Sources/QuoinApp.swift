@@ -188,6 +188,15 @@ private struct FileCommands: Commands {
                 }
             }
             Divider()
+            // Document management: the current document (active tab) is the
+            // target. Duplicate has no chord (⌘D is Daily Note); Move to Trash
+            // is ⌘⌫, the Finder-standard move-to-trash key.
+            Button("Duplicate") { post(AppDelegate.duplicateDocumentNotification) }
+                .disabled(hasDocument != true)
+            Button("Move to Trash") { post(AppDelegate.trashDocumentNotification) }
+                .keyboardShortcut(.delete, modifiers: .command)
+                .disabled(hasDocument != true)
+            Divider()
             Button("Close Tab") { post(AppDelegate.closeTabNotification) }
                 .keyboardShortcut("w", modifiers: .command)
                 .disabled(hasDocument != true)
@@ -555,6 +564,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let toggleSentenceFocusNotification = Notification.Name("quoin.toggleSentenceFocus")
     static let toggleTypewriterNotification = Notification.Name("quoin.toggleTypewriter")
     static let newDocumentNotification = Notification.Name("quoin.newDocument")
+    static let duplicateDocumentNotification = Notification.Name("quoin.duplicateDocument")
+    static let trashDocumentNotification = Notification.Name("quoin.trashDocument")
     static let closeTabNotification = Notification.Name("quoin.closeTab")
     static let openFilePanelNotification = Notification.Name("quoin.openFilePanel")
     static let dailyNoteNotification = Notification.Name("quoin.dailyNote")
