@@ -159,7 +159,11 @@ public struct RenderedDocument {
 /// (MermaidKit), each drawn as an attachment behind a theme seam, with a
 /// styled source-card only as the failure fallback. Tables use measured tab
 /// stops; the richer table attachment view is a later refinement.
-public struct AttributedRenderer {
+/// `Sendable`: a value type whose stored state is all Sendable — a `Theme`
+/// (Sendable), a `URL?`, a `Bool`, and a `@Sendable` callback. It carries no
+/// mutable reference state, so a copy can be handed to a background render
+/// executor safely (issue #33's off-main full render relies on exactly this).
+public struct AttributedRenderer: Sendable {
 
     public let theme: Theme
     /// Directory of the open document, for resolving relative image paths.

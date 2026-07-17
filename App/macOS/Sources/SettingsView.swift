@@ -30,7 +30,11 @@ enum AppAppearance: String, CaseIterable, Identifiable {
 
     /// Applies this preference app-wide. The screenshot-automation pin
     /// (`-QuoinForceDarkMode`) wins over the stored preference so CI
-    /// captures stay deterministic.
+    /// captures stay deterministic. `@MainActor`: it reads and writes
+    /// `NSApp.appearance`, which is main-actor-isolated; both callers (the
+    /// app delegate's launch hook and the Settings `.onChange`) are already
+    /// on the main actor.
+    @MainActor
     static func applyStored() {
         guard !UserDefaults.standard.bool(forKey: "QuoinForceDarkMode") else {
             NSApp.appearance = NSAppearance(named: .darkAqua)

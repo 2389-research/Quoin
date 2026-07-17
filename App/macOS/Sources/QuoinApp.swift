@@ -499,7 +499,36 @@ private struct AboutCommands: Commands {
     }
 }
 
+/// One-shot delivery of `applicationShouldTerminate`'s deferred reply. The
+/// flush task and the watchdog both race to answer; whichever arrives first
+/// replies and disarms the other. `@MainActor` (so `didReply` needs no
+/// locking and `reply` is on AppKit's actor) and therefore implicitly
+/// Sendable, so the detached flush can carry it without capturing the
+/// non-Sendable `NSApplication` directly.
+@MainActor
+private final class TerminationReplyBox {
+    private let app: NSApplication
+    private var didReply = false
+
+    init(_ app: NSApplication) { self.app = app }
+
+    func reply() {
+        guard !didReply else { return }
+        didReply = true
+        app.reply(toApplicationShouldTerminate: true)
+    }
+}
+
 /// Handles Finder "Open With Quoin" for individual files.
+///
+/// `@MainActor`: an app delegate's callbacks all run on the main thread, and
+/// its shared mutable slot (`pendingDeepLink`) is written from
+/// `application(_:open:)` and drained by `MainWindow`, both on the main actor.
+/// Annotating the class isolates that state instead of leaving it as
+/// nonisolated global mutable state (a Swift 6 data-race error). The static
+/// `Notification.Name` constants are immutable `Sendable` values, so they stay
+/// freely readable from anywhere.
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openDocumentNotification = Notification.Name("quoin.openDocument")
     /// A `quoin://` deep link was received (#31). The parsed link is stashed in
@@ -551,20 +580,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// main-actor): a MainActor Task is not guaranteed to execute while
     /// the runloop spins in the terminateLater mode — the first
     /// implementation of this method lost data exactly that way.
+    ///
+    /// Two paths race to answer `terminateLater`: the flush completing and a
+    /// 3s watchdog. `TerminationReplyBox` makes the answer one-shot (calling
+    /// `NSApplication.reply` twice is undefined) and owns the `NSApplication`
+    /// so no non-Sendable AppKit object is captured in the detached @Sendable
+    /// flush — only the box (a Sendable @MainActor class) crosses, and the
+    /// reply hops back to the main actor to fire.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let sessions = ReaderModel.liveSessionSnapshot()
         guard !sessions.isEmpty else { return .terminateNow }
+        let replyBox = TerminationReplyBox(sender)
         Task.detached(priority: .userInitiated) {
             for session in sessions {
                 try? await session.saveNow()
             }
-            DispatchQueue.main.async {
-                sender.reply(toApplicationShouldTerminate: true)
-            }
+            await MainActor.run { replyBox.reply() }
         }
         // Watchdog: never let a hung save wedge quit for more than 3s.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            sender.reply(toApplicationShouldTerminate: true)
+            replyBox.reply()
         }
         return .terminateLater
     }
