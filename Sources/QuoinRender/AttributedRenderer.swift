@@ -307,13 +307,13 @@ public struct AttributedRenderer: Sendable {
         }
 
         // Footnotes gather at document end: 12/1.6 secondary, top hairline.
+        // Their definition blocks are READ-ONLY (issue #1): they are NOT
+        // published into `blockRanges`, so a click/keystroke in the footnote
+        // section resolves to no block and is a clean no-op rather than a
+        // broken activation. See `renderFootnotes` for why the definition
+        // range isn't a revealable 1:1 source range.
         if !document.footnotes.isEmpty {
-            let base = output.length
-            let (footnoteText, footnoteRanges) = renderFootnotes(document)
-            output.append(footnoteText)
-            for (id, range) in footnoteRanges {
-                blockRanges[id] = NSRange(location: base + range.location, length: range.length)
-            }
+            output.append(renderFootnotes(document))
         }
         tally?.emit(activeBlockID == nil ? "render.cold (by block kind)" : "render (by block kind)")
         // Keep only fragments for blocks still present; drops removed blocks.
@@ -789,12 +789,21 @@ public struct AttributedRenderer: Sendable {
     }
 
     /// The footnote section appended at document end (12/1.6 secondary text
-    /// under a top hairline). Returns the rendered run plus each footnote's
-    /// first-block range *relative to the run's start*; the caller offsets
-    /// them by the append position.
-    private func renderFootnotes(_ document: QuoinDocument) -> (NSAttributedString, [BlockID: NSRange]) {
+    /// under a top hairline).
+    ///
+    /// Definition blocks are intentionally READ-ONLY (issue #1): the range is
+    /// NOT published as an editable `blockRanges` entry, so activation can't
+    /// land on one. The definition block has no revealable 1:1 source range to
+    /// offer — consecutive `[^id]:` lines share ONE cmark paragraph range, so
+    /// several footnotes would map to the same span; the block's inlines are
+    /// re-parsed from the content AFTER the `[^id]:` marker (not the raw
+    /// slice); the gather re-orders by reference and can inject zero-length
+    /// placeholder blocks for referenced-but-undefined ids; and the blocks are
+    /// removed from `document.blocks`, so `activateBlock`'s top-level lookup
+    /// can't find them. Jump-to-definition and hover peek still work — they key
+    /// off the `footnoteDefinitionID` attribute, not `blockRanges`.
+    private func renderFootnotes(_ document: QuoinDocument) -> NSAttributedString {
         let output = NSMutableAttributedString()
-        var ranges: [BlockID: NSRange] = [:]
         output.append(NSAttributedString(string: "\n", attributes: bodyAttributes()))
         output.append(renderThematicBreak())
         for footnote in document.footnotes {
@@ -828,11 +837,8 @@ public struct AttributedRenderer: Sendable {
             output.addAttribute(
                 QuoinAttribute.footnoteDefinitionID, value: footnote.id,
                 range: NSRange(location: start, length: output.length - start))
-            if let firstBlock = footnote.blocks.first {
-                ranges[firstBlock.id] = NSRange(location: start, length: output.length - start)
-            }
         }
-        return (output, ranges)
+        return output
     }
 
     /// The active block's raw markdown, styled for in-place editing:

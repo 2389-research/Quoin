@@ -397,7 +397,9 @@ resolution can never quietly corrupt the document.
   position; **Show Next Tab** ⌃⇥ and **Show Previous Tab** ⌃⇧⇥ cycle through
   them — all in the Window menu), jump history **Back** ⌘[ and **Forward** ⌘],
   a breadcrumb path, and footnote click-to-jump with a hover preview and an ↩
-  backlink to return.
+  backlink to return. The gathered footnote definitions at the foot of the
+  document are read-only: a click there is a no-op (you edit a footnote by
+  changing its `[^id]: …` line in the body flow), not an in-place reveal.
 
   ![Footnote reference marker with a hover preview popover](../images/footnotes.png)
 

@@ -526,6 +526,18 @@ final class ReaderModel {
            case .reviewEndmatter = block.kind {
             return
         }
+        // Defensive no-op for an id that resolves to no activatable top-level
+        // block (issue #1). Footnote definition blocks live in
+        // `document.footnotes`, not `document.blocks`, and their ranges are no
+        // longer published as editable `blockRanges`, so a click/keystroke in
+        // the footnote section resolves to no id and never reaches here. If
+        // one ever did (or any other non-top-level id), activating it would
+        // strand `activeBlockID` on a phantom block with a nil caret — a
+        // broken reveal that swallows keystrokes. Refuse it instead, keeping
+        // the current block untouched.
+        if let id, document.blocks.first(where: { $0.id == id }) == nil {
+            return
+        }
         let previousActiveID = activeBlockID
         // Fence healing on commit-while-broken (ledger senior #10): a
         // fenced block committed without its closing fence would swallow
