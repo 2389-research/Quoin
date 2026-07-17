@@ -153,6 +153,23 @@ public enum QuoinURLScheme {
         return components.url
     }
 
+    /// Build a `quoin://open?path=<relativePath>` deep link straight from a
+    /// stable relative-path identifier (the Core Spotlight domain id, #6),
+    /// WITHOUT needing the absolute path or the root. Validates the path the
+    /// same way ``parse(_:)`` does — an empty path or a NUL byte is refused
+    /// (`nil`) — so a hostile Spotlight identifier can't smuggle a malformed
+    /// link. The link still re-resolves through
+    /// ``resolvedPath(forRawPath:relativeTo:)`` on the receiving side, so the
+    /// library-root confinement holds. Pure: no I/O.
+    public static func openLink(relativePath: String) -> URL? {
+        guard !relativePath.isEmpty, !relativePath.contains("\0") else { return nil }
+        var components = URLComponents()
+        components.scheme = scheme
+        components.host = DeepLink.Action.open.rawValue
+        components.queryItems = [URLQueryItem(name: "path", value: relativePath)]
+        return components.url
+    }
+
     /// Lexically normalize an absolute or relative POSIX path: collapse empty
     /// components and `.`, and pop a component for each `..` (an absolute path
     /// cannot climb above `/`; a relative one keeps leading `..`). No symlink

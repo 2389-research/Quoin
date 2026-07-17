@@ -282,6 +282,15 @@ resolution can never quietly corrupt the document.
   boundary-respecting `quoin://` link — never an absolute path or a
   security-scoped bookmark — so resuming re-resolves inside the library you
   granted. A document outside a granted library publishes no activity.
+- **Spotlight** — Quoin indexes your library so system Spotlight finds
+  documents by **title, headings, front-matter tags, and body snippets**. Tap a
+  Quoin result in Spotlight and the document opens in Quoin. The index is
+  **private and on-device** — nothing is uploaded, and Quoin makes no network
+  request for it — and it stays in sync as you write: it updates on every scan,
+  and items for files you move or delete are removed automatically. Only `.md`
+  documents inside your granted library are indexed, and a tapped result opens
+  through the same in-library `quoin://` resolution as everything else, so it can
+  never reach a file outside the folder you granted.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.

@@ -2,6 +2,9 @@ import AppKit
 import QuoinCore
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(CoreSpotlight)
+import CoreSpotlight
+#endif
 
 @main
 struct QuoinApp: App {
@@ -783,6 +786,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         continue userActivity: NSUserActivity,
         restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void
     ) -> Bool {
+        #if canImport(CoreSpotlight)
+        // A Spotlight result was tapped (#6). The activity type is the system's
+        // CSSearchableItemActionType and carries the tapped item's identifier
+        // (our stable library-relative path) under CSSearchableItemActivityIdentifier.
+        // Route it through the SAME pendingDeepLink slot and confinement as
+        // application(_:open:) — the key window resolves the relative path
+        // against its own library root (QuoinURLScheme), so a Spotlight tap can
+        // no more escape the sandbox than an external quoin:// link can.
+        if userActivity.activityType == CSSearchableItemActionType,
+           let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+           let url = QuoinURLScheme.openLink(relativePath: identifier),
+           let link = QuoinURLScheme.parse(url) {
+            Self.pendingDeepLink = link
+            NSApp.activate(ignoringOtherApps: true)
+            NotificationCenter.default.post(name: Self.openDeepLinkNotification, object: nil)
+            return true
+        }
+        #endif
         guard userActivity.activityType == QuoinURLScheme.editingActivityType,
               let raw = userActivity.userInfo?[QuoinURLScheme.activityDeepLinkKey] as? String,
               let url = URL(string: raw),

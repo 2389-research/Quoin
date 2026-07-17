@@ -59,6 +59,11 @@ final class LibraryModel {
     }()
     /// Inverse file moves for ⌘Z (design rule: sidebar moves are undoable).
     @ObservationIgnored private var moveUndoStack: [(from: URL, to: URL)] = []
+    #if canImport(CoreSpotlight)
+    /// In-app Core Spotlight indexer (#6): reconciled after every scan so
+    /// system search finds documents, headings, and snippets. Local-only.
+    @ObservationIgnored private let spotlightIndexer = SpotlightIndexer()
+    #endif
 
     /// The restore decision is the WINDOW's (per-window roots + the launch
     /// setting live in scene state, unreadable at init) — MainWindow calls
@@ -234,6 +239,12 @@ final class LibraryModel {
             guard let self else { return }
             self.root = tree
             self.scanTask = nil
+            #if canImport(CoreSpotlight)
+            // Reconcile the private Core Spotlight index against this scan (#6):
+            // (re)index changed documents, delete items for files that moved or
+            // vanished. Incremental and coalesced — cheap on an unchanged tree.
+            self.spotlightIndexer.reconcile(root: tree, rootURL: rootURL)
+            #endif
             if self.rescanRequestedDuringScan {
                 self.rescanRequestedDuringScan = false
                 self.rescan()
