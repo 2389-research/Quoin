@@ -246,6 +246,66 @@ final class RevealFidelityTests: XCTestCase {
         XCTAssertEqual((storage.string as NSString).substring(with: flipEditable), slice)
     }
 
+    /// Issue #1: footnote definitions are READ-ONLY. Their first-block ranges
+    /// used to be published into `blockRanges`, so a click/keystroke in the
+    /// appended footnote section resolved to a block id the model can't find
+    /// (footnote blocks live in `document.footnotes`, not `document.blocks`),
+    /// stranding activation on a phantom block. The renderer must NOT publish
+    /// any footnote definition block id as an editable range, so a hit-test in
+    /// the footnote region finds no block and activation is a clean no-op.
+    func testFootnoteDefinitionsAreNotPublishedAsEditableBlocks() throws {
+        let footnoteSource = """
+        # Footnotes
+
+        First mention.[^alpha] Second mention.[^beta]
+
+        [^alpha]: The alpha definition text.
+        [^beta]: The beta definition text.
+        """
+        let document = MarkdownConverter.parse(footnoteSource)
+        XCTAssertEqual(document.footnotes.count, 2, "test premise: two gathered footnotes")
+
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        let rendered = renderer.render(document, activeBlockID: nil, activeCaret: nil, cache: &cache)
+
+        // No footnote definition block id is an editable range key.
+        for footnote in document.footnotes {
+            for block in footnote.blocks {
+                XCTAssertNil(rendered.blockRanges[block.id],
+                             "footnote \(footnote.id) block leaked into editable blockRanges")
+            }
+        }
+
+        // A hit-test anywhere in a tagged definition region resolves to no
+        // block range — the click is a no-op, never a broken activation.
+        rendered.attributed.enumerateAttribute(
+            QuoinAttribute.footnoteDefinitionID,
+            in: NSRange(location: 0, length: rendered.attributed.length)
+        ) { value, range, _ in
+            guard value is String else { return }
+            for index in [range.location, range.location + range.length / 2, NSMaxRange(range) - 1] {
+                let hit = rendered.blockRanges.first { _, r in
+                    index >= r.location && index < NSMaxRange(r)
+                }
+                XCTAssertNil(hit, "footnote char \(index) is inside an editable block range")
+            }
+        }
+
+        // The jump/hover plumbing still works: every definition keeps its
+        // `footnoteDefinitionID` tag (keyed off attributes, not blockRanges).
+        for footnote in document.footnotes {
+            var found = false
+            rendered.attributed.enumerateAttribute(
+                QuoinAttribute.footnoteDefinitionID,
+                in: NSRange(location: 0, length: rendered.attributed.length)
+            ) { value, _, stop in
+                if value as? String == footnote.id { found = true; stop.pointee = true }
+            }
+            XCTAssertTrue(found, "footnote \(footnote.id) lost its definition tag")
+        }
+    }
+
     /// R1: a LONG paragraph that soft-wraps to several visual lines must reveal
     /// height-neutrally too. The other paragraph cases are short enough not to
     /// wrap at the measured width, so they never exposed a per-line metric

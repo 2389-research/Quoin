@@ -439,6 +439,20 @@ edit boundary via `EditMapping`).
 - Smart pairs complete/type-over delimiters; typing a delimiter over a
   selection wraps it; format commands (⌘B etc.) without a selection act on the
   word under the caret.
+- **Footnote definitions are read-only** (issue #1). The renderer appends the
+  gathered `[^id]:` definitions at the document tail, but it does **not**
+  publish their ranges into `RenderedDocument.blockRanges`, so a hit-test in
+  that section resolves to no block and activation is a clean no-op — never an
+  orphan `activeBlockID`. The definition block has no revealable 1:1 source
+  range to offer: consecutive `[^id]:` lines share one cmark paragraph range,
+  the block's inlines are re-parsed from the content after the marker, the
+  gather re-orders by reference (with zero-length placeholders for
+  referenced-but-undefined ids), and the blocks are removed from
+  `document.blocks` so `activateBlock`'s top-level lookup can't find them.
+  Editing a footnote means editing its `[^id]: …` line in the body flow;
+  jump-to-definition and hover peek still work because they key off the
+  `footnoteDefinitionID` attribute, not `blockRanges`. `activateBlock` also
+  refuses any id absent from `document.blocks` as a belt-and-suspenders guard.
 
 When adding a new inline span type you must touch **both** sides: a renderer
 case in `AttributedRenderer` and a styler pass in `MarkdownSourceStyler`, and

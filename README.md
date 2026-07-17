@@ -221,7 +221,7 @@ A scannable tour; the full walkthrough is in
 | GFM strikethrough & autolinks | ✅ | |
 | Callouts / alerts (`> [!NOTE]` …) | ✅ | 5 semantic types: note, tip, important, warning, caution |
 | Highlights (`==text==`) | ✅ | palette cycling with ⇧⌘H (`=={pink}…==`) |
-| Footnotes (`[^id]`) | ✅ | click-to-jump to definition, hover-preview bubble, ↩ backlinks |
+| Footnotes (`[^id]`) | ✅ | click-to-jump to definition, hover-preview bubble, ↩ backlinks; the gathered definition section is read-only (edit via the `[^id]:` source line) |
 | YAML front matter | ✅ | rendered as a field grid; edited via the Properties inspector (typed editors) |
 | `[TOC]` | ✅ | live table-of-contents block |
 | Code syntax highlighting | ✅ | Swift, Python, JS/TS, Go, Rust, Ruby, C/C++/ObjC, Java/Kotlin, shell, SQL, YAML/TOML, JSON, HTML/XML/CSS; **12 selectable canvas themes**, default follows app appearance |
@@ -298,7 +298,10 @@ editing the YAML in place without you touching the raw syntax.
 
 **Footnotes.** A reference is click-to-jump to its definition, with a
 hover-preview bubble and a backlink to return — footnotes stay navigable
-instead of scrolling you away.
+instead of scrolling you away. The gathered definition section at the foot
+of the document is read-only for now: clicking into it is a no-op (edit a
+footnote by changing its `[^id]: …` source line in the body flow), not an
+in-place reveal.
 
 ![A footnote reference marker with its hover-preview bubble](docs/images/footnotes.png)
 
