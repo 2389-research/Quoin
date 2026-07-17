@@ -108,6 +108,12 @@ struct MainWindow: View {
                 open(url)
             }
         }
+        // A quoin:// deep link arrived while running (#31): the key window
+        // resolves it against its own library and opens it.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDeepLinkNotification)) { _ in
+            guard isKeyWindow else { return }
+            consumePendingDeepLink()
+        }
         // ⌘0 / View ▸ Show/Hide Sidebar (handoff keyboard map).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleSidebarNotification)) { _ in
             guard isKeyWindow else { return }
@@ -209,6 +215,10 @@ struct MainWindow: View {
             connectLibrary()
             restoreTabs()
             applyShotState()
+            // Cold launch via quoin:// (#31): the URL was delivered before this
+            // window's observer existed, so drain any pending link now that the
+            // library is connected.
+            consumePendingDeepLink()
         }
         // Every root change (chooser, starter library, folder-window) is
         // remembered as THIS window's folder.
@@ -375,6 +385,38 @@ struct MainWindow: View {
         // recents (dock menu, Spotlight "recent items").
         library.recordOpen(url)
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+    }
+
+    /// Resolve and open the pending `quoin://` deep link, if one is waiting and
+    /// this window can honor it (#31).
+    ///
+    /// Confinement is layered: the raw path is resolved *lexically* into this
+    /// window's library root (`QuoinURLScheme.resolvedPath` — no traversal can
+    /// escape), the file must actually exist and be markdown, and it must be
+    /// reachable through the library's live security scope (the app holds no
+    /// access outside the root, so an out-of-library link fails here even if
+    /// the lexical check were somehow fooled). Anything else beeps and clears
+    /// the slot rather than opening a surprise file.
+    private func consumePendingDeepLink() {
+        guard let link = AppDelegate.pendingDeepLink else { return }
+        // Only a window with a library can resolve a path — leave the slot for
+        // a window that has one (e.g. this one, once connectLibrary lands).
+        guard let root = library.rootURL else { return }
+        AppDelegate.pendingDeepLink = nil
+        guard let resolved = QuoinURLScheme.resolvedPath(
+            forRawPath: link.rawPath,
+            relativeTo: root.standardizedFileURL.path)
+        else {
+            NSSound.beep()
+            return
+        }
+        let url = URL(fileURLWithPath: resolved)
+        guard url.pathExtension.lowercased() == "md",
+              FileManager.default.fileExists(atPath: url.path) else {
+            NSSound.beep()
+            return
+        }
+        open(url)
     }
 
     private func close(_ tab: DocumentTab) {

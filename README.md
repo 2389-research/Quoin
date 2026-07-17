@@ -261,6 +261,10 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Word count, reading time, per-element statistics | ✅ |
 | Focus mode, typewriter scrolling, jump history (⌘[ / ⌘]) | ✅ |
 | Dark mode (code canvas constant across appearances, per design spec) | ✅ |
+| Open With / Finder document types, `Reveal in Finder`, dock recents | ✅ |
+| Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
+| `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
+| Services menu · Handoff / NSUserActivity | ⬜ planned |
 
 A few of these surfaces, up close:
 
