@@ -62,7 +62,7 @@ flowchart TD
 | [swift-markdown](https://github.com/swiftlang/swift-markdown) | third-party (approved) | `from: 0.8.0` | The cmark-gfm parser; the entire AST |
 | swift-cmark | transitive (via swift-markdown) | — | cmark-gfm itself |
 | [MermaidKit](https://github.com/2389-research/MermaidKit) | first-party | `from: 1.3.0` | Native Mermaid diagram engine |
-| [Vinculum](https://github.com/2389-research/Vinculum) | first-party | `from: 1.4.1` | Native LaTeX math engine |
+| [Vinculum](https://github.com/2389-research/Vinculum) | first-party | `from: 1.4.2` | Native LaTeX math engine |
 
 `QuoinCore` depends only on the platform-free layout halves (Markdown,
 MermaidLayout, VinculumLayout) so it builds and tests on Linux. `QuoinRender`

@@ -1,5 +1,5 @@
 {
-  "originHash" : "d38464d06864acef9d1cf394c76c4467fcbb3fe0b887260e940dc218c54a4f5b",
+  "originHash" : "9396e5a011c48dac70814a18227be19fb4048ec06408a2842f07aecb0f04cbc2",
   "pins" : [
     {
       "identity" : "mermaidkit",
@@ -42,8 +42,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/2389-research/Vinculum.git",
       "state" : {
-        "revision" : "e83b68ff7b4c78474c83f98d9dd3dedf5cb4e96a",
-        "version" : "1.4.1"
+        "revision" : "a2547f8cbb99e329f50c7705651af3b5cb0d33ac",
+        "version" : "1.4.2"
       }
     }
   ],
