@@ -238,6 +238,42 @@ flowchart TD
   render passes as an explicit `inout`; the renderer holds no hidden mutable
   state. See [ADR 0004](adr/0004-side-panel-preview.md).
 
+#### Threading: the full render runs off the main actor
+
+`AttributedRenderer.render` is a pure, executor-independent function of its
+inputs (document, active block, caret, fragment cache, held preview), so the
+expensive whole-document projection is built on a **background executor** and
+adopted back on the main actor — a multi-MB document no longer beach-balls the
+UI while it re-projects (issue #33). `ReaderModel.rerenderAsync` snapshots the
+render inputs (the fragment cache holds immutable `NSAttributedString`
+fragments, safe to read off-main; the renderer is value-typed), runs the render
+in a `Task.detached`, and hops the finished `RenderedDocument` back to
+`@MainActor` for a clean single-owner handoff (the background task is the sole
+reader while rendering; the main actor is the sole reader after).
+
+This is deliberately a **subset**. Only the non-interactive, non-edit triggers
+render off-main — **theme flip, external reload, and async image decode** —
+because no keystroke is mapping a caret against the result in the same turn. The
+per-keystroke storage-patch path, the edit-recover full render, and the
+activation flip fallback stay **synchronous** (`rerender`): their ordering with
+the caret bookkeeping and the coordinator's keystroke-ack serialization is an
+invariant, and deferring them would let a queued keystroke map against a
+projection that hasn't landed yet. Document-derived observable state (`outline`,
+`stats`, `slugToBlock`) is refreshed *synchronously* even on the async path — it
+is cheap and anchor navigation should not lag the document — so only the heavy
+attributed-string projection is deferred.
+
+A stale async projection is dropped by a **`renderGeneration` guard**: every
+projection publish (sync or async) bumps a monotonic counter, and a background
+render adopts its result only if the counter is unchanged when it returns to the
+main actor. Any newer edit / activation / theme / reload that published in the
+meantime therefore drops the now-stale projection instead of resurrecting a
+pre-edit render on top of a keystroke. This is the off-main analog of the
+`patchBaseLength` gate (invariant 9): both refuse to apply work computed against
+a superseded state. `OffMainRenderEquivalenceTests` proves the premise — that an
+off-main render is byte- and attribute-identical to an on-main render, and that
+concurrent renders of one document never race — over the whole fixture corpus.
+
 ### Display (QuoinRender)
 
 `QuoinTextView` (TextKit 2) displays the projection. Updates go through
