@@ -1,3 +1,7 @@
+// MarkdownSourceStyler / Theme are AppKit/UIKit-guarded (no Linux), so this
+// test compiles only where they exist — matching the other reveal-styling
+// tests and keeping the Linux CI job green.
+#if canImport(AppKit) || canImport(UIKit)
 import XCTest
 @testable import QuoinRender
 import QuoinCore
@@ -58,3 +62,5 @@ final class RevealCriticAgreementTests: XCTestCase {
         }
     }
 }
+
+#endif
