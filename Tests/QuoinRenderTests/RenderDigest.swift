@@ -194,6 +194,13 @@ enum RenderDigester {
         if attrs[QuoinAttribute.pendingContent] != nil { q.append("pending") }
         if let id = attrs[QuoinAttribute.footnoteID] as? String { q.append("fnref=\(id)") }
         if let id = attrs[QuoinAttribute.footnoteDefinitionID] as? String { q.append("fndef=\(id)") }
+        if let level = attrs[QuoinAttribute.headingLevel] as? NSNumber { q.append("hlevel=\(level.intValue)") }
+        // Presence only: the label spans the whole block, so it repeats on
+        // every highlighted run inside (a code card has dozens) — recording
+        // the text would bloat the golden the way math/diagram/copy sources
+        // would. The exact wording is covered by BlockAccessibilityTests and
+        // AccessibilityTaggingTests.
+        if attrs[QuoinAttribute.blockAccessibilityLabel] != nil { q.append("axlabel") }
         if attrs[.attachment] is NSTextAttachment { q.append("attachment") }
         run.q = q.sorted()
 

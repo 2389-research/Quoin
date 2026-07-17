@@ -789,7 +789,9 @@ now (iOS is a later platform); it builds against the same Swift-6 `QuoinCore`.
 ## Accessibility in the SwiftUI chrome
 
 The app shells (`App/macOS`, `App/iOS`) honor three system settings; the
-document body is out of scope (it has its own reading zoom, `Theme.textScale`).
+document body's *scaling* is out of scope for these (it has its own reading
+zoom, `Theme.textScale`), but its *structure* is exposed to VoiceOver — see
+"VoiceOver structure in the document body" below.
 
 - **Dynamic Type.** The handoff pins the type ramp as *final* (exact point
   sizes), so the chrome must scale with the "Larger text" setting **without**
@@ -808,6 +810,64 @@ document body is out of scope (it has its own reading zoom, `Theme.textScale`).
   `accessibilityReduceMotion` (the flip controller was already aware).
 - **Reduce Transparency** gives Quick Open and the find/replace bars an opaque
   `windowBackgroundColor` fallback.
+
+### VoiceOver structure in the document body
+
+The whole document renders into one `QuoinTextView` (`NSTextView`), so VoiceOver
+sees a single text field by default. A bounded structure pass (issue #10) makes
+the projection legible to assistive technologies:
+
+- **`BlockAccessibility`** (QuoinRender, platform-free, no AppKit) is the ONE
+  place that maps a `BlockKind` to a spoken announcement — *"Heading level 2,
+  Introduction"*, *"Code block, swift, 12 lines"*, *"Table, 3 columns, 4
+  rows"*, *"Note callout"*, *"Ordered list, 2 items"* — and extracts a
+  heading's level. It is pure so the wording is unit-tested directly
+  (`BlockAccessibilityTests`). `AttributedRenderer.render(block:)` is the one
+  call site: it stamps each block's announcement onto the block's rendered
+  range, so full and incremental (patch) renders tag identically and the labels
+  can't drift.
+- **Two rotors, one scan.** `render(block:)` tags a heading's range with
+  `QuoinAttribute.headingLevel` (an `NSNumber`) and every *other* structural
+  block's range with `QuoinAttribute.blockAccessibilityLabel` (its announcement
+  string) — both layout-inert marker attributes.
+  `QuoinTextView.accessibilityCustomRotors()` scans those runs and vends two
+  `NSAccessibilityCustomRotor`s whose item results carry a `targetRange` + a
+  `BlockAccessibility` label:
+  - **Headings** (`.heading`) — jump caret-to-heading (VO-U).
+  - **Landmarks** — flick through the non-heading structural blocks (code,
+    table, list, callout, quote, diagram, math, TOC, front matter, separator,
+    HTML), hearing WHAT each region is. This is the surface that makes the
+    block-kind announcements reach assistive technology.
+
+  The search delegates are retained by the view (the rotors hold them weakly)
+  and answer next/previous through the pure `StructureRotor.result` navigator
+  (strict `>`/`<` anchoring, first/last on the nil-current first search,
+  case-insensitive substring filtering) — unit-tested in `StructureRotorTests`.
+  The scan is cached and only re-runs when the text storage actually changes
+  (observed via `NSTextStorage.didProcessEditingNotification`), so VoiceOver's
+  per-keystroke queries don't each re-`enumerateAttribute` the whole document.
+  A title-less heading (legal markdown, listed in the outline) renders as a lone
+  zero-width space so it still has a navigable, taggable position and does not
+  vanish from the Headings rotor.
+- **Attachment labels.** Math and diagram embeds are `NSTextAttachment` images.
+  The engines already stamp `image.accessibilityDescription` with spoken math
+  (Vinculum) / diagram narration (MermaidKit); the renderer surfaces those —
+  `MermaidRenderer.altText(source:)` and `MathImageRenderer.rendered(…)
+  .spokenDescription` — through `BlockAccessibility.diagramLabel` /
+  `equationLabel`, applied as an **idempotent overwrite** (never read-then-append:
+  Vinculum vends its shared cached `NSImage`, so re-prefixing would accumulate
+  "Equation, Equation, …" and mutate a value other threads read). The math path
+  reuses Vinculum's shared render cache; the diagram narration re-parses the
+  Mermaid source independently of the render cache (a bounded, per-block,
+  human-paced parse — MermaidKit exposes no combined render+narration accessor,
+  and the engine is out of scope for this repo).
+- The `✓ done` chip is a pressable `NSAccessibilityElement` child of the view
+  (pre-existing; editor-modes plan Phase 2.3).
+
+Deferred (stated so the boundary is explicit): per-*element* rotors that step
+individual tables / links / tasks (as opposed to the block-level Landmarks
+rotor), accessibility containers grouping sidebar / outline / find bar, and
+alternate actions on hover-only controls (tab close, copy-code).
 
 ## Native integration surface (macOS shell)
 

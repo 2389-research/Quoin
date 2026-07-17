@@ -1275,6 +1275,24 @@ public struct AttributedRenderer: Sendable {
         let tagged = NSMutableAttributedString(attributedString: content)
         let whole = NSRange(location: 0, length: tagged.length)
         tagged.addAttribute(QuoinAttribute.blockID, value: block.id.description, range: whole)
+        // Tag block ranges with their accessibility structure so the reader
+        // view can vend VoiceOver rotors (accessibility structure, #10). Both
+        // are marker attributes — no font/paragraph effect.
+        //   • Headings → `headingLevel` (feeds the built-in ".heading" rotor).
+        //   • Every other structural block → `blockAccessibilityLabel`, the
+        //     spoken announcement (feeds the "Landmarks" rotor).
+        // `render(block:)` is the ONE place this happens, so full and
+        // incremental (patch) renders tag identically.
+        if let level = BlockAccessibility.headingLevel(for: block.kind) {
+            if whole.length > 0 {
+                tagged.addAttribute(QuoinAttribute.headingLevel,
+                                    value: NSNumber(value: level), range: whole)
+            }
+        } else if let announcement = BlockAccessibility.announcement(for: block.kind),
+                  whole.length > 0 {
+            tagged.addAttribute(QuoinAttribute.blockAccessibilityLabel,
+                                value: announcement, range: whole)
+        }
         // Embed blocks flip to source on double-click, not single click, so a
         // click to admire a rendered diagram/table doesn't turn it into code.
         // The TOC is one too: its rendered form is the full linked outline
@@ -1332,7 +1350,17 @@ public struct AttributedRenderer: Sendable {
         style.paragraphSpacingBefore = spacing.above
         style.paragraphSpacing = spacing.below
         attributes[.paragraphStyle] = style
-        return renderInlines(inlines, base: attributes)
+        let rendered = renderInlines(inlines, base: attributes)
+        // A title-less heading (`##` with no text) is legal markdown and the
+        // document outline lists it, but it would otherwise project to ZERO
+        // glyphs — so nothing carries `headingLevel` and it vanishes from the
+        // VoiceOver Headings rotor (rotor-vs-outline disagreement, #10). Give
+        // it a single zero-width space so it has a taggable, navigable
+        // position; the glyph has no advance, so reading mode looks unchanged.
+        if rendered.length == 0 {
+            return NSAttributedString(string: "\u{200B}", attributes: attributes)
+        }
+        return rendered
     }
 
     private func renderCodeBlock(language: String?, code: String) -> NSAttributedString {
@@ -1592,11 +1620,19 @@ public struct AttributedRenderer: Sendable {
     }
 
     /// VoiceOver labels for attachment-rendered embeds — a diagram or
-    /// equation must never read as an unnamed image.
-    private func labelAttachmentImages(in attributed: NSMutableAttributedString, description: String) {
+    /// equation must never read as an unnamed image (#10).
+    ///
+    /// The label is computed from the engine's own accessibility text
+    /// (MermaidKit's diagram narration, Vinculum's spoken math) at the call
+    /// site and passed in whole. It is applied as an idempotent OVERWRITE,
+    /// never a read-then-append: Vinculum hands out its shared cached
+    /// `NSImage` (immutable-by-contract), so re-prefixing what's already
+    /// there would accumulate "Equation, Equation, …" across renders and
+    /// mutate a value other threads read.
+    private func labelAttachmentImages(in attributed: NSMutableAttributedString, label: String) {
         #if canImport(AppKit)
         attributed.enumerateAttribute(.attachment, in: NSRange(location: 0, length: attributed.length)) { value, _, _ in
-            (value as? NSTextAttachment)?.image?.accessibilityDescription = description
+            (value as? NSTextAttachment)?.image?.accessibilityDescription = label
         }
         #endif
     }
@@ -1645,7 +1681,9 @@ public struct AttributedRenderer: Sendable {
             // Scale an oversized diagram down to the content column so it sits
             // inside its frame instead of poking out the right edge.
             attachment.refitImageAttachmentsToContentWidth()
-            labelAttachmentImages(in: attachment, description: "Mermaid diagram")
+            labelAttachmentImages(in: attachment,
+                                  label: BlockAccessibility.diagramLabel(
+                                      narration: MermaidRenderer.altText(source: source)))
             let style = paragraphStyle()
             style.paragraphSpacingBefore = 0
             style.paragraphSpacing = theme.paragraphSpacing
@@ -1692,7 +1730,13 @@ public struct AttributedRenderer: Sendable {
             // A wide equation (big matrix, long alignment) scales down to fit
             // the column rather than overflowing.
             attachment.refitImageAttachmentsToContentWidth()
-            labelAttachmentImages(in: attachment, description: "Math equation")
+            // Surface Vinculum's spoken-math description (cached alongside the
+            // image), role-prefixed, rather than a generic "Math equation".
+            let spoken = MathImageRenderer.rendered(
+                latex: latex, display: true, mathTheme: theme.mathTheme,
+                baseSize: theme.bodySize)?.spokenDescription
+            labelAttachmentImages(in: attachment,
+                                  label: BlockAccessibility.equationLabel(spokenDescription: spoken))
             let style = paragraphStyle()
             style.alignment = .center
             style.paragraphSpacingBefore = 0

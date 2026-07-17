@@ -363,6 +363,32 @@ Dynamic Type scales the *chrome*; the document body has its own independent
 reading zoom (⌘= / ⌘−, above). The two never fight, and neither changes the
 bytes on disk.
 
+### VoiceOver and the rendered structure
+
+The document is one text view, but VoiceOver hears its structure:
+
+- **Jump between headings.** With VoiceOver on, the document exposes a
+  **Headings** rotor. Open the rotor (VO‑U), pick **Headings**, and flick
+  up/down (or VO‑←/→) to move directly from one heading to the next — each is
+  announced with its level and title (*"Heading level 2, Introduction"*), so
+  you can skim the outline without arrowing through every line.
+- **Move by structure.** A companion **Landmarks** rotor flicks through the
+  other structural blocks — code blocks, tables, lists, callouts, quotes,
+  diagrams, and equations — announcing what each region is (*"Table, 3 columns,
+  4 rows"*, *"Note callout"*, *"Ordered list, 2 items"*, *"Code block, swift,
+  12 lines"*) so you can navigate the document's shape, not just its lines.
+- **Equations and diagrams speak.** A rendered equation reads its spoken‑math
+  description (*"Equation, x squared plus one"*) and a diagram reads a
+  narration of its type and leading content (*"Flowchart with 3 nodes and 2
+  connections: Start, Decision, Done"*) — never an unnamed "image."
+- **The ✓ done chip is a real control.** When a block is open for editing,
+  VoiceOver finds the *Done editing* button and can press it to commit.
+
+Deferred for a later pass: per‑*element* rotors that step through individual
+tables, links, and tasks (beyond the block‑level Landmarks rotor);
+accessibility containers grouping the sidebar / outline / find bar; and
+alternate actions on hover‑only controls (tab close, copy‑code).
+
 ---
 
 ## Reference: math & diagrams

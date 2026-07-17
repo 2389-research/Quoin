@@ -274,6 +274,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Page Setup (⇧⌘P), Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥), context-aware Undo naming | ✅ |
 | File encoding detection on open (UTF-8 / UTF-16 / Latin-1), preserved on save | ✅ |
 | Accessibility — chrome scales with Dynamic Type; Reduce Motion & Reduce Transparency honored | ✅ |
+| VoiceOver structure — Headings rotor (jump by heading, announced with level); equations & diagrams read spoken-math / diagram narration | ✅ |
 | Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
 | Services menu · Handoff / NSUserActivity | ⬜ planned |
