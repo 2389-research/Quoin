@@ -50,6 +50,12 @@ targets:
         product: QuoinRender
       - package: Sparkle
         product: Sparkle
+      # Quick Look thumbnail + preview app-extensions (issue #8). Embedded in
+      # the app's PlugIns so LaunchServices discovers them when Quoin installs.
+      - target: QuoinThumbnailExtension
+        embed: true
+      - target: QuoinPreviewExtension
+        embed: true
     entitlements:
       path: Quoin.entitlements
       properties:
@@ -154,3 +160,66 @@ targets:
         # commit count — Sparkle compares CFBundleVersion, so it must grow).
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: "1"
+
+  # ── Quick Look extensions (issue #8) ──────────────────────────────────────
+  # Two app-extensions because thumbnail and preview are DISTINCT Quick Look
+  # extension points (one NSExtension dict per bundle). Both reuse the shared
+  # QuoinCore parse + BoundedPreview reduction; the thumbnail additionally
+  # reuses QuoinRender's AttributedRenderer to rasterise. Minimal sandbox: the
+  # Quick Look host hands each a read-only sandbox extension for the previewed
+  # file — no broad file access, no network.
+
+  QuoinThumbnailExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - QuickLook/Shared/QuickLookContent.swift
+      - QuickLook/Thumbnail/ThumbnailProvider.swift
+      - QuickLook/Thumbnail/ThumbnailRasterizer.swift
+    dependencies:
+      - package: QuoinPackages
+        product: QuoinCore
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: true
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: QuickLook/Thumbnail/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickLook/Thumbnail/QuoinThumbnail.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: ai.2389.Quoin.QuickLookThumbnail
+        PRODUCT_MODULE_NAME: QuoinThumbnailExtension
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # Links only QuoinCore (platform-free, extension-safe). The final glyph
+        # draw uses CoreText in ThumbnailRasterizer because QuoinRender pulls in
+        # app-only AppKit and cannot be linked into an app-extension. See
+        # docs/reference/architecture.md § Quick Look.
+        APPLICATION_EXTENSION_API_ONLY: "YES"
+
+  QuoinPreviewExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - QuickLook/Shared/QuickLookContent.swift
+      - QuickLook/Preview/PreviewProvider.swift
+    dependencies:
+      - package: QuoinPackages
+        product: QuoinCore
+    settings:
+      base:
+        SWIFT_VERSION: "6.0"
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_HARDENED_RUNTIME: true
+        GENERATE_INFOPLIST_FILE: false
+        INFOPLIST_FILE: QuickLook/Preview/Info.plist
+        CODE_SIGN_ENTITLEMENTS: QuickLook/Preview/QuoinPreview.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: ai.2389.Quoin.QuickLookPreview
+        PRODUCT_MODULE_NAME: QuoinPreviewExtension
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        # The preview reuses only QuoinCore (platform-free, extension-safe) via
+        # HTMLExporter, so it stays strictly extension-API-only.
+        APPLICATION_EXTENSION_API_ONLY: "YES"

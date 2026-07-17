@@ -1005,6 +1005,60 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   real cross-device Handoff once an iOS/iPadOS reader ships. Spotlight indexing
   (#6) is deliberately not claimed here (`isEligibleForSearch = false`).
 
+- **Quick Look thumbnails & previews (#8).** Finder, Spotlight, and open/save
+  panels render `.md` files through two small app-extensions embedded in the
+  app's `PlugIns` (generated from `project.yml`): `QuoinThumbnailExtension` (a
+  `QLThumbnailProvider`) and `QuoinPreviewExtension` (a data-based
+  `QLPreviewProvider`). They are two bundles because thumbnail and preview are
+  *distinct* Quick Look extension points — one `NSExtension` dict per bundle.
+  Both declare only `net.daringfireball.markdown` in `QLSupportedContentTypes`
+  (the UTI the app imports for `.md`/`.markdown`/`.mdown`/`.mkd`);
+  `public.plain-text` is deliberately **not** claimed, so Quoin never hijacks
+  the preview of every `.txt` on the system. Each ships the **minimal** sandbox
+  — `app-sandbox` plus `files.user-selected.read-only` — and relies on the
+  read-only sandbox extension the Quick Look host hands it for the previewed
+  URL. No network, no broad file access.
+
+  *The one rule holds here too: this is the shared parse/render path in a
+  constrained, fast mode — not a parallel renderer.* The decidable, testable
+  core is a bounded preview model in `QuoinCore` (`BoundedPreview`), unit-tested
+  by `BoundedPreviewTests`; the Quick Look classes stay thin.
+
+  - **Hard bounds so a pathological file can't hang Finder.** `PreviewBounds`
+    (`.thumbnail` = 256 KB / 40 blocks, `.preview` = 1 MB / 400 blocks) caps the
+    input **before** parsing — the extension reads at most `maxInputBytes + 1`
+    bytes with a `FileHandle` (never materialising a huge file), and
+    `BoundedPreview.truncatedSource` trims to a UTF-8 scalar boundary. The
+    parsed document is then reduced: top-level blocks capped, code blocks
+    clipped to N lines, tables/lists capped to N rows/items, footnotes gated by
+    bounds. Truncation is surfaced (a notice appended to the HTML preview).
+  - **Placeholder policy — no Mermaid/Vinculum layout, no image I/O in the
+    extension.** `BoundedPreview` walks the block/inline tree and swaps every
+    expensive embed for a lightweight placeholder: a `mermaid` block → a
+    labelled code block (`◆ Mermaid diagram`); a `mathBlock` → `∑ <latex>`;
+    inline `math` → inline `code` (its LaTeX, no typesetting); `image` → a
+    `🖼 alt` text reference. Substitution recurses into quotes, callouts, and
+    list items, so nothing nested triggers layout or a file read either.
+  - **Preview = shared `HTMLExporter`.** `QuoinPreviewExtension` reduces the
+    file with `.preview` bounds and returns the app's own `HTMLExporter` output
+    as a data-based HTML `QLPreviewReply`. It links **only** `QuoinCore`
+    (platform-free, extension-safe), so it builds strictly
+    `APPLICATION_EXTENSION_API_ONLY = YES`.
+  - **Thumbnail = shared model, CoreText draw.** macOS requires an
+    app-extension — and every library it links — to be
+    `APPLICATION_EXTENSION_API_ONLY = YES`. `QuoinRender` touches app-only
+    AppKit (`NSApp` appearance, print, pasteboard), so it **cannot** be linked
+    into an extension; reusing `AttributedRenderer` there is blocked by the
+    platform, not by choice. `QuoinThumbnailExtension` therefore links only
+    `QuoinCore` and does the final glyph draw in `ThumbnailRasterizer` with
+    CoreText (fully extension-safe) over the SAME bounded block model — a thin,
+    single-pass stack of styled lines from each block's plain text, not a second
+    Markdown parser. Splitting an extension-safe render slice out of
+    `QuoinRender` so the thumbnail can reuse `AttributedRenderer` at full
+    fidelity is the clean follow-up; until then the thumbnail's low-fidelity
+    projection is the deliberate trade that keeps the app build green and the
+    extension sandbox minimal.
+
 ## Testing strategy
 
 Quoin's tests are how the invariants above stay true — several of them exist

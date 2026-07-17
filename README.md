@@ -282,6 +282,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
 | Services menu — **New Quoin Document with Selection** (creates a document from selected text in any app) | ✅ |
 | Handoff / current activity — the open document publishes an `NSUserActivity` carrying a boundary-safe `quoin://` link (Handoff banner, Siri Suggestions, window restoration; cross-device once an iOS reader ships) | ✅ |
+| Quick Look — rendered thumbnails in Finder/open panels and a Space-bar preview in Finder/Spotlight, via two embedded app-extensions; a bounded, capped mode of the shared engine with diagram/math placeholders (thumbnail is a CoreText projection — full-fidelity thumbnail reuse of `AttributedRenderer` is deferred behind an extension-safe render-slice split) | ✅ |
 
 A few of these surfaces, up close:
 
