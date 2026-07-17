@@ -76,6 +76,13 @@ struct ReaderScreen: View {
     @State private var replaceStatus: String?
     @FocusState private var replaceFieldFocused: Bool
     @State private var searchQuery = ""
+    // Find options (#23). The three match rules persist across sessions and
+    // documents (sticky like every editor's find bar); In-Selection is
+    // transient — it means "this selection, right now".
+    @AppStorage("find.matchCase") private var findMatchCase = false
+    @AppStorage("find.wholeWord") private var findWholeWord = false
+    @AppStorage("find.regex") private var findRegex = false
+    @State private var findInSelection = false
     @State private var activeMatch = 0
     @State private var matchCount = 0
     @State private var scrollTarget: BlockID?
@@ -132,6 +139,8 @@ struct ReaderScreen: View {
                 rendered: model.rendered,
                 theme: theme,
                 searchQuery: isFindVisible ? searchQuery : "",
+                searchOptions: searchOptions,
+                searchInSelection: findInSelection,
                 activeMatchOrdinal: activeMatch,
                 scrollTarget: scrollTarget,
                 scrollGeneration: scrollGeneration,
@@ -157,6 +166,10 @@ struct ReaderScreen: View {
                     model.document.blocks.first { $0.id == id }
                         .flatMap { model.document.source.substring(in: $0.range) }
                 },
+                blockSourceRangeProvider: { id in
+                    model.document.blocks.first { $0.id == id }?.range
+                },
+                onSelectionSourceRange: { range in model.selectionSourceRange = range },
                 focusModeEnabled: isFocusMode,
                 typewriterEnabled: isTypewriter,
                 onAnchorJump: { from in recordJump(from: from) },
@@ -922,15 +935,76 @@ struct ReaderScreen: View {
 
     // MARK: - Find bar
 
+    /// The shared match rules driving BOTH the highlight scan and replace.
+    private var searchOptions: SearchOptions {
+        SearchOptions(matchCase: findMatchCase, wholeWord: findWholeWord, regex: findRegex)
+    }
+
+    /// Regex on with a pattern that won't compile — the field shows a subtle
+    /// invalid state and nothing matches (never a crash).
+    private var isPatternInvalid: Bool {
+        !searchQuery.isEmpty && !TextMatcher.isValidQuery(searchQuery, options: searchOptions)
+    }
+
+    /// The count readout next to the find field, or the invalid-pattern hint.
+    private var findFieldStatus: String {
+        if isPatternInvalid { return "Invalid pattern" }
+        return matchCount == 0 ? "No matches" : "\(activeMatch + 1) of \(matchCount)"
+    }
+
     private var findBar: some View {
         VStack(spacing: 0) {
             findBarContent
+            findOptionsRow
             if isReplaceVisible {
                 Divider().opacity(0.5)
                 replaceBarContent
             }
             Divider()
         }
+    }
+
+    /// The option toggles (#23): Match Case, Whole Word, Regex, In Selection.
+    private var findOptionsRow: some View {
+        HStack(spacing: 6) {
+            findOptionToggle("Aa", isOn: $findMatchCase, help: "Match Case")
+            findOptionToggle("W", isOn: $findWholeWord, help: "Whole Word")
+            findOptionToggle(".*", isOn: $findRegex, help: "Regular Expression")
+            findOptionToggle("In Selection", isOn: $findInSelection,
+                             help: "Limit find & replace to the selected text")
+            Spacer()
+        }
+        .font(.system(size: 11, design: .monospaced))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+        .background(reduceTransparency
+            ? AnyShapeStyle(Color(nsColor: .windowBackgroundColor))
+            : AnyShapeStyle(Material.bar))
+    }
+
+    private func findOptionToggle(
+        _ label: String, isOn: Binding<Bool>, help: String
+    ) -> some View {
+        Button {
+            isOn.wrappedValue.toggle()
+        } label: {
+            Text(label)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(isOn.wrappedValue
+                              ? AnyShapeStyle(Color.accentColor.opacity(0.22))
+                              : AnyShapeStyle(Color.clear)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5)
+                        .stroke(isOn.wrappedValue ? Color.accentColor : Color.secondary.opacity(0.35),
+                                lineWidth: 1))
+                .foregroundStyle(isOn.wrappedValue ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityAddTraits(isOn.wrappedValue ? [.isSelected] : [])
     }
 
     private var replaceBarContent: some View {
@@ -964,15 +1038,32 @@ struct ReaderScreen: View {
 
     private func replaceCurrent() {
         guard !searchQuery.isEmpty else { return }
+        guard !isPatternInvalid else { replaceStatus = "Invalid pattern"; return }
+        if findInSelection, model.selectionSourceRange == nil {
+            replaceStatus = "Select text first"
+            return
+        }
         let replaced = model.replaceNextMatch(
-            of: searchQuery, with: replaceText, fromByteOffset: model.caretByteOffset)
+            of: searchQuery, with: replaceText, fromByteOffset: model.caretByteOffset,
+            options: searchOptions, inSelection: findInSelection)
         replaceStatus = replaced ? "Replaced 1" : "No match"
     }
 
     private func replaceAll() {
         guard !searchQuery.isEmpty else { return }
-        let count = model.replaceAllMatches(of: searchQuery, with: replaceText)
-        replaceStatus = count == 0 ? "No matches" : "Replaced \(count)"
+        guard !isPatternInvalid else { replaceStatus = "Invalid pattern"; return }
+        if findInSelection, model.selectionSourceRange == nil {
+            replaceStatus = "Select text first"
+            return
+        }
+        let count = model.replaceAllMatches(
+            of: searchQuery, with: replaceText,
+            options: searchOptions, inSelection: findInSelection)
+        switch count {
+        case -1: replaceStatus = "Invalid pattern"
+        case 0: replaceStatus = "No matches"
+        default: replaceStatus = "Replaced \(count)"
+        }
     }
 
     private var findBarContent: some View {
@@ -982,13 +1073,15 @@ struct ReaderScreen: View {
             TextField("Find in document", text: $searchQuery)
                 .textFieldStyle(.plain)
                 .focused($findFieldFocused)
+                .foregroundStyle(isPatternInvalid ? Color.red : Color.primary)
                 .onSubmit { nextMatch() }
                 .onExitCommand { closeFind() }
                 .onChange(of: searchQuery) { replaceStatus = nil }
+                .onChange(of: searchOptions) { replaceStatus = nil }
             if !searchQuery.isEmpty {
-                Text(matchCount == 0 ? "No matches" : "\(activeMatch + 1) of \(matchCount)")
+                Text(findFieldStatus)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isPatternInvalid ? Color.red : Color.secondary)
                     .monospacedDigit()
             }
             Button(action: previousMatch) {
@@ -1024,6 +1117,10 @@ struct ReaderScreen: View {
         searchQuery = ""
         replaceText = ""
         activeMatch = 0
+        // In-Selection is transient ("this selection, now"); the match rules
+        // persist across sessions and are intentionally left as-is.
+        findInSelection = false
+        replaceStatus = nil
     }
 
     private func nextMatch() {

@@ -184,6 +184,19 @@ flowchart TD
     Full --> Snap
 ```
 
+**Find & replace** has two coordinate spaces but ONE matcher. The visual
+find scan (`ReaderCoordinator.performSearchScan`) highlights against the
+rendered projection for navigation; replace (`SourceReplace`) rewrites the
+raw source bytes and routes each change through the session, so undo and
+byte-losslessness come free. Both draw their match rules — Match Case,
+Whole Word, Regex, and the In-Selection scope — from the same
+`TextMatcher` (`SearchOptions`), so the highlight/“_N of M_” count can never
+recognize different occurrences than Replace-All does (the shipped
+“two recognizers for one grammar diverge” bug). Invalid regexes match
+nothing rather than crashing; regex replacement text is literal (no
+capture-group substitution). `SourceReplaceTests` pins find-vs-replace
+agreement across every option combination.
+
 ### Project (QuoinRender)
 
 `AttributedRenderer.render` walks the block list and emits one attributed

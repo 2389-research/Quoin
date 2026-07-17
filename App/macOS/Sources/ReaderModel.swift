@@ -22,6 +22,12 @@ final class ReaderModel {
     private(set) var caretInActiveBlock: Int?
     private(set) var caretGeneration = 0
 
+    /// The current text selection mapped to a source byte range (nil when
+    /// empty/unmappable), reported by the reader view. In-Selection replace
+    /// scopes to it. Not observed: it changes on every selection move and no
+    /// SwiftUI body depends on it directly.
+    @ObservationIgnored var selectionSourceRange: ByteRange?
+
     /// Non-nil while an external change conflicts with unsaved local edits;
     /// holds the on-disk source for "use disk version".
     private(set) var conflictDiskSource: String?
@@ -634,25 +640,41 @@ final class ReaderModel {
     /// truth and routed through the atomic edit pipeline. Returns whether a
     /// replacement was made so the find bar can report it.
     @discardableResult
-    func replaceNextMatch(of query: String, with replacement: String, fromByteOffset: Int) -> Bool {
-        guard !query.isEmpty,
-              let (edit, next) = SourceReplace.replaceNextEdit(
+    func replaceNextMatch(
+        of query: String, with replacement: String, fromByteOffset: Int,
+        options: SearchOptions = SearchOptions(), inSelection: Bool = false
+    ) -> Bool {
+        guard !query.isEmpty else { return false }
+        // In-Selection with no mappable selection replaces nothing (never the
+        // whole document); the find bar surfaces "Select text first".
+        if inSelection, selectionSourceRange == nil { return false }
+        guard let (edit, next) = SourceReplace.replaceNextEdit(
                 of: query, with: replacement, in: document.source,
-                fromByteOffset: fromByteOffset)
+                fromByteOffset: fromByteOffset, options: options,
+                within: inSelection ? selectionSourceRange : nil)
         else { return false }
         applyAbsolute(edit, caretUTF8: next)
         return true
     }
 
     /// Replace every match as ONE atomic edit (one undo restores all).
-    /// Returns the count replaced.
+    /// Returns the count replaced (a negative sentinel `-1` means the query
+    /// is an invalid regex, so the bar can distinguish it from "no matches").
     @discardableResult
-    func replaceAllMatches(of query: String, with replacement: String) -> Int {
+    func replaceAllMatches(
+        of query: String, with replacement: String,
+        options: SearchOptions = SearchOptions(), inSelection: Bool = false
+    ) -> Int {
         guard !query.isEmpty else { return 0 }
-        let count = SourceReplace.matches(of: query, in: document.source).count
+        guard TextMatcher.isValidQuery(query, options: options) else { return -1 }
+        if inSelection, selectionSourceRange == nil { return 0 }
+        let scope = inSelection ? selectionSourceRange : nil
+        let count = SourceReplace.matches(
+            of: query, in: document.source, options: options, within: scope).count
         guard count > 0,
               let edit = SourceReplace.replaceAllEdit(
-                of: query, with: replacement, in: document.source)
+                of: query, with: replacement, in: document.source,
+                options: options, within: scope)
         else { return 0 }
         applyAbsolute(edit, caretUTF8: nil)
         return count
