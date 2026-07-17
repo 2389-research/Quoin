@@ -243,9 +243,7 @@ struct ReaderScreen: View {
                             // it (UI #21) — inserting its bytes would be
                             // surprising; a tab is what the gesture means.
                             Task { @MainActor in
-                                NotificationCenter.default.post(
-                                    name: AppDelegate.openDocumentNotification,
-                                    object: nil, userInfo: ["url": url])
+                                AppDelegate.requestOpen(url)
                             }
                         }
                     }

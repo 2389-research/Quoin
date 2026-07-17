@@ -153,6 +153,33 @@ Verify a build is Gatekeeper-clean before announcing it:
 spctl --assess --type execute --verbose=2 build/release/Quoin.app   # → "accepted, source=Notarized Developer ID"
 ```
 
+## Pre-release smoke checklist (manual)
+
+Automated tests cover the engine; these are the system-integration surfaces that
+can only be judged from a real, LaunchServices-registered build. Run them once
+per release on the notarized `.app` (drag it to `/Applications` first so
+LaunchServices indexes its document types):
+
+- **Gatekeeper** — `spctl --assess` is "accepted, source=Notarized Developer ID"
+  (above).
+- **Finder / Open With / Open Recent (#16).**
+    - Right-click a `.md` file ▸ **Open With** lists Quoin (it declares the
+      `Editor` role for `net.daringfireball.markdown`).
+    - Quoin does **not** silently become the default `.md` app after install —
+      double-clicking a `.md` still opens the user's chosen app (rank stays
+      `Alternate`; it must not steal `.md` from Typora/VS Code/iA Writer/…).
+    - **Cold launch:** with Quoin quit, double-click a `.md` (or *Open With ▸
+      Quoin*) — it launches and opens that file as a tab, not a blank window.
+    - **Warm + backgrounded:** with Quoin running but another app frontmost,
+      *Open With ▸ Quoin* and a dock **recent** both bring Quoin forward and open
+      the file into a tab.
+    - A `.txt` via *Open With ▸ Quoin* opens (Viewer role); Quoin never claims to
+      *own* `.txt` (no default-app pressure).
+    - **File ▸ Open Recent** and the **dock recents** menu list both
+      Finder-opened and library-opened documents, most-recent first, and reopen
+      through the same tab/session; deleted files drop off the list.
+    - **Drag a `.md` onto the Dock icon** opens it as a tab.
+
 ## How the app side works
 
 - **Dependency scope.** Sparkle is a dependency of the `App/macOS` Xcode

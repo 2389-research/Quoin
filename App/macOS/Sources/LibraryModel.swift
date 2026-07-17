@@ -449,20 +449,22 @@ final class LibraryModel {
 
     // MARK: - Recents (idea #13) + daily note (idea #14)
 
-    private static let recentsKey = "QuoinRecentDocuments"
+    private static let recentsKey = RecentDocuments.defaultsKey
 
-    /// Called on every document open; feeds quick open's empty-query list.
+    /// Called on every document open (Finder, ⌘O, sidebar, deep link, Open
+    /// Recent); feeds the Open Recent / dock menus and quick open's empty-query
+    /// list. The MRU rules live in the platform-free `RecentDocuments` seam.
     func recordOpen(_ url: URL) {
-        var paths = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
-        paths.removeAll { $0 == url.path }
-        paths.insert(url.path, at: 0)
-        UserDefaults.standard.set(Array(paths.prefix(20)), forKey: Self.recentsKey)
+        let list = UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? []
+        UserDefaults.standard.set(
+            RecentDocuments.recording(url.path, into: list), forKey: Self.recentsKey)
     }
 
     var recentDocuments: [URL] {
-        (UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? [])
-            .map { URL(fileURLWithPath: $0) }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        RecentDocuments.present(
+            in: UserDefaults.standard.stringArray(forKey: Self.recentsKey) ?? [],
+            exists: { FileManager.default.fileExists(atPath: $0) }
+        ).map { URL(fileURLWithPath: $0) }
     }
 
     /// Today's note: `Journal/YYYY-MM-DD.md`, created on first visit with

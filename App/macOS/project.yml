@@ -119,6 +119,14 @@ targets:
         # Handoff and application(_:continue:) delivery.
         NSUserActivityTypes:
           - ai.2389.Quoin.editing
+        # Document-type stance (#16). Quoin is a real Markdown editor, so it
+        # declares CFBundleTypeRole=Editor for net.daringfireball.markdown — but
+        # keeps LSHandlerRank=Alternate so it coexists politely with whatever the
+        # user has set as their default Markdown app (it never aggressively
+        # steals .md). Plain text is Viewer-only, also Alternate: Quoin can open a
+        # .txt handed to it via Open With, but it does NOT claim ownership of
+        # plain text (no Editor role, no default-app pressure). Coexistence rules
+        # are documented in docs/reference/architecture.md.
         CFBundleDocumentTypes:
           - CFBundleTypeName: Markdown Document
             CFBundleTypeRole: Editor
@@ -126,7 +134,7 @@ targets:
             LSItemContentTypes:
               - net.daringfireball.markdown
           - CFBundleTypeName: Plain Text Document
-            CFBundleTypeRole: Editor
+            CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - public.plain-text

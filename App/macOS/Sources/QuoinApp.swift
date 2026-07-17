@@ -170,19 +170,20 @@ private struct FileCommands: Commands {
                 openWindow(id: "main", value: url.standardizedFileURL.path)
             }
             Menu("Open Recent") {
-                let recents = (UserDefaults.standard.stringArray(forKey: "QuoinRecentDocuments") ?? [])
-                    .prefix(10)
-                    .map { URL(fileURLWithPath: $0) }
-                    .filter { FileManager.default.fileExists(atPath: $0.path) }
+                let recents = RecentDocuments.present(
+                    in: UserDefaults.standard.stringArray(forKey: RecentDocuments.defaultsKey) ?? [],
+                    limit: 10,
+                    exists: { FileManager.default.fileExists(atPath: $0) }
+                ).map { URL(fileURLWithPath: $0) }
                 ForEach(recents, id: \.path) { url in
                     Button(url.deletingPathExtension().lastPathComponent) {
-                        post(AppDelegate.openDocumentNotification, userInfo: ["url": url])
+                        AppDelegate.requestOpen(url)
                     }
                 }
                 if !recents.isEmpty {
                     Divider()
                     Button("Clear Menu") {
-                        UserDefaults.standard.removeObject(forKey: "QuoinRecentDocuments")
+                        UserDefaults.standard.removeObject(forKey: RecentDocuments.defaultsKey)
                         NSDocumentController.shared.clearRecentDocuments(nil)
                     }
                 }
@@ -563,6 +564,24 @@ private final class TerminationReplyBox {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openDocumentNotification = Notification.Name("quoin.openDocument")
+    /// File-open URLs (Finder double-click / Open With, Open Recent, dock recents,
+    /// a markdown file dropped on the editor) waiting for a window to open them.
+    /// A SLOT — not the notification's `userInfo` — so a COLD launch, where the
+    /// open arrives before any `MainWindow` observer is subscribed, can still be
+    /// drained from the first window's `onAppear` (the same reason `quoin://`
+    /// deep links and Services seeds use slots). Every opener appends here and
+    /// posts `openDocumentNotification`; the key window (or, cold, the first
+    /// window's `onAppear`) drains the whole array atomically, so a dropped
+    /// notification never loses an open. Empty between deliveries.
+    static var pendingOpenURLs: [URL] = []
+
+    /// Append a file URL to the pending-open slot and signal a window to drain
+    /// it. Routes Finder/menu/dock/drop opens through the ONE open path
+    /// (`MainWindow.open`, i.e. a real tab + session), never detached state.
+    static func requestOpen(_ url: URL) {
+        pendingOpenURLs.append(url)
+        NotificationCenter.default.post(name: openDocumentNotification, object: nil)
+    }
     /// A `quoin://` deep link was received (#31). The parsed link is stashed in
     /// `pendingDeepLink`; the key window resolves it against ITS library root
     /// and drains the slot. A slot (not the notification's userInfo) is used so
@@ -762,11 +781,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 NotificationCenter.default.post(name: Self.openDeepLinkNotification, object: nil)
                 continue
             }
-            NotificationCenter.default.post(
-                name: Self.openDocumentNotification,
-                object: nil,
-                userInfo: ["url": url]
-            )
+            // Plain file:// open (Finder double-click / Open With). The slot +
+            // notification survive a cold launch where no window observer exists
+            // yet; a running app's key window drains it immediately.
+            NSApp.activate(ignoringOtherApps: true)
+            Self.requestOpen(url)
         }
     }
 
@@ -797,10 +816,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Dock menu: the recent documents, one click from anywhere (UI #24).
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        let paths = (UserDefaults.standard.stringArray(forKey: "QuoinRecentDocuments") ?? []).prefix(5)
+        let paths = RecentDocuments.present(
+            in: UserDefaults.standard.stringArray(forKey: RecentDocuments.defaultsKey) ?? [],
+            limit: 5,
+            exists: { FileManager.default.fileExists(atPath: $0) }
+        )
         guard !paths.isEmpty else { return nil }
         let menu = NSMenu()
-        for path in paths where FileManager.default.fileExists(atPath: path) {
+        for path in paths {
             let url = URL(fileURLWithPath: path)
             let item = NSMenuItem(
                 title: url.deletingPathExtension().lastPathComponent,
@@ -817,11 +840,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func openRecentFromDock(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         NSApp.activate(ignoringOtherApps: true)
-        // Let a window become key before the (key-window-gated) open fires.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            NotificationCenter.default.post(
-                name: Self.openDocumentNotification, object: nil, userInfo: ["url": url])
-        }
+        // The URL rides the pending-open slot, so it survives even if no window
+        // is key yet (app was fully in the background); the first window to
+        // become key or appear drains it — no fixed-delay guess needed.
+        Self.requestOpen(url)
     }
 }
 
