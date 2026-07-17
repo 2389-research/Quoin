@@ -418,6 +418,15 @@ degrade predictably instead of failing in an opaque sandbox.
 
   ![Export sheet with PDF, HTML, Markdown, RTF, and plain-text options](../images/export-sheet.png)
 
+- **Local images travel with the export.** A `![](assets/photo.png)` reference
+  is resolved relative to the document's folder and carried into the output:
+  **HTML** inlines the image as a base64 `data:` URI so the file stays
+  self-contained; **PDF** and **Print** draw the image just as the reader does;
+  **Markdown** keeps the `![](…)` reference verbatim. Plain **RTF** cannot embed
+  raster images, so it shows a visible named placeholder (the alt text and the
+  path) instead of a silent gap. Remote (`http(s)://`) images stay as external
+  references — Quoin never fetches them.
+
 - **Share** the current document through the system share sheet (AirDrop, Mail,
   Messages, or any share extension) from the toolbar Share button.
 

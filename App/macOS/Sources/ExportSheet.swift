@@ -9,6 +9,9 @@ import QuoinRender
 struct ExportSheet: View {
     let documentName: String
     let document: QuoinDocument
+    /// The open document's directory, for resolving relative image paths in
+    /// PDF/RTF/HTML export (issue #3). Nil for unsaved documents.
+    var documentDirectory: URL?
     @Binding var isPresented: Bool
 
     @State private var selected: ExportFormat = .pdf
@@ -212,14 +215,15 @@ struct ExportSheet: View {
                 data = try DocumentExporters.pdf(
                     from: exported,
                     title: documentName,
+                    baseURL: documentDirectory,
                     forcedAppearance: appearance.nsAppearance
                 )
             case .html:
-                data = Data(HTMLExporter.export(exported, title: documentName).utf8)
+                data = Data(HTMLExporter.export(exported, title: documentName, baseURL: documentDirectory).utf8)
             case .markdown:
                 data = Data(MarkdownExporter.export(exported).utf8)
             case .rtf:
-                data = try DocumentExporters.rtf(from: exported)
+                data = try DocumentExporters.rtf(from: exported, baseURL: documentDirectory)
             case .txt:
                 data = Data(PlainTextExporter.export(exported).utf8)
             }

@@ -75,6 +75,7 @@ struct IOSReaderScreen: View {
 
     private func share(_ kind: ExportKind) {
         let name = fileURL?.deletingPathExtension().lastPathComponent ?? "Document"
+        let baseURL = fileURL?.deletingLastPathComponent()
         let document = model.document
         do {
             let data: Data
@@ -84,13 +85,13 @@ struct IOSReaderScreen: View {
                 data = Data(MarkdownExporter.export(document).utf8)
                 ext = "md"
             case .html:
-                data = Data(HTMLExporter.export(document, title: name).utf8)
+                data = Data(HTMLExporter.export(document, title: name, baseURL: baseURL).utf8)
                 ext = "html"
             case .text:
                 data = Data(PlainTextExporter.export(document).utf8)
                 ext = "txt"
             case .pdf:
-                data = try DocumentExporters.pdf(from: document, title: name)
+                data = try DocumentExporters.pdf(from: document, title: name, baseURL: baseURL)
                 ext = "pdf"
             }
             let url = FileManager.default.temporaryDirectory

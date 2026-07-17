@@ -20,9 +20,14 @@ public enum DocumentExporters {
 
     // MARK: - RTF
 
-    public static func rtf(from document: QuoinDocument, theme: Theme = Theme()) throws -> Data {
+    /// `baseURL` is the open document's directory, so relative image paths
+    /// (`![](assets/x.png)`) resolve. Plain RTF cannot embed raster
+    /// attachments, so local images become a visible named reference rather
+    /// than a silent gap (issue #3).
+    public static func rtf(from document: QuoinDocument, theme: Theme = Theme(), baseURL: URL? = nil) throws -> Data {
         // Exports always render at 100%, never the reader's on-screen zoom.
-        let renderer = AttributedRenderer(theme: theme.atActualSize())
+        let renderer = AttributedRenderer(
+            theme: theme.atActualSize(), baseURL: baseURL, imageResolution: .textReference)
         let rendered = renderer.render(document)
         let range = NSRange(location: 0, length: rendered.attributed.length)
         guard let data = try? rendered.attributed.data(
@@ -43,6 +48,7 @@ public enum DocumentExporters {
         from document: QuoinDocument,
         theme: Theme? = nil,
         title: String = "Document",
+        baseURL: URL? = nil,
         forcedAppearance: PlatformAppearance? = nil
     ) throws -> Data {
         #if canImport(AppKit)
@@ -55,7 +61,11 @@ public enum DocumentExporters {
         let resolvedTheme = theme ?? Theme()
         #endif
         // Exports always render at 100%, never the reader's on-screen zoom.
-        let renderer = AttributedRenderer(theme: resolvedTheme.atActualSize())
+        // `baseURL` resolves relative image paths so attachments draw in the
+        // PDF; synchronous decode avoids the async first-render placeholder.
+        let renderer = AttributedRenderer(
+            theme: resolvedTheme.atActualSize(), baseURL: baseURL,
+            imageResolution: .synchronousAttachment)
 
         var pageRect = CGRect(x: 0, y: 0, width: 612, height: 792)
         let margin: CGFloat = 54
@@ -145,9 +155,13 @@ public enum DocumentExporters {
     /// Runs the print panel with the document paginated by an offscreen
     /// text view — the element spec doubles as the print stylesheet.
     @MainActor
-    public static func runPrintOperation(for document: QuoinDocument, theme: Theme = Theme(), jobTitle: String) {
+    public static func runPrintOperation(for document: QuoinDocument, theme: Theme = Theme(), baseURL: URL? = nil, jobTitle: String) {
         // Print always renders at 100%, never the reader's on-screen zoom.
-        let rendered = AttributedRenderer(theme: theme.atActualSize()).render(document).attributed
+        // `baseURL` + synchronous decode make relative images draw in the job.
+        let rendered = AttributedRenderer(
+            theme: theme.atActualSize(), baseURL: baseURL,
+            imageResolution: .synchronousAttachment
+        ).render(document).attributed
 
         // Start from the shared print info so Page Setup's choices (paper
         // size, orientation, scale) carry into the job; Quoin's margins and

@@ -170,19 +170,41 @@ public struct AttributedRenderer: Sendable {
     public let baseURL: URL?
     /// Remote images are opt-in per document (local-only by default).
     public let loadsRemoteImages: Bool
+    /// How local images are turned into runs. Exporters override the default
+    /// because they produce a single fixed output (issue #3).
+    public let imageResolution: ImageResolution
     /// Fired (off-main) when an async-decoded image becomes available and
     /// the document should re-render to pick it up.
     public let onContentReady: (@Sendable () -> Void)?
+
+    /// The strategy for projecting a resolvable local image.
+    public enum ImageResolution: Sendable {
+        /// On-screen: decode off-main, show a placeholder, re-render on ready.
+        case async
+        /// Decode on the calling thread into a drawn attachment. PDF/print
+        /// paginate + rasterize through TextKit, so the attachment prints; an
+        /// async placeholder would bake into the file instead.
+        case synchronousAttachment
+        /// A visible textual reference instead of an attachment, for output
+        /// formats that cannot embed raster attachments. Plain RTF drops
+        /// `NSTextAttachment` images entirely (only the RTFD package embeds
+        /// them, and its flattened bytes are not a portable `.rtf`), so an
+        /// attachment there would be a silent gap — a named placeholder is the
+        /// honest degradation (issue #3).
+        case textReference
+    }
 
     public init(
         theme: Theme = Theme(),
         baseURL: URL? = nil,
         loadsRemoteImages: Bool = false,
+        imageResolution: ImageResolution = .async,
         onContentReady: (@Sendable () -> Void)? = nil
     ) {
         self.theme = theme
         self.baseURL = baseURL
         self.loadsRemoteImages = loadsRemoteImages
+        self.imageResolution = imageResolution
         self.onContentReady = onContentReady
     }
 
@@ -2210,15 +2232,33 @@ public struct AttributedRenderer: Sendable {
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
             return placeholder("missing image: \(source)")
         }
-        // Async decode: first render shows a quiet placeholder; the decoded
-        // image arrives via onContentReady → re-render. The pending flag keeps
-        // this placeholder fragment out of the block cache so that re-render
-        // actually rebuilds it (a cached placeholder would stick forever).
-        guard let image = AsyncImageStore.shared.image(
-            at: fileURL,
-            maxDimension: theme.maxContentWidth * 2,
-            onReady: onContentReady ?? {}
-        ) else {
+
+        // Formats that cannot embed a raster attachment (plain RTF) get a
+        // visible reference instead of a silent gap.
+        if imageResolution == .textReference {
+            return placeholder(alt.isEmpty ? "image: \(source)" : "\(alt) (\(source))")
+        }
+
+        let image: PlatformImage?
+        if imageResolution == .synchronousAttachment {
+            // Exporters cannot tolerate the async placeholder: decode inline so
+            // the attachment draws in the single fixed PDF/print output.
+            image = AsyncImageStore.shared.imageSynchronously(
+                at: fileURL,
+                maxDimension: theme.maxContentWidth * 2
+            )
+        } else {
+            // Async decode: first render shows a quiet placeholder; the decoded
+            // image arrives via onContentReady → re-render. The pending flag keeps
+            // this placeholder fragment out of the block cache so that re-render
+            // actually rebuilds it (a cached placeholder would stick forever).
+            image = AsyncImageStore.shared.image(
+                at: fileURL,
+                maxDimension: theme.maxContentWidth * 2,
+                onReady: onContentReady ?? {}
+            )
+        }
+        guard let image else {
             let marked = NSMutableAttributedString(
                 attributedString: placeholder(alt.isEmpty ? "loading image…" : alt)
             )

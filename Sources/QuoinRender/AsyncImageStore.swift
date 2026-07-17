@@ -66,6 +66,24 @@ final class AsyncImageStore: @unchecked Sendable {
         return nil
     }
 
+    /// Blocking decode for callers that cannot tolerate a placeholder-then-
+    /// re-render (exporters: PDF/RTF/print produce a single fixed output, so
+    /// the async first-render placeholder would bake into the file). Checks
+    /// the shared cache first, decodes on the calling thread on a miss, and
+    /// caches the result so a later on-screen render hits.
+    func imageSynchronously(at url: URL, maxDimension: CGFloat) -> PlatformImage? {
+        let cacheKey = key(for: url, maxDimension: maxDimension)
+        if let hit = cache.object(forKey: cacheKey as NSString) {
+            return hit
+        }
+        guard let decoded = Self.decode(url: url, maxDimension: maxDimension) else {
+            return nil
+        }
+        cache.setObject(decoded, forKey: cacheKey as NSString)
+        withLock { _ = self.pending.remove(cacheKey) }
+        return decoded
+    }
+
     /// Decodes at display size via ImageIO so a 20 MP photo doesn't cost
     /// 80 MB of memory to show at 680 points wide.
     static func decode(url: URL, maxDimension: CGFloat) -> PlatformImage? {
