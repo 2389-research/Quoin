@@ -2,6 +2,9 @@ import AppKit
 import QuoinCore
 import SwiftUI
 import UniformTypeIdentifiers
+#if canImport(CoreSpotlight)
+import CoreSpotlight
+#endif
 
 @main
 struct QuoinApp: App {
@@ -783,6 +786,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         continue userActivity: NSUserActivity,
         restorationHandler: @escaping ([any NSUserActivityRestoring]) -> Void
     ) -> Bool {
+        #if canImport(CoreSpotlight)
+        // A Spotlight result was tapped (#6). The activity type is the system's
+        // CSSearchableItemActionType and carries the tapped item's identifier
+        // (our stable, root-scoped ABSOLUTE path) under
+        // CSSearchableItemActivityIdentifier. Route it through the SAME
+        // pendingDeepLink slot and confinement as application(_:open:) — the
+        // owning window resolves the absolute path against its own library root
+        // (QuoinURLScheme), so a Spotlight tap can no more escape the sandbox
+        // than an external quoin:// link can, and it opens the document the
+        // result described rather than a same-named file in another library.
+        if userActivity.activityType == CSSearchableItemActionType,
+           let identifier = userActivity.userInfo?[CSSearchableItemActivityIdentifier] as? String,
+           let link = QuoinURLScheme.spotlightDeepLink(identifier: identifier) {
+            // The identifier is the document's root-scoped absolute path, so the
+            // link is `confinedToContainingRoot`: only the window whose library
+            // owns that path honors it, never a same-named file in another
+            // library (see consumePendingDeepLink).
+            Self.pendingDeepLink = link
+            NSApp.activate(ignoringOtherApps: true)
+            NotificationCenter.default.post(name: Self.openDeepLinkNotification, object: nil)
+            return true
+        }
+        #endif
         guard userActivity.activityType == QuoinURLScheme.editingActivityType,
               let raw = userActivity.userInfo?[QuoinURLScheme.activityDeepLinkKey] as? String,
               let url = URL(string: raw),

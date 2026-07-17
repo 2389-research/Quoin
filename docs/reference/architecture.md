@@ -1005,6 +1005,65 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   real cross-device Handoff once an iOS/iPadOS reader ships. Spotlight indexing
   (#6) is deliberately not claimed here (`isEligibleForSearch = false`).
 
+- **Core Spotlight indexing (#6).** So system search finds Quoin documents,
+  headings, front-matter tags, and body snippets, the app maintains a **private,
+  on-device** Core Spotlight index. The split follows the same discipline: the
+  *decidable, testable* part is pure and lives in `QuoinCore`
+  (`SpotlightIndexing`), and the framework glue is a thin, macOS-only file
+  (`App/macOS/Sources/SpotlightIndexer.swift`) behind `canImport(CoreSpotlight)`.
+
+  `SpotlightIndexing` derives everything device-independent from a parsed
+  `QuoinDocument`: the **title** (front-matter `title` → first heading →
+  filename stem), the **heading list**, front-matter **keywords** (scalars and
+  split array/list tokens, deduped), and a **grapheme-safe snippet** + fuller
+  body text (front matter, review endmatter, the `[TOC]` marker, and raw HTML
+  excluded). The **stable identifier is the document's root-scoped ABSOLUTE
+  path** (with the library-relative path kept alongside as the display
+  subtitle). Absolute — not relative — because `CSSearchableIndex.default()` is
+  a *single, app-wide* index while each window owns its own `LibraryModel` and
+  may hold a different root (multi-folder windows, #61): a bare relative id
+  (`Notes/Today.md`) would **collide** across libraries, so two roots each
+  containing that path would overwrite each other's item, delete each other's
+  item, and open the wrong file on tap. The absolute path is unique across
+  libraries (a path lives under exactly one root). Containment is validated by
+  the same check the deep link uses (`deepLink(forDocumentPath:relativeTo:)`)
+  and the id round-trips back through `resolvedPath`, so a tapped result reuses
+  the deep-link open path with no parallel opener. `SpotlightIndexingTests`
+  covers title/heading/keyword derivation, snippet truncation on grapheme
+  boundaries, the identifier round-trip, cross-library uniqueness, its refusal
+  of out-of-root paths, the stale-set diff, and the persisted-root registry.
+
+  `SpotlightIndexer` reconciles after every `LibraryModel` scan (so FSEvents
+  changes flow through it). Reconciliation is **incremental and idempotent**: a
+  per-root identifier→modification-date map (persisted in `UserDefaults`, so the
+  diff survives launches) lets an unchanged file skip its re-read/parse; changed
+  files are re-indexed; and documents that moved or disappeared are **deleted**
+  from the index (`staleIdentifiers` diffs the previous set against the current
+  scan — no orphans). The per-root blobs are bounded by an **LRU registry**
+  (`SpotlightIndexing.prunedRootRegistry`, cap 32) so folders opened once long
+  ago don't accumulate `UserDefaults` entries forever — there is no
+  library-removed signal to prune on, so recency is the bound; an evicted root
+  simply re-indexes fresh next time it's opened. The heavy walk/parse runs in a
+  detached task; only the `CSSearchableIndex.default()` calls and the Sendable
+  result cross back to the main actor. Only `.md` is indexed, matching the
+  deep-link open path's `.md`-only rule so every indexed item is openable. A
+  Spotlight tap arrives via `application(_:continue:)` as a
+  `CSSearchableItemActionType` activity carrying the item's identifier under
+  `CSSearchableItemActivityIdentifier`; the handler rebuilds a **root-confined**
+  `quoin://` deep link (`QuoinURLScheme.spotlightDeepLink`) and routes it through
+  the **same** `pendingDeepLink` slot + confinement (lexical resolve, existence +
+  markdown check, live security scope) as every other open. Because the id is
+  absolute and the link is `confinedToContainingRoot`, only the window whose
+  library *owns* the path honors it (others leave the slot rather than beeping or
+  opening a same-named sibling) — so a tap opens the exact document the result
+  described, even across multiple libraries.
+
+  **Privacy.** This is Quoin's private index only — nothing is marked for public
+  or server-side indexing, and the app makes **no network request** for it. The
+  derived text never leaves the device; it lives in the OS's per-app Spotlight
+  store and is removed when a document leaves the library (or the app is
+  uninstalled). No new entitlement is required for an app's own private index.
+
 ## Testing strategy
 
 Quoin's tests are how the invariants above stay true — several of them exist
