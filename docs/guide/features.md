@@ -254,7 +254,9 @@ resolution can never quietly corrupt the document.
   system Trash, so a deleted document is recoverable from the Finder — it is
   never permanently erased — and any open tabs for it close automatically.
   The same **Duplicate** and **Move to Trash** actions sit in the File menu and
-  act on the current document; Move to Trash is **⌘⌫**.
+  act on the current document. (Neither carries a keyboard shortcut: ⌘⌫ is
+  deliberately left unbound because it would shadow AppKit's in-line
+  delete-to-start-of-line while editing.)
 - **`quoin://` links** — a `quoin://open?path=…` link opens a document in the
   library. `path` may be relative to the library root
   (`quoin://open?path=Notes/Today.md`) or an absolute path *inside* it. Links

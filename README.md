@@ -275,7 +275,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | File encoding detection on open (UTF-8 / UTF-16 / Latin-1), preserved on save | ✅ |
 | Accessibility — chrome scales with Dynamic Type; Reduce Motion & Reduce Transparency honored | ✅ |
 | Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
-| Duplicate a document/folder (unique ` 2` sibling) and Move to Trash (recoverable, ⌘⌫) — sidebar context menu + File menu | ✅ |
+| Duplicate a document/folder (unique ` 2` sibling) and Move to Trash (recoverable) — sidebar context menu + File menu | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
 | Services menu · Handoff / NSUserActivity | ⬜ planned |
 
