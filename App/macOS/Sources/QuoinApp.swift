@@ -2,7 +2,6 @@ import AppKit
 import QuoinCore
 import SwiftUI
 import UniformTypeIdentifiers
-import QuoinCore
 
 @main
 struct QuoinApp: App {
