@@ -58,6 +58,20 @@ public enum OutlineCollapse {
         return currentID
     }
 
+    /// The headings that own a subtree — a heading is a parent when the very
+    /// next entry is deeper (strictly higher level). Shared by the outline
+    /// panel's chevron rendering and the keyboard collapse/expand logic so the
+    /// "has children" test is defined once.
+    public static func parents(outline: [HeadingInfo]) -> Set<BlockID> {
+        var result: Set<BlockID> = []
+        for (index, heading) in outline.enumerated() {
+            if index + 1 < outline.count, outline[index + 1].level > heading.level {
+                result.insert(heading.id)
+            }
+        }
+        return result
+    }
+
     /// The positional ancestor chain, root first, ending with the heading
     /// itself. Nil when `id` is not in the outline.
     static func ancestorChain(of id: BlockID, in outline: [HeadingInfo]) -> [HeadingInfo]? {

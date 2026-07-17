@@ -1206,18 +1206,19 @@ struct OutlinePanel: View {
     /// Collapsed heading subtrees (session-scoped). A heading hides when
     /// any ancestor — the nearest preceding heading of a shallower level —
     /// is collapsed. Manual collapse is authoritative: only the chevron
-    /// toggle mutates this set; reading-position follow never does.
+    /// toggle and the keyboard collapse/expand keys mutate this set;
+    /// reading-position follow never does.
     @State private var collapsed: Set<BlockID> = []
+
+    /// Keyboard focus cursor (#11), distinct from the reading-position
+    /// `currentSectionID` highlight: arrow keys walk this through the visible
+    /// rows, Left/Right collapse/expand, Return jumps the document to it.
+    @State private var focused: BlockID?
+    @FocusState private var panelFocused: Bool
 
     /// Which headings own children (the next entry is deeper).
     private var parents: Set<BlockID> {
-        var result: Set<BlockID> = []
-        for (index, heading) in outline.enumerated() {
-            if index + 1 < outline.count, outline[index + 1].level > heading.level {
-                result.insert(heading.id)
-            }
-        }
-        return result
+        OutlineCollapse.parents(outline: outline)
     }
 
     /// The outline with collapsed subtrees removed. When the current
@@ -1250,22 +1251,39 @@ struct OutlinePanel: View {
                         OutlineRow(
                             heading: heading,
                             isCurrent: heading.id == highlightID,
+                            isFocused: heading.id == focused,
                             isParent: parents.contains(heading.id),
                             isCollapsed: collapsed.contains(heading.id),
-                            onSelect: onSelect,
-                            onToggle: {
-                                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
-                                    if collapsed.contains(heading.id) {
-                                        collapsed.remove(heading.id)
-                                    } else {
-                                        collapsed.insert(heading.id)
-                                    }
-                                }
-                            }
+                            onSelect: { id in
+                                focused = id
+                                onSelect(id)
+                            },
+                            onToggle: { toggleCollapse(heading.id) }
                         )
                         .id(heading.id)
                     }
                 }
+            }
+            // The outline is a keyboard tree (#11): focusable so Tab reaches
+            // it in the VoiceOver focus order, arrow keys walk the visible
+            // rows, ←/→ collapse/expand, Return jumps the document. Movement
+            // math lives in OutlineKeyboard so wrap/skip rules are tested once.
+            .focusable(!outline.isEmpty)
+            .focused($panelFocused)
+            .onKeyPress(.downArrow) { apply(OutlineKeyboard.moveDown(from: focused, outline: outline, collapsed: collapsed)) }
+            .onKeyPress(.upArrow) { apply(OutlineKeyboard.moveUp(from: focused, outline: outline, collapsed: collapsed)) }
+            .onKeyPress(.leftArrow) {
+                guard let focused else { return .ignored }
+                return apply(OutlineKeyboard.collapseOrParent(focused: focused, outline: outline, collapsed: collapsed))
+            }
+            .onKeyPress(.rightArrow) {
+                guard let focused else { return .ignored }
+                return apply(OutlineKeyboard.expandOrChild(focused: focused, outline: outline, collapsed: collapsed))
+            }
+            .onKeyPress(.return) {
+                guard let focused else { return .ignored }
+                onSelect(focused)
+                return .handled
             }
             // Keep the reading section in view as it advances (#37). `highlightID`
             // changes only at section boundaries (#R3), so scrolling here is
@@ -1280,6 +1298,13 @@ struct OutlinePanel: View {
                     proxy.scrollTo(newHighlight)
                 }
             }
+            // The keyboard cursor scrolls itself into view as it walks.
+            .onChange(of: focused) { _, newFocus in
+                guard let newFocus else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(newFocus)
+                }
+            }
         }
         .overlay {
             if outline.isEmpty {
@@ -1289,11 +1314,42 @@ struct OutlinePanel: View {
             }
         }
     }
+
+    /// Toggle a heading's collapse state (chevron click or ← / → key),
+    /// Reduce-Motion-aware. The single mutation point for manual collapse.
+    private func toggleCollapse(_ id: BlockID) {
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) {
+            if collapsed.contains(id) {
+                collapsed.remove(id)
+            } else {
+                collapsed.insert(id)
+            }
+        }
+    }
+
+    /// Apply a keyboard navigation response; returns the key-press result so
+    /// an edge-of-list no-op passes the event through instead of eating it.
+    private func apply(_ response: OutlineKeyboard.Response) -> KeyPress.Result {
+        switch response {
+        case .move(let id):
+            focused = id
+        case .collapse(let id):
+            focused = id
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { collapsed.insert(id) }
+        case .expand(let id):
+            focused = id
+            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.15)) { collapsed.remove(id) }
+        case .none:
+            return .ignored
+        }
+        return .handled
+    }
 }
 
 private struct OutlineRow: View {
     let heading: HeadingInfo
     let isCurrent: Bool
+    let isFocused: Bool
     let isParent: Bool
     let isCollapsed: Bool
     let onSelect: (BlockID) -> Void
@@ -1335,6 +1391,10 @@ private struct OutlineRow: View {
                         }
                         .buttonStyle(.plain)
                         .help(isCollapsed ? "Expand section" : "Collapse section")
+                        // Disclosure semantics for VoiceOver (#11): announce
+                        // the row as expandable and its current state.
+                        .accessibilityLabel(isCollapsed ? "Expand section" : "Collapse section")
+                        .accessibilityValue(isCollapsed ? "collapsed" : "expanded")
                     } else {
                         Color.clear.frame(width: 12, height: 12)
                     }
@@ -1358,8 +1418,20 @@ private struct OutlineRow: View {
                     .padding(.leading, 12)
             }
             .contentShape(Rectangle())
+            // Keyboard focus ring (#11): a subtle tint + accent stroke marks
+            // the arrow-key cursor, kept distinct from the accent-TEXT
+            // reading-position highlight so the two never read as one.
+            .background(isFocused ? Color.accentColor.opacity(0.12) : Color.clear)
+            .overlay(alignment: .leading) {
+                if isFocused {
+                    Rectangle()
+                        .fill(Color.accentColor)
+                        .frame(width: 2)
+                }
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityAddTraits(isCurrent ? [.isButton, .isSelected] : .isButton)
     }
 }
 

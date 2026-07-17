@@ -14,6 +14,10 @@ struct LibrarySidebar: View {
     let onOpen: (URL) -> Void
 
     @FocusState private var searchFocused: Bool
+    /// Keyboard highlight into `librarySearchResults` (#11). Owned here so the
+    /// search field (which receives the keypresses) and the results list
+    /// (which renders the selection) agree on one index.
+    @State private var searchHighlighted = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,8 +118,38 @@ struct LibrarySidebar: View {
                 .quoinScaledFont(size: 12)
                 .focused($searchFocused)
                 .onExitCommand { isSearchVisible = false }
+                .onSubmit { openHighlightedSearchResult() }
+                // ↑/↓/Home/End move a VISIBLE highlight through the results,
+                // Return opens it, Escape dismisses — the sidebar search list
+                // is now keyboard-operable like Quick Open (#11). Shared
+                // movement math (ListSelection) keeps the two identical.
+                .onKeyPress(.downArrow) {
+                    guard !library.librarySearchResults.isEmpty else { return .ignored }
+                    searchHighlighted = ListSelection.next(searchHighlighted, count: library.librarySearchResults.count)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    guard !library.librarySearchResults.isEmpty else { return .ignored }
+                    searchHighlighted = ListSelection.previous(searchHighlighted, count: library.librarySearchResults.count)
+                    return .handled
+                }
+                .onKeyPress(.home) {
+                    guard !library.librarySearchResults.isEmpty else { return .ignored }
+                    searchHighlighted = ListSelection.first(count: library.librarySearchResults.count)
+                    return .handled
+                }
+                .onKeyPress(.end) {
+                    guard !library.librarySearchResults.isEmpty else { return .ignored }
+                    searchHighlighted = ListSelection.last(count: library.librarySearchResults.count)
+                    return .handled
+                }
                 .onChange(of: library.librarySearchQuery) { _, _ in
+                    searchHighlighted = 0
                     library.runLibrarySearch()
+                }
+                // Results arrive async; fold a stale highlight back into range.
+                .onChange(of: library.librarySearchResults) { _, results in
+                    searchHighlighted = ListSelection.clamped(searchHighlighted, count: results.count)
                 }
             if !library.librarySearchQuery.isEmpty {
                 Button {
@@ -135,33 +169,55 @@ struct LibrarySidebar: View {
     }
 
     private var searchResults: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(library.librarySearchResults) { result in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(result.title)
-                            .quoinScaledFont(size: 12.5, weight: .medium)
-                        if !result.snippet.isEmpty {
-                            Text(result.snippet)
-                                .quoinScaledFont(size: 10.5)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(2)
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(library.librarySearchResults.enumerated()), id: \.element.id) { index, result in
+                        let isHighlighted = index == searchHighlighted
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(result.title)
+                                .quoinScaledFont(size: 12.5, weight: .medium)
+                                .foregroundStyle(isHighlighted ? Color.white : Color.primary)
+                            if !result.snippet.isEmpty {
+                                Text(result.snippet)
+                                    .quoinScaledFont(size: 10.5)
+                                    .foregroundStyle(isHighlighted ? Color.white.opacity(0.85) : Color.secondary)
+                                    .lineLimit(2)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(isHighlighted ? Color.accentColor : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 5))
+                        .contentShape(Rectangle())
+                        .id(index)
+                        .onTapGesture {
+                            searchHighlighted = index
+                            onOpen(result.url)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityAddTraits(isHighlighted ? [.isButton, .isSelected] : .isButton)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .contentShape(Rectangle())
-                    .onTapGesture { onOpen(result.url) }
+                    if library.librarySearchResults.isEmpty {
+                        Text("No matches")
+                            .quoinScaledFont(size: 11)
+                            .foregroundStyle(.tertiary)
+                            .padding(10)
+                    }
                 }
-                if library.librarySearchResults.isEmpty {
-                    Text("No matches")
-                        .quoinScaledFont(size: 11)
-                        .foregroundStyle(.tertiary)
-                        .padding(10)
-                }
+                .padding(.horizontal, 4)
+            }
+            .onChange(of: searchHighlighted) { _, index in
+                proxy.scrollTo(index)
             }
         }
+    }
+
+    /// Return in the search field opens the highlighted match (#11).
+    private func openHighlightedSearchResult() {
+        guard library.librarySearchResults.indices.contains(searchHighlighted) else { return }
+        onOpen(library.librarySearchResults[searchHighlighted].url)
     }
 }
 
@@ -369,16 +425,28 @@ struct QuickOpenPanel: View {
                     .focused($fieldFocused)
                     .onSubmit { openHighlighted() }
                     .onExitCommand { close() }
-                    // ↑/↓ walk the results (UI #10 — the highlight state
-                    // existed but nothing ever moved it).
+                    // ↑/↓/Home/End walk the results with wrap (UI #10 — the
+                    // highlight state existed but nothing ever moved it). The
+                    // movement math lives in ListSelection so Quick Open and
+                    // the library search list stay identical.
                     .onKeyPress(.downArrow) {
                         guard !library.quickOpenResults.isEmpty else { return .ignored }
-                        highlighted = min(highlighted + 1, library.quickOpenResults.count - 1)
+                        highlighted = ListSelection.next(highlighted, count: library.quickOpenResults.count)
                         return .handled
                     }
                     .onKeyPress(.upArrow) {
-                        guard highlighted > 0 else { return .ignored }
-                        highlighted -= 1
+                        guard !library.quickOpenResults.isEmpty else { return .ignored }
+                        highlighted = ListSelection.previous(highlighted, count: library.quickOpenResults.count)
+                        return .handled
+                    }
+                    .onKeyPress(.home) {
+                        guard !library.quickOpenResults.isEmpty else { return .ignored }
+                        highlighted = ListSelection.first(count: library.quickOpenResults.count)
+                        return .handled
+                    }
+                    .onKeyPress(.end) {
+                        guard !library.quickOpenResults.isEmpty else { return .ignored }
+                        highlighted = ListSelection.last(count: library.quickOpenResults.count)
                         return .handled
                     }
             }

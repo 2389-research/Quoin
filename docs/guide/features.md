@@ -270,6 +270,10 @@ resolution can never quietly corrupt the document.
 - **Outline** — a live heading tree (⌥⌘0, Outline mode). Manual collapse sticks,
   and the current-section highlight follows your reading position; when you
   collapse an ancestor, Quoin highlights that ancestor instead of re-expanding.
+  The tree is fully keyboard-operable: ↑ / ↓ move a focus cursor through the
+  visible rows, → expands a section (or steps into its first child), ←
+  collapses it (or climbs to the parent), and Return jumps the document to the
+  focused heading. VoiceOver announces each section's expanded/collapsed state.
 - **Properties** — the third inspector mode edits YAML front matter as a
   key/value panel with type-appropriate editors — date picker, toggle, number
   field, comma-separated list — plus an **Edit as Text** escape hatch. It's
@@ -314,6 +318,11 @@ resolution can never quietly corrupt the document.
   Search Library (⇧⌘F) runs full-text search across every document in the folder:
 
   ![Search Library panel showing full-text results across the library](../images/library-search.png)
+
+  Both Quick Open and Search Library are driven entirely from the keyboard: ↑ / ↓
+  move the highlighted result (wrapping around the ends), Home / End jump to the
+  first or last, Return opens the highlight, and Escape dismisses. No reaching for
+  the mouse to pick a match.
 
 - **Tabs & navigation** — document tabs (**Select Tab 1–9** ⌘1–9 pick a tab by
   position; **Show Next Tab** ⌃⇥ and **Show Previous Tab** ⌃⇧⇥ cycle through
