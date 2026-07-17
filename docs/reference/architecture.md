@@ -948,8 +948,41 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   process receives its read access through the drag pasteboard's own sandbox
   extension — no new entitlement is needed.
 
-Services menu and Handoff / `NSUserActivity` from #31 are deferred as separate
-issues; they are additive to this same shell.
+- **Services provider — New Quoin Document with Selection (#35).** The
+  `NSServices` array in the app's Info.plist (generated from
+  `App/macOS/project.yml`) declares the menu item, the `NSMessage` selector, and
+  the `NSSendTypes` (text) that gate the item to appear only when the sender
+  offers a string. `applicationDidFinishLaunching` sets
+  `NSApp.servicesProvider = self`, so macOS routes the message to
+  `AppDelegate.newDocumentWithSelection(_:userData:error:)`. Registering a
+  *provider* is orthogonal to Quoin's existing role as a services *requestor*
+  (NSTextView's built-in Services support is untouched).
+
+  The handler is deliberately thin: it pulls `.string` off the pasteboard,
+  refuses an empty selection (writing the `error` out-parameter), and otherwise
+  builds a `NewDocumentSeed` — the **pure, platform-free** naming/content seam in
+  `QuoinCore`. `NewDocumentSeed.make(fromSelection:)` normalizes newlines, gives
+  the body a single trailing newline, and derives a tidy filename from the first
+  non-empty line (dropping a leading heading run or list marker, capping the
+  title length on grapheme boundaries, and deferring to `FilenamePolicy` for the
+  hard filesystem rules + the "Untitled" fallback). That seam is unit-tested by
+  `NewDocumentSeedTests`; the pasteboard glue above it needs a live
+  `NSPasteboard` and so is not headlessly testable — it is kept trivial for that
+  reason.
+
+  Delivery reuses the deep-link handshake exactly: the seed is stashed in
+  `AppDelegate.pendingSelectionSeed` (a slot, not notification `userInfo`, so a
+  cold launch can still drain it from the first window's `onAppear`), the app
+  activates, and `newDocumentWithSelectionNotification` fires. The key
+  `MainWindow` drains it (`consumePendingSelectionSeed`): with a library it calls
+  `LibraryModel.createDocument(baseName:content:)`, writing into the folder Quoin
+  already holds security scope on — **no new entitlement**. With no library,
+  `createDocument` returns nil and the window falls back to a powerbox
+  `NSSavePanel` (`saveSelectionViaPanel`), whose grant makes the write + open
+  legal under the existing user-selected read-write entitlement.
+
+Handoff / `NSUserActivity` from #31 remains deferred as a separate issue; it is
+additive to this same shell.
 
 ## Testing strategy
 
