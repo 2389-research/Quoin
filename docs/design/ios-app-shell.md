@@ -131,15 +131,65 @@ This keeps macOS stable, avoids a framework fight, and pays down the real debt
   are already cross-platform-capable), Handoff receive (the macOS side from #36
   already publishes a `quoin://` activity), Quick Look is macOS-only by nature.
 
-## Open questions for you
+## Phase 1 — the `ReaderModel` extraction, grounded (B1)
 
-1. **iCloud / Files.app**: is "my notes sync across devices via iCloud Drive" a
-   day-one iOS requirement? If **yes**, that materially strengthens A1
-   (document-based) and we should reconsider — it's the one thing A2 makes hard.
-2. **iPad scope**: is iPad a first-class editing target (keyboard, multi-column,
-   pointer) or a phone-first reader-plus-light-edit initially? This sizes Phase 2/3.
-3. **Appetite for the B1 refactor now** vs. a B2 spike first to de-risk the iOS
-   editor UX before committing to the extraction.
+A full audit of `App/macOS/Sources/ReaderModel.swift` (1646 lines) says the
+refactor is **far lower-risk than feared** — the hard decoupling is already done:
 
-Once you weigh in on these three, I'll turn the chosen path into ADRs + a
-concrete Phase-1 plan.
+- **`ReaderModel` does not `import AppKit`** and never touches `NSTextView`/
+  `NSEvent`/`NSResponder`/the coordinator. The view is already inverted into ~40
+  closures wired in `ReaderScreen.swift:205-281` (the editor *pushes* facts in,
+  *pulls* `rendered`/`caretInActiveBlock` out).
+- **Only 3 genuinely AppKit-only touch points** in the whole file: `NSSound.beep()`
+  (edit rejection), `NSPasteboard` (image paste read), `NSUserName()` (reviewer
+  name). Each becomes a tiny injected seam (`EditorFeedback.beep()`,
+  `PasteboardImageSource`, `reviewerNameProvider`); on iOS they map to haptic/
+  no-op / `UIPasteboard` / a default.
+- A **divergent `IOSReaderModel`** already exists (`IOSReaderScreen.swift:112-268`,
+  its own comments say "mirrors macOS ReaderModel") — the exact duplication this
+  collapses.
+
+**Target:** a new `@MainActor @Observable final class EditorViewModel` in
+`Sources/QuoinRender/` (NOT QuoinCore — it needs `AttributedRenderer`/`Theme`,
+which live in QuoinRender; that target already ships both AppKit and UIKit code,
+so it compiles for both OSes with no Package.swift change). macOS `ReaderModel`
+becomes a thin app-target adapter owning the 3 seams; the `ReaderScreen.swift`
+closure surface stays byte-identical.
+
+**Steps (macOS green at each; each lands behind an existing suite):**
+1. **Characterize first, no move.** Add `QuoinRenderTests` around the pure
+   helpers (`applyToLiveAttributed`, `makeActiveEditSpliceHint`, caret offset
+   math) — the orchestration is currently only covered "by the app UI tests," so
+   this adds the missing net before touching structure. Also relocate
+   `ViewportSnapshot` (a pure data struct currently in `MarkdownReaderView.swift:57`)
+   to a shared header.
+2. **Introduce the 3 seams in place** (still in the app target): inject
+   `feedback.beep()`, wrap the pasteboard read, parameterize `reviewerName`.
+   Proves the seams compile; nothing moves yet.
+3. **Move the render/session engine** (`ingest`/`rerender`/`rerenderAsync`/
+   `buildAsyncRender`/`start`/`stop`/`flush` + renderer/cache/generation state)
+   into `EditorViewModel`. Guarded by OffMainRenderEquivalence /
+   AsyncImageRerender tests.
+4. **Move the caret + edit-pipeline core** (`activateBlock`/`restoreCaret`/
+   `replayPendingInsertion`/`applyAbsolute`/the edit/structure/find-replace/
+   review/front-matter commands). Guarded by RevealFidelity / CaretLineAnchor /
+   ProjectorEquivalence / KeystrokeReplay.
+5. **Collapse iOS:** retarget `IOSReaderScreen` onto `EditorViewModel`, delete
+   `IOSReaderModel`, reconcile its `ObservableObject`→`@Observable` mismatch.
+
+Only step 1 adds new coverage; every later step is guarded by a suite that
+already exists. A side benefit: the model's orchestration (edit-pipeline FIFO,
+stale-base stamping, render-generation drop-guard) becomes **unit-testable** for
+the first time, since it moves into a package target the tests can import.
+
+## Open questions — answered (2026-07-20)
+
+1. **iCloud / Files.app**: *nice-to-have*, not day-one → A2 stands; design the
+   file-provenance seam so an iCloud/document-based layer can be added without a
+   rewrite.
+2. **iPad scope**: *first-class editor* at launch (keyboard, multi-column,
+   pointer) → Phase 2/3 sized up.
+3. **B1 refactor now** vs. spike: *refactor first* → the Phase-1 extraction above
+   is the immediate next work.
+
+Decision recorded in [ADR 0010](../reference/adr/0010-ios-shell-custom-not-documentgroup.md).
