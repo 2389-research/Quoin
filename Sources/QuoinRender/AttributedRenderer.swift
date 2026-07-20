@@ -876,7 +876,15 @@ public struct AttributedRenderer: Sendable {
             switch block.kind {
             case .paragraph, .heading, .list, .blockQuote, .callout, .thematicBreak, .table:
                 let read = render(block: block, depth: 0, document: document)
-                transplantParagraphStyles(from: read, onto: styled, source: slice)
+                // Only a prose PARAGRAPH collapses interior hard-wrap gaps: its
+                // source newlines are soft-breaks Markdown joined into one read
+                // paragraph, so the trailing gap must land once. Tables/lists/
+                // quotes have genuinely separate per-line read paragraphs whose
+                // spacing must survive verbatim (R1 regression guard).
+                let isProseParagraph: Bool
+                if case .paragraph = block.kind { isProseParagraph = true } else { isProseParagraph = false }
+                transplantParagraphStyles(from: read, onto: styled, source: slice,
+                                          collapsesInteriorParagraphGap: isProseParagraph)
                 compressInteriorBlankLines(in: styled, caretOffset: caretOffset)
                 clampTrailingNewlinePhantom(in: styled, caretOffset: caretOffset)
                 return assembleRevealedFragment(source: styled, block: block, heldPreview: &heldPreview)
@@ -1130,7 +1138,8 @@ public struct AttributedRenderer: Sendable {
     private func transplantParagraphStyles(
         from read: NSAttributedString,
         onto styled: NSMutableAttributedString,
-        source: String
+        source: String,
+        collapsesInteriorParagraphGap: Bool = false
     ) {
         guard read.length > 0 else { return }
         let text = styled.string as NSString
@@ -1150,10 +1159,33 @@ public struct AttributedRenderer: Sendable {
             renderedText: read.string,
             sourceText: source
         )
-        for (line, anchor) in zip(lineRanges, anchors) {
+        // A read paragraph's trailing `paragraphSpacing` (the 12pt inter-block
+        // gap) must be applied ONCE, at the paragraph's end — never on the
+        // interior lines of one paragraph. But a hard-wrapped prose paragraph is
+        // ONE read paragraph (source newlines collapse to soft-break spaces)
+        // spread across N source lines here, so copying the read style verbatim
+        // stamps that 12pt gap between EVERY source line and balloons the
+        // revealed block (R1). Zero the trailing gap on any source line whose
+        // NEXT line maps into the same read paragraph; only the line that
+        // actually ends the read paragraph keeps it. List items map to distinct
+        // read paragraphs, so their per-item spacing is untouched.
+        let readText = read.string as NSString
+        func readParagraph(at anchor: Int) -> NSRange {
+            let clamped = min(max(0, anchor), max(0, read.length - 1))
+            return readText.paragraphRange(for: NSRange(location: clamped, length: 0))
+        }
+        for (index, pair) in zip(lineRanges, anchors).enumerated() {
+            let (line, anchor) = pair
             let clampedAnchor = min(max(0, anchor), read.length - 1)
-            guard let style = read.attribute(.paragraphStyle, at: clampedAnchor, effectiveRange: nil)
+            guard var style = read.attribute(.paragraphStyle, at: clampedAnchor, effectiveRange: nil)
                 as? NSParagraphStyle else { continue }
+            if collapsesInteriorParagraphGap,
+               style.paragraphSpacing > 0, index + 1 < anchors.count,
+               NSEqualRanges(readParagraph(at: anchor), readParagraph(at: anchors[index + 1])) {
+                let mutable = (style.mutableCopy() as! NSMutableParagraphStyle)
+                mutable.paragraphSpacing = 0  // interior hard-wrap line of one read paragraph
+                style = mutable
+            }
             let clamped = NSRange(location: line.location,
                                   length: min(line.length, full.length - line.location))
             guard clamped.length > 0 else { continue }

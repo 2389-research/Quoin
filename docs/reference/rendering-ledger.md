@@ -16,7 +16,33 @@ Format mirrors [`code-hygiene-ledger.md`](code-hygiene-ledger.md): **severity**
 > symptom; capture it (screenshot + observations) if it recurs rather than
 > editing the reveal path blind.
 
-## R1 — H · Revealing a wrapped paragraph explodes its line height — NARROWED, OPEN
+## R1 — H · Revealing a wrapped paragraph explodes its line height — ✅ FIXED (2026-07-20)
+
+**Resolved.** Root cause was NOT the live AppKit path (the earlier suspect) — it
+was the pure renderer, and the earlier height test never triggered it because its
+source paragraph was a single physical line (a `\`-continued literal). The real
+trigger: a paragraph HARD-WRAPPED in the source (real newlines Markdown joins into
+one paragraph via soft-breaks). Reading collapses the newlines to spaces →
+ONE paragraph, `paragraphSpacing = 12` once at the end. Reveal keeps the literal
+newlines → each source line is a SEPARATE paragraph, and
+`transplantParagraphStyles` copied the read paragraph's `paragraphSpacing = 12`
+onto EVERY source line → a 12pt gap between each line (the ballooning), and the
+lines are ~half width because they end at the author's ~72-col wrap.
+
+**Fix.** `transplantParagraphStyles` now zeroes the trailing `paragraphSpacing` on
+any source line whose NEXT line maps into the SAME read paragraph — interior
+hard-wrap lines of one prose paragraph — so the gap lands once, at the paragraph
+end. Scoped with `collapsesInteriorParagraphGap` to `.paragraph` blocks ONLY;
+tables/lists/quotes have genuinely separate per-line read paragraphs whose spacing
+must survive (a table regressed the reveal-delta ratchet before the scoping).
+Guarded by `RevealFidelityTests.testHardWrappedParagraphRevealDoesNotBalloonLineSpacing`
+(fails as `[12,12,12,12]` without the fix). The width/line-count difference that
+remains is faithful to the literal source (hard-wrapped prose shows its real
+lines, 1:1 with the file); only the spurious gap was a bug.
+
+---
+
+### (historical) R1 — H · Revealing a wrapped paragraph explodes its line height — NARROWED, OPEN
 
 **Symptom.** Reading is fine; the moment the caret enters a *soft-wrapped* body
 paragraph (it activates and reveals its source), the inter-line spacing balloons

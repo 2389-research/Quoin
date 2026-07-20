@@ -336,6 +336,58 @@ final class RevealFidelityTests: XCTestCase {
                        "revealing a soft-wrapped paragraph must not change the document height")
     }
 
+    /// R1 (the version the height test missed): a paragraph HARD-WRAPPED in the
+    /// source — real newlines that Markdown joins into ONE paragraph via soft
+    /// breaks — was revealed with the read paragraph's trailing `paragraphSpacing`
+    /// (12pt) copied onto EVERY source line, so a 12pt gap appeared between each
+    /// line and the block ballooned on activation. `testWrappedParagraphReveal…`
+    /// used a single physical source line (a `\`-continued literal), so it never
+    /// hit this. The trailing gap must apply ONCE, at the paragraph's end;
+    /// interior hard-wrap lines carry none.
+    func testHardWrappedParagraphRevealDoesNotBalloonLineSpacing() throws {
+        let source = """
+        # Heading
+
+        Try it: put the caret in the column and set it to the right so the
+        values re-align and every other column keeps its alignment while you
+        insert a column, delete a column, or move a whole row up or down
+        without ever touching a single pipe by hand in the source text.
+        """
+        let document = MarkdownConverter.parse(source)
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        let para = try XCTUnwrap(document.blocks.first {
+            if case .paragraph = $0.kind { return true }
+            return false
+        }?.id)
+
+        let revealed = renderer.render(document, activeBlockID: para, activeCaret: 3, cache: &cache)
+        let attr = revealed.attributed
+        let ns = attr.string as NSString
+
+        // Locate the revealed paragraph by its source text (the paragraph is the
+        // last block, so it runs from "Try it:" to the end of the content).
+        let start = ns.range(of: "Try it:")
+        XCTAssertNotEqual(start.location, NSNotFound, "revealed source text not found")
+
+        // Trailing paragraphSpacing per source line of the revealed paragraph.
+        var perLineSpacing: [CGFloat] = []
+        var loc = start.location
+        while loc < attr.length {
+            let line = ns.lineRange(for: NSRange(location: loc, length: 0))
+            let anchor = min(line.location, attr.length - 1)
+            let style = attr.attribute(.paragraphStyle, at: anchor, effectiveRange: nil) as? NSParagraphStyle
+            perLineSpacing.append(style?.paragraphSpacing ?? 0)
+            loc = NSMaxRange(line)
+            if line.length == 0 { break }
+        }
+
+        XCTAssertGreaterThan(perLineSpacing.count, 1, "the paragraph should reveal as multiple source lines")
+        XCTAssertTrue(perLineSpacing.dropLast().allSatisfy { $0 == 0 },
+                      "interior hard-wrap lines must not each carry the paragraph's trailing gap "
+                      + "(got \(perLineSpacing))")
+    }
+
     private func measureHeight(_ attributed: NSAttributedString, width: CGFloat = 600) -> CGFloat {
         let storage = NSTextStorage(attributedString: attributed)
         let contentStorage = NSTextContentStorage()
