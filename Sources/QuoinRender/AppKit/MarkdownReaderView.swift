@@ -47,18 +47,9 @@ public enum CaretHint: Equatable, Sendable {
     case source(Int)
 }
 
-/// A tab's scroll + selection, stashed when its editor is torn down (a tab
-/// switch) and restored when the editor is rebuilt, so switching tabs returns
-/// you to exactly where you were reading (#22). The owning model outlives the
-/// view in `OpenDocumentStore`, so it holds this across the switch.
-public struct ViewportSnapshot: Equatable, Sendable {
-    public var scrollY: CGFloat
-    public var selection: NSRange
-    public init(scrollY: CGFloat, selection: NSRange) {
-        self.scrollY = scrollY
-        self.selection = selection
-    }
-}
+// `ViewportSnapshot` moved to the QuoinRender target root
+// (`ViewportSnapshot.swift`) so the shared editing view-model can own it without
+// importing an AppKit view (iOS-shell extraction, ADR 0010, Phase 1).
 
 /// The reading surface: a TextKit 2 `NSTextView` wrapped for SwiftUI.
 ///
