@@ -1,6 +1,6 @@
 ---
 title: iOS/iPadOS app shell — architecture proposal
-status: PROPOSAL (awaiting decision)
+status: DECIDED (2026-07-20) — see Decisions
 created: 2026-07-20
 ---
 
@@ -8,8 +8,22 @@ created: 2026-07-20
 
 Quoin ships a mature macOS editor and, today, an iOS **reader**. This doc frames
 the decisions needed to build a real iOS/iPadOS **editing shell**, so we settle
-the architecture deliberately before writing shell code. Nothing here is built
-yet — it's for review.
+the architecture deliberately before writing shell code.
+
+## Decisions (Clint, 2026-07-20)
+
+- **A2 — custom shell**, NOT `DocumentGroup`. Keep the `WindowGroup` +
+  `LibraryModel` + `WindowSessionState` model. **Constraint:** architect the
+  shell so a **document-based / iCloud Drive layer can be added later without a
+  rewrite** (iCloud is a *nice-to-have*, not day-one) — keep the session actor
+  the source of truth, isolate the file-provenance layer behind a seam so an
+  iCloud/`NSFileProviderItem` backing can slot in.
+- **iPad is a FIRST-CLASS editor** at launch — hardware keyboard, multi-column,
+  pointer. Not a scaled-up phone reader. This sizes Phase 2/3 up.
+- **B1 — extract the shared editing view-model FIRST**, before the iOS editor
+  UX. Do it behind the invariant suites; macOS stays green throughout.
+
+The rest of this doc is the reasoning that led here, kept for context.
 
 ## Where we are
 

@@ -42,6 +42,7 @@ place — the trail of why a choice changed is itself worth keeping.
 | [0007](0007-no-flaky-tests.md) | There are **no flaky tests, only bad tests** | An intermittent failure is a real defect — a nondeterministic measurement channel or a code race — and gets diagnosed and fixed, never labeled "environmental" and ignored. |
 | [0008](0008-drift-by-guards.md) | Projection-path drift is prevented by **CI equivalence, not code unification** | The four projection paths single-source their shared logic and prove byte-and-attribute equality on every run, so they can't quietly diverge without merging into one function. |
 | [0009](0009-restoration-around-windowgroup-not-nsdocument.md) | Session/window restoration is built **around the WindowGroup model; the NSDocument migration is DEFERRED** | Persist tabs/panels/scroll as boundary-safe handles rather than rearchitecting to a document-based shell now — that migration (which also governs the future iOS shell) is a deliberate, separate decision. |
+| [0010](0010-ios-shell-custom-not-documentgroup.md) | The iOS/iPadOS shell is a **custom shell with a shared, platform-free editing view-model — not DocumentGroup** | Keep the session-actor-as-truth model on both platforms and extract `ReaderModel`'s platform-free core first; iPad is a first-class editor; leave room to add an iCloud/document-based layer later without a rewrite. |
 
 ## How the decisions connect
 
