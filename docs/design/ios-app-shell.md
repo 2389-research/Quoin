@@ -182,6 +182,49 @@ already exists. A side benefit: the model's orchestration (edit-pipeline FIFO,
 stale-base stamping, render-generation drop-guard) becomes **unit-testable** for
 the first time, since it moves into a package target the tests can import.
 
+### Progress + Step-3 execution notes (2026-07-20)
+
+**Done and shipped:** Step 1 (`ViewportSnapshot` → shared header) and Step 2
+(all three AppKit seams inverted: `EditorFeedback`, `PasteboardImageSource`,
+plus the finding that `reviewerName`'s `NSUserName()` is Foundation, not a
+blocker). `ReaderModel`'s entire AppKit surface is now a single 2-line
+`insertPastedImage(NSPasteboard)` wrapper.
+
+**Step 3 was attempted and reverted** — it is bigger than "move a file," and the
+next attempt must plan for this:
+
+- **Move mechanics that worked:** `git mv` to `Sources/QuoinRender/EditorViewModel.swift`,
+  rename the type, drop the self-`import QuoinRender` and `import SwiftUI`
+  (only a comment used it) → `import Observation`, change the `feedback` default
+  to a platform-free `SilentEditorFeedback` (add it to `EditorFeedback.swift`),
+  delete the macOS `insertPastedImage(NSPasteboard)` wrapper from the moved file,
+  add `public init() {}`, and in the app target add
+  `typealias ReaderModel = EditorViewModel` + an extension carrying the
+  `NSPasteboard` wrapper, and set `model.feedback = SystemEditorFeedback()` in
+  `OpenDocumentStore.acquire`. The package compiled cleanly this far.
+- **The real cost:** moving to a package target means **~56 members the app
+  touches must become `public`** (51 `model.<member>` + the `ActionFailure` /
+  `StructureCommand` nested types). This is the bulk of the work.
+- **The trap (learned the hard way):** a naive script that adds `public` to any
+  `var|let|func <name>` matching a member name ALSO rewrites **local variables**
+  of the same name inside method bodies (`document`, `stats`, `outline` are
+  common locals), corrupting `if let` patterns ("`public` can only be used in a
+  non-local scope"). **Fix:** scope the annotation to **class-level declarations
+  only** — lines at exactly the class member indent (4 spaces), never 8+, and
+  skip anything already `public`/inside a body. Also: `rendered` is
+  `Identifiable`-adjacent — the `id`/`Identifiable` conformance forces its
+  property `public` (a distinct error to expect).
+- **Alternative to weigh:** rather than publicize 56 members, expose a narrower
+  **facade protocol** the app's `ReaderScreen` binds to. Bigger up-front
+  refactor, smaller public surface. The 56-public-member path is faster and
+  matches how QuoinRender already exposes `MarkdownReaderView`'s ~40 public
+  props, so it's the recommended default unless the surface feels wrong.
+- **Verification net:** the package build + macOS app build + the 1117-test
+  suite (RevealFidelity / CaretLineAnchor / ProjectorEquivalence /
+  OffMainRenderEquivalence) fully guard a pure move — the change is mechanical
+  (relocation + access levels), so no behavior can drift silently. Do it as ONE
+  focused pass, not at the tail of another session.
+
 ## Open questions — answered (2026-07-20)
 
 1. **iCloud / Files.app**: *nice-to-have*, not day-one → A2 stands; design the
