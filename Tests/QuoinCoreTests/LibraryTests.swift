@@ -45,6 +45,39 @@ final class LibraryTests: XCTestCase {
         XCTAssertThrowsError(try Library.move(root.appendingPathComponent("Alpha.md"), into: projects))
     }
 
+    func testMoveRefusesFolderIntoItself() throws {
+        let projects = root.appendingPathComponent("Projects")
+        XCTAssertThrowsError(try Library.move(projects, into: projects)) { error in
+            guard case Library.LibraryError.selfContainment = error else {
+                return XCTFail("expected selfContainment, got \(error)")
+            }
+        }
+        // The subtree is untouched — nothing orphaned.
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projects.appendingPathComponent("Gamma.md").path))
+    }
+
+    func testMoveRefusesFolderIntoOwnDescendant() throws {
+        let projects = root.appendingPathComponent("Projects")
+        let descendant = projects.appendingPathComponent("Sub")
+        try FileManager.default.createDirectory(at: descendant, withIntermediateDirectories: true)
+        XCTAssertThrowsError(try Library.move(projects, into: descendant)) { error in
+            guard case Library.LibraryError.selfContainment = error else {
+                return XCTFail("expected selfContainment, got \(error)")
+            }
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: projects.appendingPathComponent("Gamma.md").path))
+    }
+
+    func testMoveAllowsSharedPrefixSibling() throws {
+        // "Projects2" is not a descendant of "Projects" despite the string
+        // prefix — the path-segment boundary keeps it a legal target.
+        let projects = root.appendingPathComponent("Projects")
+        let lookalike = root.appendingPathComponent("Projects2")
+        try FileManager.default.createDirectory(at: lookalike, withIntermediateDirectories: true)
+        let moved = try Library.move(projects, into: lookalike)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: moved.appendingPathComponent("Gamma.md").path))
+    }
+
     func testRenameWithSilentSuffix() throws {
         let alpha = root.appendingPathComponent("Alpha.md")
         // "Beta" collides with Beta.markdown? No — extension differs (md), so plain rename.

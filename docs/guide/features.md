@@ -90,7 +90,10 @@ the file on disk stays clean markdown you own.
 - **Images** — drag an image file in, or **paste** a screenshot / copied image
   (⌘V). Quoin copies it into an `assets/` folder beside your document and
   inserts `![](assets/…)` at the caret — the file stays a plain `.md` you can
-  move as a folder.
+  move as a folder. Dropping a `.md` file on the editor opens it as a tab
+  instead; anything else (a PDF, an archive) is turned away with a brief
+  message rather than vanishing silently, and if a copy ever fails you get a
+  non-blocking banner, never a false success.
 - **Word-granular undo** — typing coalesces into word-sized undo steps, so `⌘Z`
   removes a word (or a backspaced run), not one letter at a time. The Edit menu
   names the step it will reverse — **Undo Typing**, **Undo Move Block**, **Undo
@@ -298,6 +301,17 @@ resolution can never quietly corrupt the document.
   **File ▸ Show in Finder** reveals the document you're editing without hunting
   for it in the tree (the sidebar's right-click **Reveal in Finder** does the
   same for any selected file or folder).
+- **Drag to move or import** — drag a document or folder within the sidebar and
+  drop it on another folder (or the empty space below the tree, for the library
+  root) to **move** it there; the destination highlights and the pointer shows
+  the move badge. Moves are undoable with ⌘Z. Invalid targets refuse the drop —
+  dropping a folder onto itself or into one of its own sub-folders, or back into
+  the folder it already lives in, shows a red highlight and the "no-drop"
+  pointer and does nothing. Dragging a **Markdown file from outside the library**
+  (the Finder, another app) **imports a copy** — the pointer shows the copy
+  badge and your original stays put; non-Markdown files are turned away with a
+  beep. (To store an image in a document, drop it on the editor, not the
+  sidebar — Quoin files it under `assets/`.)
 - **Manage documents** — right-click any document or folder in the sidebar for
   **Rename**, **Duplicate**, **Reveal in Finder**, and **Move to Trash**.
   Duplicate copies the file to the next free ` 2`, ` 3`… name beside the

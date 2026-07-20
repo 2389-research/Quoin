@@ -1066,14 +1066,41 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
 - **Drag-out to Finder / other apps.** `documentDragProvider(for:isDirectory:)`
   (LibrarySidebar) backs every sidebar `.onDrag`. It vends `public.file-url`
   (via `NSURL`) — unchanged, so the intra-sidebar move drop
-  (`handleFileDrop`, keyed on `public.file-url`) is unaffected — *and*, for leaf
-  files, a `registerFileRepresentation` of the file's real content type so a
+  (`performLibraryDrop`, keyed on `public.file-url`) is unaffected — *and*, for
+  leaf files, a `registerFileRepresentation` of the file's real content type so a
   drag OUT lands as a genuine file copy in Finder or an attachment elsewhere.
   It registers `coordinated: true`: the item provider reads the existing file
   with file coordination and must never move or delete the original, so a
   drag-out can never remove a document from the library. The destination
   process receives its read access through the drag pasteboard's own sandbox
   extension — no new entitlement is needed.
+
+- **Drop feedback and operation semantics (#9).** The pure decision — given a
+  dragged item and a proposed target, what is valid (move / copy / reject) —
+  lives in `DropValidation` (QuoinCore), the testable seam (`DropValidationTests`
+  covers self-drop, descendant-drop, no-op same-folder, sibling move, and
+  non-Markdown external rejection). Everything AppKit-side is thin. Sidebar
+  drops go through `LibraryDropDelegate` (a `@MainActor DropDelegate`): its
+  `dropUpdated` returns a `DropProposal` whose operation (`.move` / `.copy` /
+  `.forbidden`) drives the drag badge and a highlight (accent when accepted, red
+  when forbidden). Because an `NSItemProvider` only yields its URL
+  asynchronously — too late for the live badge — the delegate reads the dragged
+  file URL **synchronously off the live drag pasteboard**
+  (`NSPasteboard(name: .drag).readObjects(...)`) during `validateDrop` /
+  `dropUpdated`, which is reliable while a drag is in flight. That read drives
+  the badge/highlight only; the actual file op runs in
+  `performLibraryDrop`, which loads the URL from the drop's own
+  `itemProviders` and **re-runs `DropValidation` against the real dropped URL**,
+  so a badge computed from a pasteboard read can never move the wrong file. Internal items MOVE (undoable via the
+  `moveUndoStack`); external Markdown files import as a COPY; invalid targets are
+  rejected (a beep when a rejected URL actually lands, though `.forbidden`
+  usually makes the system refuse the drop before `performDrop`). Editor drops
+  (ReaderScreen) route through `DropValidation.editorDrop`: images copy into
+  `assets/` (`ReaderModel.insertImage`, failures surfaced as a non-modal
+  banner), `.md` files open as a tab, and anything else is rejected with
+  `ReaderModel.reportUnsupportedDrop` (beep + banner) instead of a silent
+  no-op. `DropValidation.imageExtensions` is the canonical image-type set
+  (`ReaderModel.imageExtensions` aliases it).
 
 - **Services provider — New Quoin Document with Selection (#35).** The
   `NSServices` array in the app's Info.plist (generated from

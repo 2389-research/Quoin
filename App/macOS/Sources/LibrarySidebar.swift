@@ -89,22 +89,26 @@ struct LibrarySidebar: View {
                 }
             }
         }
-        // Dropping onto empty sidebar space moves to the library root.
-        .onDrop(of: [.fileURL], isTargeted: $isRootDropTargeted) { providers in
-            guard let root = library.rootURL else { return false }
-            return handleFileDrop(providers, into: root, library: library)
-        }
+        // Dropping onto empty sidebar space moves (internal) or imports
+        // (external markdown) into the library root. The delegate reflects
+        // move / copy / forbidden in the drag badge and highlights the zone.
+        .onDrop(of: [.fileURL], delegate: LibraryDropDelegate(
+            target: library.rootURL, library: library, highlight: $rootDropHighlight))
         .overlay {
-            if isRootDropTargeted {
+            if rootDropHighlight != .none {
                 RoundedRectangle(cornerRadius: 6)
-                    .strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 2)
+                    .strokeBorder(
+                        rootDropHighlight == .rejected
+                            ? Color.red.opacity(0.6)
+                            : Color.accentColor.opacity(0.6),
+                        lineWidth: 2)
                     .padding(4)
                     .allowsHitTesting(false)
             }
         }
     }
 
-    @State private var isRootDropTargeted = false
+    @State private var rootDropHighlight: DropHighlight = .none
 
     // MARK: - Library-wide search (⇧⌘F, persistent per handoff)
 
@@ -225,7 +229,7 @@ struct LibrarySidebar: View {
 ///
 /// It vends TWO representations so one drag serves both directions:
 ///   • `public.file-url` (from the `NSURL` object) — what the intra-sidebar
-///     move drop reads back in `handleFileDrop`, so library moves are
+///     move drop reads back in `performLibraryDrop`, so library moves are
 ///     unchanged; and
 ///   • for a leaf file, a *file representation* of the item's real content
 ///     type, so dragging OUT lands as a genuine file copy in Finder or an
@@ -256,9 +260,90 @@ func documentDragProvider(for url: URL, isDirectory: Bool) -> NSItemProvider {
     return provider
 }
 
-/// Loads file URLs off the drag pasteboard and performs the library move.
+/// The visible drop-target state for a folder row or the root zone.
+enum DropHighlight: Equatable { case none, accepted, rejected }
+
+/// Thin `DropDelegate` for a library sidebar drop target (a folder row or the
+/// root zone). It defers every "what does this drop do?" question to the
+/// `DropValidation` seam and translates the answer into the drag badge
+/// (move / copy / forbidden) plus the row highlight. The actual file operation
+/// is performed — and RE-VALIDATED against the real dropped URL — in
+/// `LibraryModel.performValidatedDrop`, so the cosmetic badge can never move
+/// the wrong file.
+///
+/// The badge classifies the item ACTUALLY under the cursor by reading the live
+/// drag pasteboard (`NSPasteboard(name: .drag)`) synchronously. The drop-type
+/// registration (`.onDrop(of: [.fileURL], …)`) guarantees these callbacks only
+/// fire while file URLs are on that pasteboard, so the read is reliable for BOTH
+/// internal drags and external Finder drags — and it can never go stale the way
+/// a value stashed at `.onDrag` time does (a cancelled or dragged-out internal
+/// drag would leave that stashed value pointing at the wrong item and silently
+/// misclassify — or outright block, via a `.forbidden` proposal — the next
+/// external import).
+struct LibraryDropDelegate: DropDelegate {
+    /// Destination folder; nil means no library is configured (reject).
+    let target: URL?
+    let library: LibraryModel
+    @Binding var highlight: DropHighlight
+
+    func validateDrop(info: DropInfo) -> Bool {
+        info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropEntered(info: DropInfo) {
+        highlight = badge(for: proposedOperation())
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        let operation = proposedOperation()
+        highlight = badge(for: operation)
+        return DropProposal(operation: operation)
+    }
+
+    func dropExited(info: DropInfo) {
+        highlight = .none
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        highlight = .none
+        guard let target else { return false }
+        return performLibraryDrop(info.itemProviders(for: [.fileURL]), into: target, library: library)
+    }
+
+    /// The dragged file URL for the live drag, read synchronously from the drag
+    /// pasteboard. Returns nil only if the pasteboard somehow holds no file URL
+    /// (should not happen: the `.fileURL` drop registration is what invoked us).
+    private func liveDraggedURL() -> URL? {
+        let objects = NSPasteboard(name: .drag).readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        return objects?.first
+    }
+
+    /// The operation for the live badge, decided from the real dragged URL. An
+    /// unreadable pasteboard falls back to an optimistic `.copy` (the drop then
+    /// re-validates and beeps on a genuine reject) rather than blocking a
+    /// possibly-legitimate import.
+    private func proposedOperation() -> DropOperation {
+        guard let target, let root = library.rootURL else { return .forbidden }
+        guard let dragged = liveDraggedURL() else { return .copy }
+        switch DropValidation.libraryDrop(dragged: dragged, onto: target, libraryRoot: root) {
+        case .move: return .move
+        case .copy: return .copy
+        case .reject: return .forbidden
+        }
+    }
+
+    private func badge(for operation: DropOperation) -> DropHighlight {
+        operation == .forbidden ? .rejected : .accepted
+    }
+}
+
+/// Loads file URLs off the drag pasteboard and performs the validated drop.
+/// The operation (move / copy / reject) is re-decided from the real URL inside
+/// `performValidatedDrop`, so this stays a thin loader.
 @discardableResult
-func handleFileDrop(_ providers: [NSItemProvider], into folder: URL, library: LibraryModel) -> Bool {
+func performLibraryDrop(_ providers: [NSItemProvider], into folder: URL, library: LibraryModel) -> Bool {
     var handled = false
     for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
         handled = true
@@ -271,7 +356,7 @@ func handleFileDrop(_ providers: [NSItemProvider], into folder: URL, library: Li
             }
             guard let url else { return }
             Task { @MainActor in
-                library.importOrMove(url: url, into: folder)
+                library.performValidatedDrop(url: url, into: folder)
             }
         }
     }
@@ -285,7 +370,7 @@ private struct LibraryRow: View {
 
     @State private var isRenaming = false
     @State private var draftName = ""
-    @State private var isDropTargeted = false
+    @State private var dropHighlight: DropHighlight = .none
 
     var body: some View {
         if node.kind == .folder {
@@ -316,15 +401,19 @@ private struct LibraryRow: View {
                             .quoinScaledFont(size: 12.5)
                     }
                 }
-                .onDrag { documentDragProvider(for: node.url, isDirectory: true) }
-                // Dropping a file onto a folder moves it there (⌘Z undoes);
-                // the target folder highlights while hovered (UI #21).
-                .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
-                    handleFileDrop(providers, into: node.url, library: library)
+                .onDrag {
+                    // Drop targets classify the badge by reading the live drag
+                    // pasteboard (see LibraryDropDelegate), so nothing needs to
+                    // be stashed here — the provider IS the source of truth.
+                    documentDragProvider(for: node.url, isDirectory: true)
                 }
-                .background(
-                    isDropTargeted ? Color.accentColor.opacity(0.15) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 4))
+                // Dropping onto a folder MOVES internal items there (⌘Z undoes)
+                // or IMPORTS an external markdown file as a copy; invalid drops
+                // (a folder onto itself or a descendant, a non-markdown file)
+                // show the forbidden badge and a red highlight (UI #21).
+                .onDrop(of: [.fileURL], delegate: LibraryDropDelegate(
+                    target: node.url, library: library, highlight: $dropHighlight))
+                .background(dropBackground, in: RoundedRectangle(cornerRadius: 4))
                 .contextMenu {
                     Button("New Document in “\(node.name)”") {
                         if let url = library.createDocument(in: node.url) { onOpen(url) }
@@ -347,7 +436,19 @@ private struct LibraryRow: View {
             }
         } else {
             row
-                .onDrag { documentDragProvider(for: node.url, isDirectory: false) }
+                .onDrag {
+                    documentDragProvider(for: node.url, isDirectory: false)
+                }
+        }
+    }
+
+    /// The folder row's drop tint: accent when the drop is accepted, red when
+    /// the target is forbidden (self / descendant / no-op).
+    private var dropBackground: Color {
+        switch dropHighlight {
+        case .none: return .clear
+        case .accepted: return Color.accentColor.opacity(0.15)
+        case .rejected: return Color.red.opacity(0.15)
         }
     }
 
