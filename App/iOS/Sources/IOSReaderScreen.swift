@@ -121,6 +121,11 @@ final class IOSReaderModel: ObservableObject {
     private var renderer = AttributedRenderer()
     private var slugToBlock: [String: BlockID] = [:]
     private var asyncRerenderTask: Task<Void, Never>?
+    private var backgroundRenderTask: Task<Void, Never>?
+    /// Bumped on every re-render trigger; a background projection adopts its
+    /// result only if the generation still matches, so a stale async render
+    /// (superseded by a newer one, or by teardown) drops instead of clobbering.
+    private var renderGeneration = 0
 
     func start(fileURL: URL?, initialText: String) {
         guard session == nil else { return }
@@ -157,7 +162,16 @@ final class IOSReaderModel: ObservableObject {
         snapshotTask = nil
         asyncRerenderTask?.cancel()
         asyncRerenderTask = nil
+        backgroundRenderTask?.cancel()
+        backgroundRenderTask = nil
+        // Make teardown authoritative over any in-flight image decode (#2): the
+        // shared `AsyncImageStore` decode can't be cancelled, so its
+        // `onContentReady` may still fire after this. Clearing `session` (and
+        // bumping the generation) means the late callback's rerender guard
+        // fails and it no-ops — no wasted projection on a torn-down model.
         let session = session
+        self.session = nil
+        renderGeneration += 1
         Task {
             try? await session?.saveNow()
             await session?.stopWatching()
@@ -183,6 +197,7 @@ final class IOSReaderModel: ObservableObject {
     /// `image(at:…)` is a cache hit that does NOT re-arm `onReady`, so the
     /// callback fires only while content is genuinely still pending.
     func scheduleAsyncContentRerender() {
+        guard session != nil else { return }
         asyncRerenderTask?.cancel()
         asyncRerenderTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(120))
@@ -195,10 +210,40 @@ final class IOSReaderModel: ObservableObject {
     /// async image decode completes so the placeholder is replaced in place.
     /// Only the rendered projection is republished; the outline/stats/slug map
     /// are functions of the source and haven't changed. Reusing the same
-    /// document keeps scroll position stable (no reload, no source edit).
+    /// document keeps the offsets identical, and `MarkdownReaderViewIOS` pins
+    /// the top fragment across the swap, so scroll position stays put.
+    ///
+    /// The heavy projection runs OFF the main actor (mirrors macOS
+    /// `ReaderModel.rerenderAsync`, issue #33): for a photo-heavy document this
+    /// fires 120ms after the decode and a full main-thread render would hitch
+    /// scrolling on exactly the documents this feature targets. The result is
+    /// adopted under `renderGeneration`, so a projection superseded by a newer
+    /// trigger — or by `stop()` clearing the session — is dropped.
     private func rerenderCurrentDocument() {
         guard session != nil else { return }
-        rendered = renderer.render(document)
+        renderGeneration += 1
+        let generation = renderGeneration
+        let renderer = self.renderer
+        let document = self.document
+        backgroundRenderTask?.cancel()
+        backgroundRenderTask = Task { [weak self] in
+            guard !Task.isCancelled else { return }
+            let projection = await Self.project(renderer: renderer, document: document)
+            guard let self, !Task.isCancelled,
+                  generation == self.renderGeneration, self.session != nil else { return }
+            self.rendered = projection
+        }
+    }
+
+    /// The pure, off-main portion of the async re-render. `nonisolated`, so
+    /// awaiting it from the main-actor task runs the block walk on a background
+    /// executor; the non-Sendable result crosses back as a single `sending`
+    /// value (built here, adopted once on the main actor, never aliased).
+    private nonisolated static func project(
+        renderer: AttributedRenderer,
+        document: QuoinDocument
+    ) async -> sending RenderedDocument {
+        renderer.render(document)
     }
 
     func toggleTask(markerOffset: Int) {
