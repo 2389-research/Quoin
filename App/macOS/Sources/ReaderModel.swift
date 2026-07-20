@@ -77,6 +77,12 @@ final class ReaderModel {
     /// here because the model outlives the transient editor in the store.
     @ObservationIgnored var savedViewport: ViewportSnapshot?
 
+    /// Device feedback (the rejection beep), injected behind the `EditorFeedback`
+    /// seam so this view-model carries no AppKit dependency and can move
+    /// platform-free (ADR 0010). Defaults to the macOS system beep; iOS will
+    /// supply a haptic/no-op when this moves to the shared EditorViewModel.
+    @ObservationIgnored var feedback: EditorFeedback = SystemEditorFeedback()
+
     @ObservationIgnored private var session: DocumentSession?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     @ObservationIgnored private var renderer = AttributedRenderer()
@@ -693,7 +699,7 @@ final class ReaderModel {
             default: proseKind = false
             }
             guard proseKind, let slice = document.source.substring(in: block.range) else {
-                NSSound.beep()
+                feedback.beep()
                 return
             }
             switch SuggestTransform.outcome(
@@ -705,7 +711,7 @@ final class ReaderModel {
                 replacement = newReplacement
                 caretDelta = newCaret
             case .refused:
-                NSSound.beep()
+                feedback.beep()
                 return
             }
         }
@@ -1503,15 +1509,26 @@ final class ReaderModel {
     /// a copied image FILE reuses the drag-drop path to keep its own format.
     @discardableResult
     func insertPastedImage(from pasteboard: NSPasteboard = .general) -> Bool {
+        // Thin macOS adapter over the platform-free core (ADR 0010): the only
+        // AppKit dependency (NSPasteboard read) lives in NSPasteboardImageSource.
+        insertPastedImage(from: NSPasteboardImageSource(pasteboard))
+    }
+
+    /// Platform-free clipboard image paste (the core of #24): a copied image
+    /// FILE reuses the drag-drop path (keeps its format); a screenshot / copied
+    /// bitmap normalizes to PNG written into `assets/`. Returns true if an image
+    /// was found and handled (so the caller can skip the plain-text paste).
+    @discardableResult
+    func insertPastedImage(from source: PasteboardImageSource) -> Bool {
         guard session != nil, fileURL != nil else { return false }
 
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self]) as? [URL],
-           let imageURL = urls.first(where: { Self.imageExtensions.contains($0.pathExtension.lowercased()) }) {
+        if let imageURL = source.imageFileURLs().first(where: {
+            Self.imageExtensions.contains($0.pathExtension.lowercased()) }) {
             insertImage(from: imageURL)
             return true
         }
 
-        guard let png = ClipboardImage.pngData(from: pasteboard),
+        guard let png = source.pngImageData(),
               let assetsFolder = ensureAssetsFolder()
         else { return false }
         let destination = Library.uniqueURL(baseName: "pasted-image", extension: "png", in: assetsFolder)
@@ -1594,7 +1611,7 @@ final class ReaderModel {
     /// A file the editor can't accept (not an image or a markdown document)
     /// was dropped: beep and surface a non-modal banner, never a silent no-op.
     func reportUnsupportedDrop(_ url: URL) {
-        NSSound.beep()
+        feedback.beep()
         reportFailure("Can’t add “\(url.lastPathComponent)” here — drop an image or a Markdown file.")
     }
 
