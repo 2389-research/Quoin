@@ -205,6 +205,67 @@ LaunchServices indexes its document types):
       tabs and panels differently in each, quit and relaunch — each window
       restores its OWN library, tabs, and layout independently.
 
+## Privacy, logging & packaging metadata (release audit) (#17)
+
+Quoin's public promise is **local-only, no telemetry, no runtime network**. This
+section is the checked-in source of truth that keeps that promise auditable, so
+it never depends on tribal knowledge. Re-run the audit every release.
+
+### Entitlements — the whole set, and why each is present
+
+The macOS target declares exactly four entitlements (`App/macOS/project.yml` →
+`Quoin.entitlements`). There must be **no others** — in particular no
+`network.server`, no broad `files.all`, no camera/mic/location:
+
+| Entitlement | Why |
+| :--- | :--- |
+| `com.apple.security.app-sandbox` | Sandboxed; the baseline. |
+| `com.apple.security.files.user-selected.read-write` | Open/save panels + the library folder the user grants. |
+| `com.apple.security.files.bookmarks.app-scope` | Persist the granted library across launches (security-scoped bookmark). |
+| `com.apple.security.network.client` | **Sparkle update checks only** — the app's *sole* network traffic. Nothing in QuoinCore/QuoinRender opens a socket. |
+
+**Audit step (every release):** confirm the built app's entitlements match this
+table and nothing crept in —
+`codesign -d --entitlements :- "$APP"` and diff against the four above. A new
+entitlement is a release blocker until justified here.
+
+### Logging & crash policy
+
+- Quoin logs via `NSLog`/`os_log` to the **local unified log only**. Nothing is
+  uploaded; there is no crash-reporting SDK, no analytics, no beacon.
+- Diagnostic launch flags (`QUOIN_EDIT_PERF_LOG=1`, etc.) write to the same
+  local log or a user-chosen file — opt-in, never on by default, never remote.
+- To share a log the user does so **manually** (Console.app export, or the
+  `> /tmp/quoin.log` redirect documented in `CLAUDE.md`). Logs never leave the
+  device unless the user sends them.
+
+### Packaging metadata
+
+- `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` come from the git tag at
+  release build time (`release.yml`); dev builds default to `1.0.0`/`1`.
+- `NSHumanReadableCopyright`, `LSMinimumSystemVersion` (14.0), `CFBundleName`/
+  `DisplayName`, the app icon (`AppIcon`), and the Markdown document-type
+  declarations (#16) are all set in `project.yml` — no blank fields.
+- Hardened runtime is on for release (Developer ID + notarization); ad-hoc dev
+  builds disable it automatically.
+
+### Privacy manifest (`PrivacyInfo.xcprivacy`) — deliberately deferred
+
+Apple's privacy-manifest requirement is **enforced for App Store distribution**;
+Quoin ships via **Developer ID + notarization** (GitHub Releases), where it is
+not required. It is therefore intentionally **not** included today. The
+supporting facts, kept here so the decision is auditable and so an App Store
+submission can add the manifest quickly:
+
+- **Data collected: none.** No account, no telemetry, no third-party
+  data-collecting SDK. The only dependency graph is swift-markdown +
+  Quoin's own first-party engines (MermaidKit, Vinculum) — none collect data.
+- **Required-reason APIs in use:** `UserDefaults` (session/restore state,
+  Spotlight bookkeeping) → reason **CA92.1**; file-timestamp reads in the
+  incremental scan → reason **C617.1**. If/when an App Store build is cut, ship
+  a `PrivacyInfo.xcprivacy` declaring exactly these reasons and
+  `NSPrivacyTracking = false` / empty `NSPrivacyCollectedDataTypes`.
+
 ## How the app side works
 
 - **Dependency scope.** Sparkle is a dependency of the `App/macOS` Xcode
