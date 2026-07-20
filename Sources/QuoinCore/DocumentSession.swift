@@ -805,6 +805,12 @@ public actor DocumentSession {
                 // Retry once shortly (transient I/O), then tell the user —
                 // never fail silently on the write path.
                 try? await Task.sleep(for: .milliseconds(800))
+                // A newer edit (or an explicit saveNow) cancels this task; the
+                // sleep above is `try?`-swallowed, so without this guard a
+                // CANCELLED autosave would still fire a stale write — a real
+                // race, and the nondeterminism behind the flaky save-retry
+                // tests under load (ADR 0007).
+                guard !Task.isCancelled else { return }
                 do {
                     try self.saveNow()
                 } catch {

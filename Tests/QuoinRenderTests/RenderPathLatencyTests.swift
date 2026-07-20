@@ -206,15 +206,25 @@ final class RenderPathLatencyTests: XCTestCase {
         let coordinator = MarkdownReaderView.Coordinator(parent: view)
         coordinator.blockRanges = ranges
 
-        let start = Date()
+        // Best-of-N per this file's convention: CPU contention under the
+        // parallel suite only ever makes a microbenchmark SLOWER, so the true
+        // cost is the fastest run — a single-shot clock false-fails under load
+        // (ADR 0007). Re-setting blockRanges invalidates the lazy index
+        // (didSet), so every measured run still includes the one-time build.
+        var best = TimeInterval.greatestFiniteMagnitude
         var hits = 0
-        for i in 0..<2_000 {
-            if coordinator.blockID(atCharIndex: (i * 47) % 100_000) != nil { hits += 1 }
+        for _ in 0..<8 {
+            coordinator.blockRanges = ranges
+            hits = 0
+            let start = Date()
+            for i in 0..<2_000 {
+                if coordinator.blockID(atCharIndex: (i * 47) % 100_000) != nil { hits += 1 }
+            }
+            best = min(best, Date().timeIntervalSince(start))
         }
-        let elapsed = Date().timeIntervalSince(start)
         XCTAssertGreaterThan(hits, 1_800)
-        XCTAssertLessThan(elapsed, budget,
-                          "2k blockID lookups (incl. index build) took \(elapsed * 1000) ms")
+        XCTAssertLessThan(best, budget,
+                          "2k blockID lookups (incl. index build) took \(best * 1000) ms (best of 8)")
 
         // Boundary semantics preserved: where two ranges overlap, the one
         // with the larger location wins (the historical tie-break).
@@ -231,13 +241,18 @@ final class RenderPathLatencyTests: XCTestCase {
 
         // Warm (lazy index build).
         XCTAssertNotNil(harness.coordinator.topVisibleBlockID(in: harness.textView))
-        let start = Date()
-        for _ in 0..<200 {
-            _ = harness.coordinator.topVisibleBlockID(in: harness.textView)
+        // Best-of-N (ADR 0007): the fastest run is the true cost; contention
+        // under the parallel suite only inflates a single-shot clock.
+        var best = TimeInterval.greatestFiniteMagnitude
+        for _ in 0..<8 {
+            let start = Date()
+            for _ in 0..<200 {
+                _ = harness.coordinator.topVisibleBlockID(in: harness.textView)
+            }
+            best = min(best, Date().timeIntervalSince(start))
         }
-        let elapsed = Date().timeIntervalSince(start)
-        XCTAssertLessThan(elapsed, budget,
-                          "200 topVisibleBlockID queries took \(elapsed * 1000) ms")
+        XCTAssertLessThan(best, budget,
+                          "200 topVisibleBlockID queries took \(best * 1000) ms (best of 8)")
     }
 
     // MARK: Search (perf #5) — behavioral: the scan is debounced
@@ -263,13 +278,18 @@ final class RenderPathLatencyTests: XCTestCase {
         // Ordinal-only change (⌘G): synchronous, no rescan — the count
         // reports immediately from the cached matches.
         reportedCounts.removeAll()
-        let start = Date()
-        harness.coordinator.applySearch(query: "Paragraph", activeOrdinal: 1)
-        let cycleElapsed = Date().timeIntervalSince(start)
+        // Best-of-N (ADR 0007): each ⌘G recolors from cached matches; the
+        // fastest run reflects the real cost, robust to parallel-suite jitter.
+        var best = TimeInterval.greatestFiniteMagnitude
+        for i in 0..<8 {
+            let start = Date()
+            harness.coordinator.applySearch(query: "Paragraph", activeOrdinal: 1 + (i % 3))
+            best = min(best, Date().timeIntervalSince(start))
+        }
         XCTAssertEqual(reportedCounts.last, scannedCount,
                        "⌘G must report synchronously from cached matches")
-        XCTAssertLessThan(cycleElapsed, 0.010,
-                          "⌘G cycling took \(cycleElapsed * 1000) ms — smells like a rescan")
+        XCTAssertLessThan(best, 0.010,
+                          "⌘G cycling took \(best * 1000) ms (best of 8) — smells like a rescan")
 
         // Query change: nothing synchronous happens (debounced).
         reportedCounts.removeAll()
