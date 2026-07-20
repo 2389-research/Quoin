@@ -267,6 +267,44 @@ final class SessionEditingTests: XCTestCase {
         XCTAssertEqual(source, "replaced entirely")
     }
 
+    func testSpuriousWatcherEventWhileDirtyDoesNotRaiseConflict() async throws {
+        // Field report (RC-1): a brand-new document flashed the "changed on
+        // disk" merge banner on the FIRST keystroke. Cause: reloadFromDisk
+        // compared the disk against the current (edited) in-memory hash, so a
+        // spurious vnode event (the new file's own creation notification landing
+        // after watching began; a metadata touch) — while the doc was dirty —
+        // read the UNCHANGED disk as an external change. The fix compares the
+        // disk against the last-known-on-disk baseline, so an unchanged disk is
+        // never a conflict, no matter how divergent the unsaved edits are.
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("quoin-tests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("Untitled.md")
+        // A new document opens empty (this is exactly LibraryModel.createDocument).
+        try Data("".utf8).write(to: file)
+
+        let session = try DocumentSession.open(fileURL: file)
+        // First keystrokes → dirty, in-memory now diverges from the empty disk.
+        try await session.applyEdit(
+            SourceEdit(range: ByteRange(offset: 0, length: 0), replacement: "# This is a coo"))
+
+        // A spurious watcher/presenter event fires (disk STILL empty — unchanged
+        // since we opened it). This must be a silent no-op, NOT a conflict.
+        await session.reloadFromDisk()
+        let conflicted = await session.hasUnresolvedConflict
+        XCTAssertFalse(conflicted,
+                       "an unchanged disk must never conflict with unsaved edits")
+        let source = await session.document.source
+        XCTAssertEqual(source, "# This is a coo", "the local edit must be untouched")
+
+        // Sanity: a GENUINE external change while dirty still conflicts.
+        try Data("actually changed on disk".utf8).write(to: file)
+        await session.reloadFromDisk()
+        let nowConflicted = await session.hasUnresolvedConflict
+        XCTAssertTrue(nowConflicted, "a real external change must still surface the banner")
+    }
+
     func testConflictSuspendsAutosaveUntilResolved() async throws {
         // Ledger (data integrity #5): typing after the merge banner used to
         // re-arm the debounced autosave and clobber the disk version while

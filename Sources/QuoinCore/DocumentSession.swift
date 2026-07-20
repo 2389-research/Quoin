@@ -72,6 +72,17 @@ public actor DocumentSession {
     /// Hash of content we ourselves just wrote, so the resulting file-system
     /// event is recognized as self-inflicted and not re-published.
     private var selfWriteHash: String?
+    /// Hash of what we last KNEW to be on disk — the content we opened, last
+    /// wrote, or last adopted from an external change. A watcher/presenter
+    /// event whose disk bytes match this is NOT an external edit (it's a
+    /// spurious vnode notification: a metadata touch, or a freshly-created
+    /// file's own creation event arriving after we began watching), so it must
+    /// NOT raise a conflict — even when we hold unsaved edits. Our in-memory
+    /// content legitimately diverges from disk between a keystroke and the
+    /// debounced autosave; comparing the disk against THIS baseline (not against
+    /// the diverged in-memory hash) is what keeps a new/just-opened document
+    /// from flashing a false "changed on disk" banner on the first keystroke.
+    private var lastKnownDiskHash: String
     /// The disk hash last surfaced to the conflict banner. A single external
     /// write can reach the session twice — once via `FileWatcher`, once via
     /// the file presenter — and the banner must not re-fire for the same disk
@@ -107,6 +118,9 @@ public actor DocumentSession {
         self.document = MarkdownConverter.parse(source)
         self.fileURL = fileURL
         self.fileEncoding = encoding
+        // The source we open with IS what's on disk — seed the baseline so a
+        // spurious watcher event before the first save can't read as a conflict.
+        self.lastKnownDiskHash = SHA256Hex.hash(of: source)
     }
 
     /// Decode file bytes to a source string, detecting the encoding. UTF-8 is
@@ -360,8 +374,17 @@ public actor DocumentSession {
         if hash == document.sourceHash { return }
         if hash == selfWriteHash {
             selfWriteHash = nil
+            lastKnownDiskHash = hash
             return
         }
+        // The disk still holds exactly what we last knew was there — this event
+        // is spurious (a metadata touch, or the file's own creation event
+        // arriving after we began watching), NOT an external edit. Do nothing,
+        // even while dirty: unsaved in-memory edits legitimately diverge from
+        // disk until autosave, and that divergence is not a conflict. (This is
+        // the guard that stops a brand-new document from flashing the merge
+        // banner on the first keystroke.)
+        if hash == lastKnownDiskHash { return }
         // Clean → reload silently. Dirty → surface a merge banner instead
         // of clobbering unsaved local edits. The pending autosave is
         // cancelled so it can't overwrite the disk version while the user
@@ -378,6 +401,7 @@ public actor DocumentSession {
             onConflict?(source)
             return
         }
+        lastKnownDiskHash = hash
         adoptExternal(MarkdownConverter.parse(source))
     }
 
@@ -438,6 +462,7 @@ public actor DocumentSession {
         isDirty = false
         lastSaveError = nil
         autosaveTask?.cancel()
+        lastKnownDiskHash = SHA256Hex.hash(of: diskSource)  // disk is now the baseline
         adoptExternal(MarkdownConverter.parse(diskSource))
     }
 
@@ -842,7 +867,9 @@ public actor DocumentSession {
             // our own presenter excludes it from the coordination, so our save
             // never echoes to our own presentedItemDidChange.
             try FileCoordination.writeAtomic(data, to: url, filePresenter: presenterHandle.current)
-            selfWriteHash = SHA256Hex.hash(of: source)
+            let written = SHA256Hex.hash(of: source)
+            selfWriteHash = written
+            lastKnownDiskHash = written  // disk now holds exactly this
             lastSaveError = nil
         } catch {
             let failure = SessionError.fileWriteFailed(url, String(describing: error))
