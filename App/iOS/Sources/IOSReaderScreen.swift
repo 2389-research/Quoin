@@ -120,10 +120,20 @@ final class IOSReaderModel: ObservableObject {
     private var snapshotTask: Task<Void, Never>?
     private var renderer = AttributedRenderer()
     private var slugToBlock: [String: BlockID] = [:]
+    private var asyncRerenderTask: Task<Void, Never>?
 
     func start(fileURL: URL?, initialText: String) {
         guard session == nil else { return }
-        renderer = AttributedRenderer(theme: Theme(), baseURL: fileURL?.deletingLastPathComponent())
+        renderer = AttributedRenderer(
+            theme: Theme(),
+            baseURL: fileURL?.deletingLastPathComponent(),
+            // Mirror macOS (ReaderModel.makeRenderer): async local-image decode
+            // shows a placeholder on first render, then fires this off-main once
+            // the image is ready so the document re-renders to pick it up (#2).
+            onContentReady: { [weak self] in
+                Task { @MainActor in self?.scheduleAsyncContentRerender() }
+            }
+        )
 
         let session: DocumentSession
         if let fileURL, let opened = try? DocumentSession.open(fileURL: fileURL) {
@@ -145,6 +155,8 @@ final class IOSReaderModel: ObservableObject {
     func stop() {
         snapshotTask?.cancel()
         snapshotTask = nil
+        asyncRerenderTask?.cancel()
+        asyncRerenderTask = nil
         let session = session
         Task {
             try? await session?.saveNow()
@@ -162,6 +174,31 @@ final class IOSReaderModel: ObservableObject {
             document.outline.map { ($0.slug, $0.id) },
             uniquingKeysWith: { first, _ in first }
         )
+    }
+
+    /// Coalesces re-renders when async images finish decoding — a document
+    /// with 30 photos triggers one re-render, not 30 (mirrors macOS
+    /// `ReaderModel.scheduleAsyncContentRerender`). No render loop: once
+    /// `AsyncImageStore` has the decoded image cached, the re-render's
+    /// `image(at:…)` is a cache hit that does NOT re-arm `onReady`, so the
+    /// callback fires only while content is genuinely still pending.
+    func scheduleAsyncContentRerender() {
+        asyncRerenderTask?.cancel()
+        asyncRerenderTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            self?.rerenderCurrentDocument()
+        }
+    }
+
+    /// Re-projects the CURRENT document without a source change — used when an
+    /// async image decode completes so the placeholder is replaced in place.
+    /// Only the rendered projection is republished; the outline/stats/slug map
+    /// are functions of the source and haven't changed. Reusing the same
+    /// document keeps scroll position stable (no reload, no source edit).
+    private func rerenderCurrentDocument() {
+        guard session != nil else { return }
+        rendered = renderer.render(document)
     }
 
     func toggleTask(markerOffset: Int) {

@@ -337,6 +337,20 @@ projection that hasn't landed yet. Document-derived observable state (`outline`,
 is cheap and anchor navigation should not lag the document — so only the heavy
 attributed-string projection is deferred.
 
+The **async-image seam is shared with the iOS reader** (issue #2). Both models
+construct their `AttributedRenderer` with an `onContentReady` callback:
+`AsyncImageStore` decodes local images off-main and shows a `pendingContent`
+placeholder on first render, then fires `onContentReady` once the decode lands.
+macOS routes that into `ReaderModel.scheduleAsyncContentRerender`; the iOS
+`IOSReaderModel` has the parallel `scheduleAsyncContentRerender` →
+`rerenderCurrentDocument`. Both hop to the main actor and debounce ~120ms so a
+photo-heavy document re-renders once, not once per image, and both re-project
+the *same* document (no source edit), so the placeholder→image swap keeps scroll
+position. The re-render cannot loop: once the image is cached, the next render is
+a pure cache hit that does not re-arm `onReady`. iOS re-renders synchronously
+(the reader is read-first, with no off-main projection subset); macOS defers via
+`rerenderAsync`.
+
 A stale async projection is dropped by a **`renderGeneration` guard**: every
 projection publish (sync or async) bumps a monotonic counter, and a background
 render adopts its result only if the counter is unchanged when it returns to the
