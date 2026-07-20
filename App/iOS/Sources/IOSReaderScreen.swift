@@ -180,6 +180,15 @@ final class IOSReaderModel: ObservableObject {
 
     private func ingest(_ document: QuoinDocument) {
         guard document.sourceHash != self.document.sourceHash else { return }
+        // Invalidate any in-flight async re-render: this publish supersedes it,
+        // so a background projection of the previous document must not adopt
+        // itself over the newer one (its `generation == renderGeneration` guard
+        // now fails). Mirrors the counter discipline every macOS publish path
+        // upholds. Without this, an async image finishing mid-edit could revert
+        // a just-toggled checkbox to a stale projection.
+        renderGeneration += 1
+        backgroundRenderTask?.cancel()
+        backgroundRenderTask = nil
         self.document = document
         rendered = renderer.render(document)
         outline = document.outline
