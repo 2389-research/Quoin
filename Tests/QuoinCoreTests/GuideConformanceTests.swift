@@ -51,4 +51,31 @@ final class GuideConformanceTests: XCTestCase {
         XCTAssertEqual(doc.source, source)
         XCTAssertFalse(doc.blocks.isEmpty)
     }
+
+    /// Every Help-menu entry (#13) MUST resolve to a real bundled resource, and
+    /// each must parse losslessly — a broken Help route or a resource that
+    /// drifted from the menu fails here in CI, not for a user. This is the
+    /// headless mirror of "Help routing resolves to a real bundled resource".
+    func testEveryHelpResourceExistsAndParses() throws {
+        for entry in LibrarySeeding.helpSet {
+            let source = try guideSource(entry.resource)
+            let doc = MarkdownConverter.parse(source)
+            // Byte-lossless: the parsed document IS the file.
+            XCTAssertEqual(doc.source, source, "\(entry.resource).md is not round-trip lossless")
+            XCTAssertFalse(doc.blocks.isEmpty, "\(entry.resource).md parsed to nothing")
+            for block in doc.blocks {
+                XCTAssertNotNil(doc.source.substring(in: block.range),
+                                "\(entry.resource).md block range out of bounds: \(block.kind)")
+            }
+        }
+    }
+
+    /// The offered first-run sample set must also be real, parseable resources —
+    /// accepting the seed can never fail to find a file to copy.
+    func testEverySampleResourceExists() throws {
+        for entry in LibrarySeeding.sampleSet {
+            let source = try guideSource(entry.resource)
+            XCTAssertFalse(source.isEmpty, "\(entry.resource).md is empty")
+        }
+    }
 }

@@ -253,6 +253,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Smart pairs, wrap-selection, word-under-caret formatting | ✅ |
 | ⌘B / ⌘I / ⇧⌘H / ⌘K + floating format pill | ✅ |
 | Library sidebar (folders = directories), document tabs, quick open | ✅ |
+| Onboarding & Help — opt-in first-run sample docs (never forced, never overwriting); Help menu opens six live, editable guides (Welcome, Markdown Guide, Quoin Extensions, Keyboard Shortcuts, Privacy & Files, Exporting) as normal `.md` tabs; local-only, no accounts/telemetry | ✅ |
 | Multi-folder windows — Open Folder in New Window; each window restores its folder on relaunch | ✅ |
 | Outline panel with live section tracking (manual collapse is authoritative); keyboard tree — ↑/↓ walk rows, →/← expand/collapse, Return jumps | ✅ |
 | Keyboard-operable Quick Open & library search — ↑/↓ (wrap), Home/End, Return opens, Escape dismisses | ✅ |

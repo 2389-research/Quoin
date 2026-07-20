@@ -949,6 +949,32 @@ sandbox makes both of the #31 surfaces a security-boundary question, so the
 enforcement is split deliberately: the *decidable, testable* logic lives in
 `QuoinCore`; the shell only holds the plumbing.
 
+- **Onboarding & Help surfaces (#13).** First-run sample content and the Help
+  menu follow the "editor teaches the product" approach: every guide is a real,
+  editable `.md`, never a modal wall of text. The curated markdown ships as
+  **bundled resource files** under `App/macOS/Resources/` (`WelcomeToQuoin.md`,
+  `MarkdownGuide.md`, `QuoinExtensions.md`, `KeyboardShortcuts.md`,
+  `PrivacyAndFiles.md`, `ExportGuide.md`) — never string literals in code, so
+  writers can edit teaching content without touching Swift and the docs stay
+  round-trippable markdown. All the *decisions* about those files live in the
+  pure, platform-free `LibrarySeeding` seam (QuoinCore): the `helpSet` (every
+  Help entry, in menu order) and `sampleSet` (the first-run pair), plus
+  `shouldOfferSeed(existingFileNames:)` and `documentsToPlace(existingFileNames:)`
+  — the latter enforces *never overwrite a same-named file*. The seam is
+  unit-tested on Linux CI (`LibrarySeedingTests`), and `GuideConformanceTests`
+  pins that every `helpSet`/`sampleSet` resource actually exists and parses
+  losslessly, so a Help route can't drift from a missing file. The macOS shell
+  is a thin adapter: `QuoinApp`'s Help `CommandGroup` iterates `helpSet` and
+  posts `openBundledDocumentNotification` (carrying `resource`/`filename`);
+  `LibraryModel.materializeBundledDocument` copies the resource into the library
+  (or, with no library open, a writable *Quoin Guides* folder in Application
+  Support, so Help is never a dead click) and returns its URL, skipping any file
+  already present. The first-run offer is opt-in and non-modal — a dismissible
+  card in the empty state, shown only after the user actually picks a folder
+  (`chooseLibraryFolder` now reports whether it adopted one) that
+  `shouldOfferSampleDocuments` finds unseeded; `seedSampleDocuments` places the
+  pair and opens the Welcome note. Everything is local-only by construction:
+  bundled files and filesystem names, no network, account, or telemetry.
 - **Document types & coexistence (#16).** The `CFBundleDocumentTypes` array
   (generated from `App/macOS/project.yml`) declares Quoin's stance for two
   Uniform Type Identifiers, chosen so Quoin reads as a *real editor* without

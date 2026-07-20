@@ -144,16 +144,22 @@ final class LibraryModel {
 
     // MARK: - Root folder
 
-    func chooseLibraryFolder() {
+    /// Presents the folder picker and adopts the chosen folder as the library.
+    /// Returns `true` when a folder was actually adopted (so the caller can
+    /// offer the first-run sample seed only on a real pick, never after a
+    /// cancelled panel — #13).
+    @discardableResult
+    func chooseLibraryFolder() -> Bool {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.allowsMultipleSelection = false
         panel.message = "Choose the folder that holds your markdown documents."
         panel.prompt = "Use as Library"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return false }
         adopt(rootURL: url)
         Self.saveBookmarks(for: url)
+        return true
     }
 
     /// Why the saved library didn't come back (bookmark dead, folder
@@ -421,27 +427,84 @@ final class LibraryModel {
     // MARK: - Starter library + bundled documents (launch ledger L1/L2/L5)
 
     /// Copies a bundled document into the library (if absent) and returns
-    /// its URL — the guide and welcome docs are LIVE documents, editable
-    /// like everything else, never read-only bundle views.
+    /// its URL — the guide, welcome, and Help docs are LIVE documents,
+    /// editable like everything else, never read-only bundle views.
+    ///
+    /// With no library configured, the document is still materialized (into a
+    /// writable "Quoin Guides" folder in the app's container) and opened, so a
+    /// Help-menu pick is never a dead click before a library exists. An
+    /// existing same-named file is never overwritten — the copy is skipped and
+    /// its URL returned, so the user's edits win.
     func materializeBundledDocument(resource: String, as filename: String) -> URL? {
         // XcodeGen folder-type resources land under Resources/ inside the
         // bundle; a plain lookup returned nil and the Welcome/Guide
         // buttons silently did nothing (field report).
         let source = Bundle.main.url(forResource: resource, withExtension: "md")
             ?? Bundle.main.url(forResource: resource, withExtension: "md", subdirectory: "Resources")
-        guard let rootURL, let source else { return nil }
-        let destination = rootURL.appendingPathComponent(filename)
+        guard let source else { return nil }
+        // Prefer the live library; fall back to a writable per-user Guides
+        // folder so Help works with no library open.
+        let intoLibrary = rootURL != nil
+        guard let destinationDirectory = rootURL ?? Self.guidesFallbackDirectory() else { return nil }
+        let destination = destinationDirectory.appendingPathComponent(filename)
         if !FileManager.default.fileExists(atPath: destination.path) {
             guard (try? FileManager.default.copyItem(at: source, to: destination)) != nil else {
                 return nil
             }
-            rescan()
+            if intoLibrary { rescan() }
         }
         return destination
     }
 
+    /// A writable folder for bundled Help/guide documents when there's no
+    /// library to drop them into — the app's own Application Support container
+    /// (always writable in the sandbox, no bookmark needed). Local-only.
+    private static func guidesFallbackDirectory() -> URL? {
+        guard let support = FileManager.default.urls(
+            for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        let directory = support.appendingPathComponent("Quoin Guides", isDirectory: true)
+        guard (try? FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true)) != nil else { return nil }
+        return directory
+    }
+
+    /// The file names directly under the library root — the input the pure
+    /// `LibrarySeeding` seam uses to decide whether to offer the first-run
+    /// sample and which documents to place. Empty when no library is open.
+    var rootFileNames: Set<String> {
+        guard let rootURL,
+              let names = try? FileManager.default.contentsOfDirectory(atPath: rootURL.path)
+        else { return [] }
+        return Set(names)
+    }
+
+    /// True when a library is open and holds none of the first-run sample
+    /// documents yet — the cue to OFFER (never force) the seed. Decision lives
+    /// in the unit-tested `LibrarySeeding` seam.
+    var shouldOfferSampleDocuments: Bool {
+        rootURL != nil && LibrarySeeding.shouldOfferSeed(existingFileNames: rootFileNames)
+    }
+
+    /// Places the curated first-run sample documents into the open library and
+    /// returns the primary document (the welcome note) to open.
+    /// `materializeBundledDocument` skips any file already on disk, so an
+    /// existing same-named document is never overwritten; it still returns that
+    /// file's URL, so the primary is the welcome note whether just placed or
+    /// already present. `sampleSet` order (welcome first) is what makes the
+    /// first result the primary.
+    @discardableResult
+    func seedSampleDocuments() -> URL? {
+        var placed: [URL] = []
+        for doc in LibrarySeeding.sampleSet {
+            if let url = materializeBundledDocument(resource: doc.resource, as: doc.filename) {
+                placed.append(url)
+            }
+        }
+        return placed.first
+    }
+
     /// First-run path A: create a fresh library folder and seed it with
-    /// the welcome document and the markdown guide.
+    /// the curated sample documents (welcome + markdown guide).
     func createStarterLibrary() -> URL? {
         let panel = NSSavePanel()
         panel.title = "Create a Starter Library"
@@ -454,8 +517,7 @@ final class LibraryModel {
         }
         adopt(rootURL: url)
         Self.saveBookmarks(for: url)
-        _ = materializeBundledDocument(resource: "MarkdownGuide", as: "Markdown Guide.md")
-        return materializeBundledDocument(resource: "WelcomeToQuoin", as: "Welcome to Quoin.md")
+        return seedSampleDocuments()
     }
 
     // MARK: - Recents (idea #13) + daily note (idea #14)

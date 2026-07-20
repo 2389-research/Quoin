@@ -44,13 +44,19 @@ struct QuoinApp: App {
             // one Commands node so the top-level builder stays under its
             // 10-child limit.
             MenuBarCommands()
-            // Help menu: real content, not just search (launch ledger L5/L14).
+            // Help menu: real content, not just search (launch ledger L5/L14,
+            // onboarding/command discovery #13). Every entry opens a LOCAL
+            // bundled document as a normal editable tab — the editor teaches
+            // the product. The list IS the pure `LibrarySeeding.helpSet` seam,
+            // so the menu and the bundled resources can't drift.
             CommandGroup(replacing: .help) {
-                Button("Markdown Guide") {
-                    NotificationCenter.default.post(name: AppDelegate.openGuideNotification, object: nil)
-                }
-                Button("Welcome to Quoin") {
-                    NotificationCenter.default.post(name: AppDelegate.openWelcomeNotification, object: nil)
+                ForEach(LibrarySeeding.helpSet) { doc in
+                    Button(doc.menuTitle) {
+                        post(
+                            AppDelegate.openBundledDocumentNotification,
+                            userInfo: ["resource": doc.resource, "filename": doc.filename]
+                        )
+                    }
                 }
                 Divider()
                 Button("Report an Issue…") {
@@ -635,8 +641,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let toggleOutlineNotification = Notification.Name("quoin.toggleOutline")
     static let toggleEditSourceNotification = Notification.Name("quoin.toggleEditSource")
     static let moveBlockNotification = Notification.Name("quoin.moveBlock")
-    static let openGuideNotification = Notification.Name("quoin.openGuide")
-    static let openWelcomeNotification = Notification.Name("quoin.openWelcome")
+    /// Help ▸ open a bundled Help/guide document (#13). `userInfo` carries the
+    /// bundle `resource` base name and the on-disk `filename`; the key window
+    /// materializes it into the library (or the writable Guides fallback with
+    /// no library) and opens it as a normal editable tab.
+    static let openBundledDocumentNotification = Notification.Name("quoin.openBundledDocument")
     static let formatNotification = Notification.Name("quoin.format")
     static let structureNotification = Notification.Name("quoin.structure")
     /// Format ▸ Table structural edit (#14). `userInfo["op"]` names the

@@ -50,6 +50,13 @@ struct MainWindow: View {
     @State private var currentActivity: NSUserActivity?
     @State private var isQuickOpenVisible = false
     @State private var isLibrarySearchVisible = false
+    /// First-run sample offer (#13): set true right after the user PICKS a
+    /// library that holds no sample docs yet, so the empty state shows a
+    /// gentle, dismissible "add sample documents" card. Opt-in and non-modal —
+    /// declining (or opening any document) simply clears it; nothing is written
+    /// unless the user accepts. Not persisted: the offer is tied to the pick
+    /// action, never nagged on every launch.
+    @State private var offerSample = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Menu actions must land in the KEY window only — every observer
     /// below guards on this (launch ledger BLOCKER: two windows used to
@@ -228,7 +235,10 @@ struct MainWindow: View {
         // File ▸ Change Library Folder….
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.changeLibraryNotification)) { _ in
             guard isKeyWindow else { return }
-            library.chooseLibraryFolder()
+            // Same first-run offer if the newly chosen folder has no samples (#13).
+            if library.chooseLibraryFolder() {
+                offerSample = library.shouldOfferSampleDocuments
+            }
         }
         // Go ▸ Quick Open (⇧⌘O) / Daily Note (⌘D).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleQuickOpenNotification)) { _ in
@@ -287,17 +297,14 @@ struct MainWindow: View {
             }
             library.rescan()
         }
-        // Help ▸ Markdown Guide / Welcome to Quoin: LIVE documents in the
-        // library (editable examples — the guide teaches by being edited).
-        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openGuideNotification)) { _ in
-            guard isKeyWindow else { return }
-            if let url = library.materializeBundledDocument(
-                resource: "MarkdownGuide", as: "Markdown Guide.md") { open(url) }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openWelcomeNotification)) { _ in
-            guard isKeyWindow else { return }
-            if let url = library.materializeBundledDocument(
-                resource: "WelcomeToQuoin", as: "Welcome to Quoin.md") { open(url) }
+        // Help ▸ (any bundled guide): LIVE documents in the library (editable
+        // examples — the guide teaches by being edited). One handler for every
+        // Help entry; the resource + filename ride the notification (#13).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openBundledDocumentNotification)) { note in
+            guard isKeyWindow,
+                  let resource = note.userInfo?["resource"] as? String,
+                  let filename = note.userInfo?["filename"] as? String else { return }
+            if let url = library.materializeBundledDocument(resource: resource, as: filename) { open(url) }
         }
         .onAppear {
             connectLibrary()
@@ -524,6 +531,8 @@ struct MainWindow: View {
     // MARK: - Tabs
 
     private func open(_ url: URL) {
+        // Opening any document dismisses the first-run sample offer (#13).
+        offerSample = false
         // Dedup by file IDENTITY, not raw URL equality — two path forms of the
         // same file must reuse the one tab, not open a second session (#12).
         if let existing = openTabs.first(where: { OpenDocumentStore.sameFile($0.url, url) }) {
@@ -746,6 +755,7 @@ struct MainWindow: View {
 
     private var emptyState: some View {
         VStack(spacing: 10) {
+            if offerSample { sampleOfferCard }
             Image(systemName: "doc.text")
                 .quoinScaledFont(size: 44)
                 .foregroundStyle(.primary.opacity(0.35))
@@ -762,13 +772,11 @@ struct MainWindow: View {
             .tint(.accentColor)
             .padding(.top, 6)
             HStack(spacing: 16) {
-                Button("Welcome to Quoin") {
-                    if let url = library.materializeBundledDocument(
-                        resource: "WelcomeToQuoin", as: "Welcome to Quoin.md") { open(url) }
+                Button(LibrarySeeding.welcome.menuTitle) {
+                    openBundled(LibrarySeeding.welcome)
                 }
-                Button("Markdown Guide") {
-                    if let url = library.materializeBundledDocument(
-                        resource: "MarkdownGuide", as: "Markdown Guide.md") { open(url) }
+                Button(LibrarySeeding.markdownGuide.menuTitle) {
+                    openBundled(LibrarySeeding.markdownGuide)
                 }
             }
             .buttonStyle(.link)
@@ -776,6 +784,43 @@ struct MainWindow: View {
             .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Opt-in, non-modal first-run offer to drop the curated sample documents
+    /// into a freshly chosen library (#13). Shown in the empty state; declining
+    /// or opening any document dismisses it. Nothing is written unless the user
+    /// taps Add.
+    private var sampleOfferCard: some View {
+        VStack(spacing: 8) {
+            Text("New to Quoin?")
+                .quoinScaledFont(size: 12.5, weight: .semibold)
+            Text("Add a short Welcome note and a Markdown guide so you can explore Quoin's features. They're ordinary .md files you can edit or delete — nothing is added unless you choose to.")
+                .quoinScaledFont(size: 11.5)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+            HStack(spacing: 12) {
+                Button("Add Sample Documents") {
+                    if let url = library.seedSampleDocuments() { open(url) }
+                    offerSample = false
+                }
+                .buttonStyle(.borderedProminent)
+                Button("No Thanks") { offerSample = false }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 440)
+        .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.bottom, 8)
+    }
+
+    /// Open a bundled Help/guide document from the empty state, materializing
+    /// it into the library (or the writable Guides fallback) on first use.
+    private func openBundled(_ doc: LibrarySeeding.BundledDocument) {
+        if let url = library.materializeBundledDocument(resource: doc.resource, as: doc.filename) {
+            open(url)
+        }
     }
 
     private var chooseLibraryPrompt: some View {
@@ -818,7 +863,12 @@ struct MainWindow: View {
             }
             .buttonStyle(.bordered)
             Button("Choose an Existing Folder…") {
-                library.chooseLibraryFolder()
+                // First-run: OFFER (never force) to drop the sample docs into a
+                // folder that has none yet (#13). Only after a real pick (not a
+                // cancelled panel), and only when the folder isn't already seeded.
+                if library.chooseLibraryFolder() {
+                    offerSample = library.shouldOfferSampleDocuments
+                }
             }
             .buttonStyle(.bordered)
             Text("A library is just a folder Quoin watches — optional. Every document is a plain file you can open anywhere.")
