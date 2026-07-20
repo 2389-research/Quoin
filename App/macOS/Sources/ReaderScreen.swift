@@ -279,8 +279,11 @@ struct ReaderScreen: View {
                 onPasteImage: { model.insertPastedImage() },
                 wordWrap: wordWrap
             )
-            // Dropping an image file copies it into assets/ and inserts
-            // the markdown reference at the caret.
+            // Dropping a file onto the editor: an image copies into assets/
+            // and inserts a reference at the caret; a markdown file OPENS as a
+            // tab (inserting its bytes would be surprising — UI #21); anything
+            // else is rejected with a beep + non-modal banner rather than a
+            // silent no-op. Copy/insert failures already surface via ReaderModel.
             .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                 var handled = false
                 for provider in providers where provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
@@ -293,14 +296,14 @@ struct ReaderScreen: View {
                             url = item as? URL
                         }
                         guard let url else { return }
-                        if ReaderModel.imageExtensions.contains(url.pathExtension.lowercased()) {
-                            Task { @MainActor in model.insertImage(from: url) }
-                        } else if url.pathExtension.lowercased() == "md" {
-                            // Dropping a markdown file on the editor OPENS
-                            // it (UI #21) — inserting its bytes would be
-                            // surprising; a tab is what the gesture means.
-                            Task { @MainActor in
+                        Task { @MainActor in
+                            switch DropValidation.editorDrop(url) {
+                            case .insertImage:
+                                model.insertImage(from: url)
+                            case .openDocument:
                                 AppDelegate.requestOpen(url)
+                            case .reject:
+                                model.reportUnsupportedDrop(url)
                             }
                         }
                     }

@@ -31,6 +31,16 @@ final class LibraryModel {
     /// shows the selection.
     var expandedFolders: Set<String> = []
 
+    /// The library item currently being dragged INSIDE the sidebar, recorded
+    /// at drag start (`.onDrag`). Drop targets read it to classify the live
+    /// drag badge (move vs copy vs forbidden) synchronously — an NSItemProvider
+    /// only yields its URL asynchronously, too late for the cursor. nil ⇒ the
+    /// drag came from outside the app. It drives ONLY the cosmetic badge: the
+    /// actual file operation is always re-validated against the real dropped
+    /// URL in `performValidatedDrop`, so a stale value (e.g. a cancelled drag)
+    /// can never move the wrong file.
+    var draggingItemURL: URL?
+
     /// Expand every ancestor folder of `url` up to the library root.
     func reveal(url: URL) {
         guard let rootURL else { return }
@@ -262,18 +272,19 @@ final class LibraryModel {
         return renamed
     }
 
-    /// Drops from INSIDE the library move; drops from outside COPY — a
-    /// drag from Desktop must never make the original vanish (UI #21).
-    /// A failed drop beeps: silence reads as success.
-    func importOrMove(url: URL, into folder: URL) {
-        let standardized = url.standardizedFileURL.path
-        if let rootPath = rootURL?.standardizedFileURL.path,
-           standardized.hasPrefix(rootPath + "/") {
-            if move(url: url, into: folder) == nil,
-               url.deletingLastPathComponent().standardizedFileURL != folder.standardizedFileURL {
-                NSSound.beep()
-            }
-        } else {
+    /// The authoritative library-drop handler: re-decides the operation from
+    /// the REAL dropped URL (never the cosmetic `draggingItemURL`) via the
+    /// `DropValidation` seam, then executes it. Internal items MOVE, external
+    /// markdown files are imported as a COPY (the original never vanishes —
+    /// UI #21), and everything invalid (self/descendant/no-op drops,
+    /// non-markdown external files) is rejected with a beep — silence reads
+    /// as success. `⌘Z` undoes a move.
+    func performValidatedDrop(url: URL, into folder: URL) {
+        guard let root = rootURL else { NSSound.beep(); return }
+        switch DropValidation.libraryDrop(dragged: url, onto: folder, libraryRoot: root) {
+        case .move:
+            if move(url: url, into: folder) == nil { NSSound.beep() }
+        case .copy:
             let destination = Library.uniqueURL(
                 baseName: url.deletingPathExtension().lastPathComponent,
                 extension: url.pathExtension,
@@ -283,6 +294,8 @@ final class LibraryModel {
                 return
             }
             rescan()
+        case .reject:
+            NSSound.beep()
         }
     }
 

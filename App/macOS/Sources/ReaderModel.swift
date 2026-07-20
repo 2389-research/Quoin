@@ -1467,8 +1467,10 @@ final class ReaderModel {
     // MARK: - Image drop
 
     // `nonisolated`: an immutable Sendable lookup table, read from off-main
-    // drag-and-drop completion handlers as well as the main actor.
-    nonisolated static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "heic", "webp", "tiff", "bmp"]
+    // drag-and-drop completion handlers as well as the main actor. Canonical
+    // home is `DropValidation.imageExtensions` (QuoinCore) so the editor-drop
+    // decision and this copy step never drift.
+    nonisolated static let imageExtensions: Set<String> = DropValidation.imageExtensions
 
     /// Drag-dropped image: copy the asset next to the document (assets/),
     /// insert `![](assets/…)` at the caret (or document end). Every file step
@@ -1587,6 +1589,13 @@ final class ReaderModel {
     func dismissActionFailure() {
         actionFailureTask?.cancel()
         actionFailure = nil
+    }
+
+    /// A file the editor can't accept (not an image or a markdown document)
+    /// was dropped: beep and surface a non-modal banner, never a silent no-op.
+    func reportUnsupportedDrop(_ url: URL) {
+        NSSound.beep()
+        reportFailure("Can’t add “\(url.lastPathComponent)” here — drop an image or a Markdown file.")
     }
 
     private func reportFailure(_ message: String, sticky: Bool = false) {

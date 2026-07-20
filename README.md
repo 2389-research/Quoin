@@ -281,6 +281,7 @@ Rich blocks — callouts, tables, task lists, and code — rendered natively:
 | Finder **Open With** (declares the Markdown *editor* role, rank Alternate — coexists politely, never steals `.md`; plain text is viewer-only) | ✅ |
 | **Open Recent** (File menu + Dock recents) — Finder- and library-opened documents alike, reopening through the same tab/session | ✅ |
 | Drag a document (or folder) out of the sidebar to Finder or another app | ✅ |
+| Drag within the sidebar to move (undoable; drop target highlights, move/copy/forbidden badge); Markdown dragged in from outside imports a copy, non-Markdown refused | ✅ |
 | Duplicate a document/folder (unique ` 2` sibling) and Move to Trash (recoverable) — sidebar context menu + File menu | ✅ |
 | `quoin://open?path=…` deep links (confined to the sandboxed library root) | ✅ |
 | Services menu — **New Quoin Document with Selection** (creates a document from selected text in any app) | ✅ |
