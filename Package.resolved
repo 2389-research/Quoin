@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/2389-research/MermaidKit.git",
       "state" : {
-        "revision" : "4788ee2857cdbd21c649c5af30416d5996d3946e",
-        "version" : "1.3.0"
+        "revision" : "8030ad99f49fdb1f4b560b103245ba4bb52c678a",
+        "version" : "1.4.0"
       }
     },
     {
