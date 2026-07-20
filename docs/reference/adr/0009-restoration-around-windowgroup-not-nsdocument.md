@@ -1,4 +1,4 @@
-# 0006 — Session/window restoration around WindowGroup; NSDocument migration DEFERRED
+# 0009 — Session/window restoration around WindowGroup; NSDocument migration DEFERRED
 
 Status: Accepted (2026-07-17, issue #15).
 

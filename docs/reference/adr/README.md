@@ -41,6 +41,7 @@ place — the trail of why a choice changed is itself worth keeping.
 | [0006](0006-cosmetic-flip.md) | The activation **flip transition is cosmetic** by construction | Real layout applies instantly; the animation is a throwaway snapshot overlay that can never corrupt geometry — worst case is a stale-looking fade. |
 | [0007](0007-no-flaky-tests.md) | There are **no flaky tests, only bad tests** | An intermittent failure is a real defect — a nondeterministic measurement channel or a code race — and gets diagnosed and fixed, never labeled "environmental" and ignored. |
 | [0008](0008-drift-by-guards.md) | Projection-path drift is prevented by **CI equivalence, not code unification** | The four projection paths single-source their shared logic and prove byte-and-attribute equality on every run, so they can't quietly diverge without merging into one function. |
+| [0009](0009-restoration-around-windowgroup-not-nsdocument.md) | Session/window restoration is built **around the WindowGroup model; the NSDocument migration is DEFERRED** | Persist tabs/panels/scroll as boundary-safe handles rather than rearchitecting to a document-based shell now — that migration (which also governs the future iOS shell) is a deliberate, separate decision. |
 
 ## How the decisions connect
 

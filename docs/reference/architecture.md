@@ -1166,7 +1166,7 @@ enforcement is split deliberately: the *decidable, testable* logic lives in
   migration the TRD imagines is **intentionally DEFERRED** (it is a shell rewrite
   that also governs the future iOS shell, and `OpenDocumentStore` + Quoin's own
   document tabs already deliver what a `DocumentGroup` would; see
-  [ADR 0006](adr/0006-restoration-around-windowgroup-not-nsdocument.md) and
+  [ADR 0009](adr/0009-restoration-around-windowgroup-not-nsdocument.md) and
   ADR 0005).
 
   The split follows the same discipline as the surfaces above: the *decidable,

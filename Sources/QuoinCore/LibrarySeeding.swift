@@ -88,11 +88,21 @@ public enum LibrarySeeding {
         menuTitle: "Exporting Documents",
         blurb: "How Export and Print work, and what you get.")
 
+    /// macOS system integration — how to reach Quoin from Spotlight, the
+    /// Shortcuts app, the Services menu, Handoff, and Quick Look. These are
+    /// discoverable in the OS, not inside Quoin, so a new user can't find them
+    /// without being told — this doc is where they're told.
+    public static let systemIntegration = BundledDocument(
+        resource: "SystemIntegration",
+        filename: "System Integration.md",
+        menuTitle: "Using Quoin with macOS",
+        blurb: "Spotlight, Shortcuts, Services, Handoff, and Quick Look.")
+
     /// The full list of bundled documents reachable from the Help menu, in
     /// menu order. Every entry MUST have a matching resource file in the app
     /// bundle (`GuideConformanceTests` pins this).
     public static let helpSet: [BundledDocument] = [
-        welcome, markdownGuide, extensions, shortcuts, privacy, export,
+        welcome, markdownGuide, extensions, shortcuts, systemIntegration, privacy, export,
     ]
 
     /// The curated set offered as first-run sample content: a small, coherent
