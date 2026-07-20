@@ -268,8 +268,18 @@ enum DropHighlight: Equatable { case none, accepted, rejected }
 /// `DropValidation` seam and translates the answer into the drag badge
 /// (move / copy / forbidden) plus the row highlight. The actual file operation
 /// is performed — and RE-VALIDATED against the real dropped URL — in
-/// `LibraryModel.performValidatedDrop`, so the cosmetic badge (which reads the
-/// best-effort `draggingItemURL`) can never move the wrong file.
+/// `LibraryModel.performValidatedDrop`, so the cosmetic badge can never move
+/// the wrong file.
+///
+/// The badge classifies the item ACTUALLY under the cursor by reading the live
+/// drag pasteboard (`NSPasteboard(name: .drag)`) synchronously. The drop-type
+/// registration (`.onDrop(of: [.fileURL], …)`) guarantees these callbacks only
+/// fire while file URLs are on that pasteboard, so the read is reliable for BOTH
+/// internal drags and external Finder drags — and it can never go stale the way
+/// a value stashed at `.onDrag` time does (a cancelled or dragged-out internal
+/// drag would leave that stashed value pointing at the wrong item and silently
+/// misclassify — or outright block, via a `.forbidden` proposal — the next
+/// external import).
 struct LibraryDropDelegate: DropDelegate {
     /// Destination folder; nil means no library is configured (reject).
     let target: URL?
@@ -296,18 +306,27 @@ struct LibraryDropDelegate: DropDelegate {
 
     func performDrop(info: DropInfo) -> Bool {
         highlight = .none
-        library.draggingItemURL = nil
         guard let target else { return false }
         return performLibraryDrop(info.itemProviders(for: [.fileURL]), into: target, library: library)
     }
 
-    /// The operation for the live badge, from the recorded drag source. For an
-    /// external drag (no recorded source) the URL can't be read synchronously,
-    /// so the badge is an optimistic `.copy`; `performDrop` re-validates and a
-    /// non-markdown external file is rejected there with a beep.
+    /// The dragged file URL for the live drag, read synchronously from the drag
+    /// pasteboard. Returns nil only if the pasteboard somehow holds no file URL
+    /// (should not happen: the `.fileURL` drop registration is what invoked us).
+    private func liveDraggedURL() -> URL? {
+        let objects = NSPasteboard(name: .drag).readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]) as? [URL]
+        return objects?.first
+    }
+
+    /// The operation for the live badge, decided from the real dragged URL. An
+    /// unreadable pasteboard falls back to an optimistic `.copy` (the drop then
+    /// re-validates and beeps on a genuine reject) rather than blocking a
+    /// possibly-legitimate import.
     private func proposedOperation() -> DropOperation {
         guard let target, let root = library.rootURL else { return .forbidden }
-        guard let dragged = library.draggingItemURL else { return .copy }
+        guard let dragged = liveDraggedURL() else { return .copy }
         switch DropValidation.libraryDrop(dragged: dragged, onto: target, libraryRoot: root) {
         case .move: return .move
         case .copy: return .copy
@@ -383,10 +402,10 @@ private struct LibraryRow: View {
                     }
                 }
                 .onDrag {
-                    // Record the drag source so drop targets can classify the
-                    // live badge synchronously (see LibraryModel.draggingItemURL).
-                    library.draggingItemURL = node.url
-                    return documentDragProvider(for: node.url, isDirectory: true)
+                    // Drop targets classify the badge by reading the live drag
+                    // pasteboard (see LibraryDropDelegate), so nothing needs to
+                    // be stashed here — the provider IS the source of truth.
+                    documentDragProvider(for: node.url, isDirectory: true)
                 }
                 // Dropping onto a folder MOVES internal items there (⌘Z undoes)
                 // or IMPORTS an external markdown file as a copy; invalid drops
@@ -418,8 +437,7 @@ private struct LibraryRow: View {
         } else {
             row
                 .onDrag {
-                    library.draggingItemURL = node.url
-                    return documentDragProvider(for: node.url, isDirectory: false)
+                    documentDragProvider(for: node.url, isDirectory: false)
                 }
         }
     }

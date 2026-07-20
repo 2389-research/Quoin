@@ -100,11 +100,26 @@ public enum Library {
 
     public enum LibraryError: Error {
         case destinationExists(URL)
+        /// Moving a folder into itself or one of its own descendants — refused
+        /// because `moveItem` would orphan/corrupt the moved subtree.
+        case selfContainment(URL)
     }
 
     /// Moves a file or folder into a destination directory, preserving the
-    /// name. Refuses to overwrite.
+    /// name. Refuses to overwrite, and refuses to move a folder into itself or
+    /// one of its own descendants.
+    ///
+    /// The self/descendant guard is DEFENSIVE and load-bearing on its own:
+    /// `DropValidation.libraryDrop` rejects such drops before the UI ever
+    /// reaches here, but `move` is the sole file-moving primitive, so pinning
+    /// the invariant at the mutation point means no future caller that skips
+    /// `DropValidation` can corrupt the tree.
     public static func move(_ url: URL, into folder: URL, fileManager: FileManager = .default) throws -> URL {
+        let sourcePath = url.standardizedFileURL.path
+        let folderPath = folder.standardizedFileURL.path
+        if folderPath == sourcePath || folderPath.hasPrefix(sourcePath + "/") {
+            throw LibraryError.selfContainment(url)
+        }
         let destination = folder.appendingPathComponent(url.lastPathComponent)
         guard !fileManager.fileExists(atPath: destination.path) else {
             throw LibraryError.destinationExists(destination)

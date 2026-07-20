@@ -31,16 +31,6 @@ final class LibraryModel {
     /// shows the selection.
     var expandedFolders: Set<String> = []
 
-    /// The library item currently being dragged INSIDE the sidebar, recorded
-    /// at drag start (`.onDrag`). Drop targets read it to classify the live
-    /// drag badge (move vs copy vs forbidden) synchronously — an NSItemProvider
-    /// only yields its URL asynchronously, too late for the cursor. nil ⇒ the
-    /// drag came from outside the app. It drives ONLY the cosmetic badge: the
-    /// actual file operation is always re-validated against the real dropped
-    /// URL in `performValidatedDrop`, so a stale value (e.g. a cancelled drag)
-    /// can never move the wrong file.
-    var draggingItemURL: URL?
-
     /// Expand every ancestor folder of `url` up to the library root.
     func reveal(url: URL) {
         guard let rootURL else { return }
@@ -273,7 +263,7 @@ final class LibraryModel {
     }
 
     /// The authoritative library-drop handler: re-decides the operation from
-    /// the REAL dropped URL (never the cosmetic `draggingItemURL`) via the
+    /// the REAL dropped URL (never the cosmetic drag badge) via the
     /// `DropValidation` seam, then executes it. Internal items MOVE, external
     /// markdown files are imported as a COPY (the original never vanishes —
     /// UI #21), and everything invalid (self/descendant/no-op drops,
