@@ -67,7 +67,16 @@ struct MainWindow: View {
     private var isKeyWindow: Bool { controlActiveState == .key }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        // Without a library there is nothing to put in the sidebar, so it is
+        // FORCE-collapsed — a single-file or empty window is a clean full-width
+        // editor, not a "No library yet" placeholder pane (user directive). The
+        // stored `columnVisibility` (and its session-restored value + the ⌘0
+        // toggle) is preserved and takes over the moment a library exists.
+        let effectiveColumnVisibility = Binding(
+            get: { library.hasLibrary ? columnVisibility : .detailOnly },
+            set: { columnVisibility = $0 }
+        )
+        return NavigationSplitView(columnVisibility: effectiveColumnVisibility) {
             if library.hasLibrary {
                 LibrarySidebar(
                     library: library,
@@ -77,17 +86,6 @@ struct MainWindow: View {
                     open(url)
                 }
                 .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
-            } else {
-                // Onboarding lives in the DETAIL pane (below) where there's
-                // room; the sidebar stays quiet until a library exists.
-                VStack(spacing: 6) {
-                    Image(systemName: "books.vertical")
-                        .foregroundStyle(.tertiary)
-                    Text("No library yet")
-                        .quoinScaledFont(size: 11)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         } detail: {
             VStack(spacing: 0) {
@@ -381,8 +379,11 @@ struct MainWindow: View {
     /// automation override (already adopted in init) → the folder the
     /// window was opened FOR → the window's own remembered folder → the
     /// launch preference (most-recent library, or an empty window).
-    /// "Start empty" applies to LAUNCH restoration only — windows the user
-    /// opens mid-session still get the most recent library.
+    /// A window the user opens mid-session (⇧⌘N) starts EMPTY — it must not
+    /// silently adopt the most-recent library. The default-library fallback is
+    /// for LAUNCH restoration only (reopening the app to your last workspace);
+    /// "Open Folder in New Window…" still targets a folder explicitly, and a
+    /// scene-restored window still reconnects its own remembered folder.
     private func connectLibrary() {
         guard !library.hasLibrary else { return }
         if let requestedRootPath {
@@ -397,6 +398,9 @@ struct MainWindow: View {
             persistedSession = "" // an empty start restores no workspace either
             return
         }
+        // Only reconnect the most-recent library when reopening the app; a plain
+        // new window mid-session is intentionally blank (user directive).
+        guard AppDelegate.isLaunchRestoration else { return }
         library.restoreDefaultLibrary()
     }
 
