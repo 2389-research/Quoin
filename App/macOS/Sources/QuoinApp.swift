@@ -728,6 +728,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     private static let launchUptime = ProcessInfo.processInfo.systemUptime
 
+    // MARK: - Durable session mirror (survives ⌘Q + "Close windows when quitting")
+
+    /// The window session (#15) lives in `@SceneStorage`, which macOS only
+    /// restores when it restores the window SCENE — and it does NOT when the
+    /// user has **"Close windows when quitting an application"** enabled (System
+    /// Settings ▸ Desktop & Dock). Then the scene blob is empty on relaunch and
+    /// the open tabs never come back even though the library reconnects. So the
+    /// most-recent library window's session is ALSO mirrored to `UserDefaults`
+    /// here; on launch, the first window whose reconnected library root matches
+    /// the mirror recovers the blob. One window claims it per launch.
+    private static let durableSessionRootKey = "QuoinDurableSessionRoot"
+    private static let durableSessionBlobKey = "QuoinDurableSessionBlob"
+    private static var durableSessionClaimed = false
+
+    static func saveDurableSession(root: String, blob: String) {
+        let d = UserDefaults.standard
+        d.set(root, forKey: durableSessionRootKey)
+        d.set(blob, forKey: durableSessionBlobKey)
+    }
+
+    /// The mirrored `(root, blob)` if one exists and hasn't been claimed this
+    /// launch. Peeking does NOT claim — the caller claims only once it confirms
+    /// the root matches its window, so a mismatched window can't burn another
+    /// window's session.
+    static func durableSession() -> (root: String, blob: String)? {
+        guard !durableSessionClaimed else { return nil }
+        let d = UserDefaults.standard
+        let root = d.string(forKey: durableSessionRootKey) ?? ""
+        let blob = d.string(forKey: durableSessionBlobKey) ?? ""
+        return blob.isEmpty ? nil : (root, blob)
+    }
+
+    static func claimDurableSession() { durableSessionClaimed = true }
+
     /// Opt into secure state restoration (the modern default); without this
     /// macOS logs "does not implement… returning NO" and opts the app out.
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }

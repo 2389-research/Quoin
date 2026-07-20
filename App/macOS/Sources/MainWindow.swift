@@ -422,6 +422,12 @@ struct MainWindow: View {
             inspectorMode: inspectorMode
         )
         persistedSession = state.serialized()
+        // Mirror to the durable store so the session survives a ⌘Q that wipes
+        // @SceneStorage (macOS "Close windows when quitting" enabled).
+        AppDelegate.saveDurableSession(
+            root: library.rootURL?.standardizedFileURL.path ?? "",
+            blob: persistedSession
+        )
     }
 
     /// Restore the window session from the last run. Only files still reachable
@@ -430,6 +436,15 @@ struct MainWindow: View {
     /// any handle that vanished, moved, or would escape the root, and dedupes two
     /// handles for one file to a single tab (never two sessions over one file).
     private func restoreTabs() {
+        // Recover the session from the durable mirror when @SceneStorage came
+        // back empty (macOS "Close windows when quitting" wiped the scene) — but
+        // only into the SAME library it was captured from, and only at launch.
+        if persistedSession.isEmpty, AppDelegate.isLaunchRestoration,
+           let rootPath = library.rootURL?.standardizedFileURL.path,
+           let durable = AppDelegate.durableSession(), durable.root == rootPath {
+            persistedSession = durable.blob
+            AppDelegate.claimDurableSession()
+        }
         guard openTabs.isEmpty, !persistedSession.isEmpty,
               let state = WindowSessionState(serialized: persistedSession),
               let rootPath = library.rootURL?.standardizedFileURL.path else { return }
