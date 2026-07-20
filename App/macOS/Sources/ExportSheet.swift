@@ -52,7 +52,7 @@ struct ExportSheet: View {
         var caption: String {
             switch self {
             case .pdf: return "Paginated, print-ready"
-            case .html: return "Standalone, styles inlined"
+            case .html: return "Self-contained"
             case .markdown: return "Normalized source"
             case .rtf: return "For word processors"
             case .txt: return "Plain text"
@@ -129,7 +129,7 @@ struct ExportSheet: View {
             }
         }
         .padding(20)
-        .frame(width: 440)
+        .frame(width: 470)
         // Escape reliably cancels the sheet even when focus sits in the
         // format grid (cancelAction alone doesn't fire from every responder).
         .onAppear(perform: installEscapeMonitor)
@@ -156,16 +156,18 @@ struct ExportSheet: View {
 
     private func formatCard(_ format: ExportFormat) -> some View {
         let isSelected = format == selected
-        return VStack(spacing: 3) {
+        return VStack(spacing: 5) {
             Text(format.rawValue)
                 .quoinScaledFont(size: 14, weight: .semibold)
             Text(format.caption)
                 .quoinScaledFont(size: 10)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 14)
+        .padding(.vertical, 13)
+        .padding(.horizontal, 10)
         .background(
             RoundedRectangle(cornerRadius: 7)
                 .fill(isSelected ? Color.accentColor.opacity(0.05) : Color.clear)
