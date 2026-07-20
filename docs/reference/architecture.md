@@ -43,7 +43,7 @@ behind it live in [`dependencies.md`](dependencies.md):
 | Package | Version | Role | Policy |
 | --- | --- | --- | --- |
 | `swift-markdown` (swiftlang) | `from: 0.8.0` | CommonMark/GFM parse via cmark-gfm | the one allowed third-party dep |
-| `MermaidKit` (2389-research) | `from: 1.3.0` | Mermaid diagrams (`MermaidLayout` + `MermaidRender`) | first-party, exempt |
+| `MermaidKit` (2389-research) | `from: 1.4.0` | Mermaid diagrams (`MermaidLayout` + `MermaidRender`) | first-party, exempt |
 | `Vinculum` (2389-research) | `from: 1.5.0` | LaTeX math (`VinculumLayout` + `VinculumRender`) | first-party, exempt |
 
 [MermaidKit](https://github.com/2389-research/MermaidKit) and

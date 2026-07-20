@@ -481,7 +481,7 @@ to the `ci-screenshots` branch on every push.
 One third-party code dependency:
 [swift-markdown](https://github.com/swiftlang/swift-markdown) (Apple's cmark-gfm
 wrapper, pinned `from: 0.8.0`).
-[MermaidKit](https://github.com/2389-research/MermaidKit) (`from: 1.3.0`) and
+[MermaidKit](https://github.com/2389-research/MermaidKit) (`from: 1.4.0`) and
 [Vinculum](https://github.com/2389-research/Vinculum) (`from: 1.5.0`) are
 **first-party** — Quoin's own published engines, consumed from GitHub like any
 host app would, and exempt from the policy. Anything new requires written
