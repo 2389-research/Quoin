@@ -49,7 +49,7 @@ each of these steps in detail:
 flowchart TD
     Launch["Launch Quoin"] --> Choose{"Choose a library folder"}
     Choose -->|"Create a Starter Library"| Starter["Sample documents open,<br/>ready to explore"]
-    Choose -->|"Choose an Existing Folder…"| Existing["Your own folder,<br/>nothing changed yet"]
+    Choose -->|"Choose an Existing Folder…"| Existing["Your own folder<br/>+ optional sample offer"]
     Starter --> Open["Open or create a .md document"]
     Existing --> Open
     Open --> Edit["Edit — click a block<br/>to reveal its source"]
@@ -69,7 +69,7 @@ You have two ways forward:
 | Choice | What happens |
 | :--- | :--- |
 | **Create a Starter Library** | Quoin makes a new folder with a couple of welcome documents so your first screen is a real rendered document, not an empty tree. Best if you're just trying it out. |
-| **Choose an Existing Folder…** | Point Quoin at any folder of markdown you already have — your notes, a docs repo, a vault. Quoin reads what's there and changes nothing until you do. |
+| **Choose an Existing Folder…** | Point Quoin at any folder of markdown you already have — your notes, a docs repo, a vault. Quoin reads what's there and changes nothing until you do. If the folder has no Quoin samples yet, it *offers* (opt-in, dismissible) to drop in a short Welcome note and a Markdown guide — say **No Thanks** and nothing is added. |
 
 ![Quoin's library sidebar showing a folder's documents as a file tree](../images/library.png)
 *The library sidebar: your folder, unchanged, as a file tree you can browse
@@ -337,8 +337,13 @@ You're productive now. When you want more:
   [dependency policy](../reference/dependencies.md). Click into an
   embed to [edit its source with a live side-panel
   preview](../design/embed-editing-ux.md).
-- **In-app help** — **Help ▸ Welcome to Quoin** and **Help ▸ Markdown Guide**
-  open live documents you can poke at without leaving the app.
+- **In-app help** — the **Help** menu opens live, editable documents you can
+  poke at without leaving the app: **Welcome to Quoin**, **Markdown Guide**,
+  **Quoin Extensions** (review marks, front matter, math/diagram fences),
+  **Keyboard Shortcuts**, **Privacy & Your Files**, and **Exporting
+  Documents**. Each is a normal `.md` opened in a tab — the editor teaches the
+  product. (With no library open yet, they open from a writable *Quoin Guides*
+  folder so the menu is never a dead click.)
 - **[Screenshot manifest](screenshots.md)** — how every screenshot in these
   docs, including the ones above, is captured from the real app.
 

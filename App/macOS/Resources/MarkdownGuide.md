@@ -129,6 +129,16 @@ re-render as you type.
 Documents may start with a YAML front-matter block (three dashes),
 shown as a compact chip above the title. Click it to edit the fields.
 
+## Footnotes
+
+Drop a footnote reference inline with `[^label]`,[^demo] then define it
+anywhere in the document. Quoin links the two: click a reference to jump to
+its definition, or hover to preview it without leaving your place.
+
+[^demo]: This is the definition. It can hold **formatting**, `code`, and
+    [links](https://example.com) — and it renders at the foot of the reading
+    view.
+
 ## The keyboard, briefly
 
 | | |

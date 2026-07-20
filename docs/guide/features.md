@@ -255,6 +255,16 @@ resolution can never quietly corrupt the document.
 - **Library** — pick a folder and its tree becomes your sidebar (⌘0). Folders
   are directories; documents are plain files. **Open Folder in New Window** (in
   the File menu) gives each window its own folder, restored on relaunch.
+- **Learn Quoin without leaving it** — onboarding and help are just documents.
+  On first run, **Create a Starter Library** seeds a fresh folder with a Welcome
+  note and a Markdown guide; **Choose an Existing Folder…** *offers* (opt-in,
+  dismissible — never forced, never overwriting a same-named file) to drop those
+  same samples in. The **Help** menu opens six live, editable guides as normal
+  tabs — **Welcome to Quoin**, **Markdown Guide**, **Quoin Extensions** (review
+  marks, front matter, math/diagram fences), **Keyboard Shortcuts** (a full
+  cheat sheet), **Privacy & Your Files**, and **Exporting Documents** — so the
+  editor teaches the product with real markdown you can poke at. Everything is
+  local: no accounts, no telemetry, no remote content.
 - **Pick up where you left off** — quit and relaunch (or restart, or recover
   from a crash) and every window comes back the way you left it: the same
   library, the same open **tabs** in the same order, the **active document**,
