@@ -216,9 +216,12 @@ private struct FileCommands: Commands {
             Button("Move to Trash") { post(AppDelegate.trashDocumentNotification) }
                 .disabled(hasDocument != true)
             Divider()
+            // ⌘W stays enabled even with no document: an empty window still
+            // needs to close (the handler routes activeTab==nil → performClose).
+            // Gating it on hasDocument made that branch unreachable — ⌘W did
+            // nothing on an empty window (field report).
             Button("Close Tab") { post(AppDelegate.closeTabNotification) }
                 .keyboardShortcut("w", modifiers: .command)
-                .disabled(hasDocument != true)
             Divider()
             // Reveal the front document in Finder. The sidebar's context menu
             // reveals a selected node; this acts on the active tab, so it's
