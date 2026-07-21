@@ -2514,6 +2514,30 @@ extension MarkdownReaderView {
             updatePreviewPanel(editingFrame: lastPanelFrameBox)
         }
 
+        /// Widen the active block's revealed-source `tailIndent` to reserve
+        /// exactly `panelWidth + gap` on the right, matching the responsive
+        /// preview panel (#42). The renderer bakes the minimum reservation
+        /// (width-agnostic); only the view layer knows the frame width, so it
+        /// adjusts here. Idempotent: rewrites a paragraph style only when its
+        /// tailIndent differs, so the layout invalidation it triggers can't
+        /// re-enter into a loop. Content/offsets are untouched — tailIndent only
+        /// moves where the source wraps.
+        private func widenActiveSourceReservation(to panelWidth: CGFloat, in textView: NSTextView) {
+            guard let activeID = parent.rendered.activeBlockID,
+                  let blockRange = blockRanges[activeID],
+                  let storage = textView.textContentStorage?.textStorage,
+                  blockRange.length > 0,
+                  NSMaxRange(blockRange) <= storage.length else { return }
+            let tail = -(panelWidth + AttributedRenderer.previewPanelGap)
+            storage.enumerateAttribute(.paragraphStyle, in: blockRange) { value, range, _ in
+                guard let base = value as? NSParagraphStyle,
+                      abs(base.tailIndent - tail) > 0.5,
+                      let mutable = base.mutableCopy() as? NSMutableParagraphStyle else { return }
+                mutable.tailIndent = tail
+                storage.addAttribute(.paragraphStyle, value: mutable, range: range)
+            }
+        }
+
         /// Shows/hides/positions the preview panel for the current
         /// projection. `frameBox` is the drawn editing frame in text-view
         /// coordinates (nil = no open block).
@@ -2534,11 +2558,17 @@ extension MarkdownReaderView {
             panelRecheck?.cancel()
             panelRecheck = nil
             let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-            let panelWidth = AttributedRenderer.previewPanelWidth
+            // Responsive panel width (#42): grow to fill a wide editing frame
+            // instead of a fixed 320 corner box. `previewPanelWidth(forAvailableWidth:)`
+            // already leaves the source at least the minimum; dismiss only when
+            // the frame is too narrow to grant a useful (>= base) panel.
+            let panelWidth = frameBox.map {
+                AttributedRenderer.previewPanelWidth(forAvailableWidth: $0.width)
+            } ?? AttributedRenderer.previewPanelWidth
             guard let frameBox,
                   let panel = parent.rendered.previewPanel,
                   parent.rendered.activeBlockID != nil,
-                  frameBox.width - panelWidth >= Self.minimumSourceWidth else {
+                  panelWidth >= AttributedRenderer.previewPanelWidth else {
                 panelChoreographer.reset()
                 panelBadgeVisible = false
                 previewPanel?.dismiss()
@@ -2549,6 +2579,12 @@ extension MarkdownReaderView {
                 }
                 return
             }
+            // Keep the source's reserved right-inset in lockstep with the
+            // responsive panel, so a long source line never slides under the
+            // (now wider) panel. The renderer bakes the minimum reservation;
+            // this widens it to match. Idempotent — only rewrites a differing
+            // tailIndent, so it can't loop with the layout pass it triggers.
+            widenActiveSourceReservation(to: panelWidth, in: textView)
             let view: PreviewPanelView
             if let existing = previewPanel {
                 view = existing

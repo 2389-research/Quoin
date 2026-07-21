@@ -402,13 +402,33 @@ public struct AttributedRenderer: Sendable {
 
     /// Width reserved for the side-by-side preview panel (plus its gap):
     /// the revealed source's paragraphs take a matching tail indent.
-    // NOTE: a fixed bump here regresses narrow windows — a wider panel leaves
-    // the source below `minimumSourceWidth`, so the panel dismisses entirely
-    // (no preview). The "too small / wastes space" fix needs a RESPONSIVE width
-    // coordinated with the renderer's source inset — tracked in #42, not a
-    // constant change. The clip fix (re-fit on size change) ships independently.
+    /// The MINIMUM live-edit preview panel width — the render bakes this as the
+    /// source's `tailIndent` reservation before the AppKit layer, which alone
+    /// knows the window width, widens it responsively (#42). Also the fallback
+    /// when no width is known.
     public static let previewPanelWidth: CGFloat = 320
     public static let previewPanelGap: CGFloat = 16
+    /// The source column must stay at least this wide, so the panel never eats
+    /// the text you're editing. Shared by the responsive width + the AppKit
+    /// show/dismiss guard.
+    public static let previewPanelMinSourceWidth: CGFloat = 340
+    /// The responsive panel width the panel could grow to (capped so a very wide
+    /// window doesn't make an absurd panel).
+    public static let previewPanelMaxWidth: CGFloat = 720
+
+    /// The live-edit preview panel width for a given editing-frame width. Grows
+    /// to ~45% of the frame so a wide window's preview fills the space instead of
+    /// being a tiny corner box (#42), clamped to `[previewPanelWidth,
+    /// previewPanelMaxWidth]` and always leaving the source at least
+    /// `previewPanelMinSourceWidth`. Pure + shared so the AppKit panel and the
+    /// source's `tailIndent` reservation stay in lockstep.
+    public static func previewPanelWidth(forAvailableWidth available: CGFloat) -> CGFloat {
+        let target = min(previewPanelMaxWidth, max(previewPanelWidth, available * 0.45))
+        // Never below the source minimum: if the frame is too narrow to grant
+        // both, hand back what's left for the source (the AppKit guard then
+        // decides whether there's enough room to show at all).
+        return max(0, min(target, available - previewPanelMinSourceWidth))
+    }
 
     /// The side-by-side panel payload for a held preview.
     public static func previewPanel(for held: HeldPreview?) -> RenderedDocument.PreviewPanel? {
