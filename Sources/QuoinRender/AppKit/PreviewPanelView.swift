@@ -263,9 +263,18 @@ final class PreviewPanelView: NSView {
         max(24, frameBox.height - 26 - 10 - interiorPadding * 2)
     }
 
+    /// The largest a small diagram is allowed to grow to fill the panel.
+    /// Uncapped upscale would blow a 40pt diagram into a blurry wall; ~3×
+    /// fills the space while keeping line art legible.
+    static let maxUpscale: CGFloat = 3
+
     static func fitScale(for size: CGSize, maxWidth: CGFloat, maxHeight: CGFloat) -> CGFloat {
         guard size.width > 0, size.height > 0 else { return 1 }
-        return min(1, maxWidth / size.width, maxHeight / size.height)
+        // Fill the panel in BOTH directions: a small diagram scales UP to the
+        // available space (was capped at 1×, which left tiny diagrams marooned
+        // in a large panel — "the diagrams can take up much more space"). The
+        // constraining dimension wins; maxUpscale bounds the blow-up.
+        return min(Self.maxUpscale, maxWidth / size.width, maxHeight / size.height)
     }
 
     /// Where the panel sits for a given editing frame and artifact size.
