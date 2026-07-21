@@ -342,6 +342,7 @@ extension MarkdownReaderView {
             if let scrollObserver {
                 NotificationCenter.default.removeObserver(scrollObserver)
             }
+            editEchoWatchdog?.cancel()
         }
 
         func reportTopBlock() {
@@ -512,9 +513,43 @@ extension MarkdownReaderView {
                 > Self.editEchoWatchdogInterval
         }
 
+        /// Self-firing backstop for the watchdog. The `editEchoWatchdogExpired`
+        /// check only ran inside `shouldChangeTextIn`, so a lost/slow echo left
+        /// the queue stranded until the user typed AGAIN — pressing Return then
+        /// waiting did nothing (the reported wedge). This timer replays the
+        /// queue on its own after the deadline, so a lost echo self-recovers
+        /// without another keystroke. Matches the class's other timers
+        /// (`linkHoverDwell`/`panelRecheck`), plain `DispatchWorkItem`.
+        private var editEchoWatchdog: DispatchWorkItem?
+
         private func beginAwaitingEditEcho() {
             awaitingEditEcho = true
             awaitingEditEchoSince = ProcessInfo.processInfo.systemUptime
+            scheduleEditEchoWatchdog()
+        }
+
+        private func scheduleEditEchoWatchdog() {
+            editEchoWatchdog?.cancel()
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, let textView = self.textView else { return }
+                self.fireEditEchoWatchdogIfExpired(in: textView)
+            }
+            editEchoWatchdog = work
+            // +0.05 so the strict `>` deadline is definitively past when it runs.
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.editEchoWatchdogInterval + 0.05, execute: work)
+        }
+
+        /// The self-firing recovery (extracted so it's unit-testable without a
+        /// real timer — age `awaitingEditEchoSince` and call this). If the gate
+        /// is still engaged past the deadline, replay the queue — exactly the
+        /// keystroke-driven watchdog's action (see `shouldChangeTextIn`), minus
+        /// the requirement that the user type again. IME composition defers the
+        /// echo by design, so don't fight it.
+        func fireEditEchoWatchdogIfExpired(in textView: NSTextView) {
+            guard awaitingEditEcho, editEchoWatchdogExpired, !textView.hasMarkedText() else { return }
+            awaitingEditEcho = false
+            flushPendingCommands(in: textView)
         }
 
         /// The projection echo landed (caret restored) — release the
@@ -524,6 +559,8 @@ extension MarkdownReaderView {
         /// content + order, applied at the freshly restored caret, so no
         /// stale offset ever splices.
         func noteEditEchoApplied(in textView: NSTextView) {
+            editEchoWatchdog?.cancel()
+            editEchoWatchdog = nil
             awaitingEditEcho = false
             flushPendingCommands(in: textView)
         }
@@ -566,6 +603,8 @@ extension MarkdownReaderView {
 
         /// Activation changes invalidate queued positions entirely.
         func clearPendingKeystrokes() {
+            editEchoWatchdog?.cancel()
+            editEchoWatchdog = nil
             pendingCommands.removeAll()
             awaitingEditEcho = false
         }
@@ -621,11 +660,21 @@ extension MarkdownReaderView {
                 } else if simpleBackspace {
                     pendingCommands.append(.keystroke(deleteBackward: true, insert: ""))
                     return false
-                } else {
-                    // A complex edit mid-flight (drag, cut of a range):
-                    // rare — drop the queue rather than misorder it.
-                    pendingCommands.removeAll()
+                } else if !pendingCommands.isEmpty {
+                    // A complex edit mid-flight (paste-over-selection, drag,
+                    // range-cut) has no trustworthy caret while the gate is
+                    // engaged. Dropping the queue to apply it discarded typed
+                    // input — a queued Return vanished (ledger #8, the reported
+                    // "paste then Return does nothing"). Keep the queue — it
+                    // flushes at the restored caret when the echo lands (or via
+                    // the self-firing watchdog) — and refuse the complex edit
+                    // audibly, never silently.
+                    NSSound.beep()
+                    return false
                 }
+                // Empty queue + complex edit: nothing to protect — fall through
+                // and apply it against the current state (the echo is the best
+                // truth available).
             }
 
             if let active = parent.rendered.activeEditableRange,

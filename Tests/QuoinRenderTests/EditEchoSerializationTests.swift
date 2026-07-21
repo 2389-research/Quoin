@@ -166,6 +166,97 @@ final class EditEchoSerializationTests: XCTestCase {
         XCTAssertEqual(sent().count, 4, "queue drained")
     }
 
+    func testLostEchoSelfRecoversFlushingQueuedReturn() throws {
+        // The reported wedge (#43): type a line, press Return, then WAIT. The
+        // echo is lost/slow, so the Return queues — and used to sit forever,
+        // because the watchdog only fired on the NEXT keystroke. The self-firing
+        // watchdog must flush the queued newline with no further typing.
+        let (coordinator, textView, sent) = try makeHarness()
+        let active = try XCTUnwrap(coordinator.parent.rendered.activeEditableRange)
+        let caret = active.location + 12
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
+
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "x")
+        XCTAssertEqual(sent().count, 1, "first keystroke sends and arms the gate")
+
+        // Return arrives mid-flight → queues, nothing sent yet.
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "\n")
+        XCTAssertEqual(sent().count, 1, "the newline queues behind the in-flight echo")
+
+        // The echo is LOST: age past the deadline, and DON'T type again.
+        coordinator.awaitingEditEchoSince -=
+            MarkdownReaderView.Coordinator.editEchoWatchdogInterval + 1
+        coordinator.fireEditEchoWatchdogIfExpired(in: textView)
+
+        XCTAssertEqual(sent().count, 2, "the self-firing watchdog flushes without another keystroke")
+        XCTAssertEqual(sent()[1].text, "\n", "the queued Return survives a lost echo")
+    }
+
+    func testWatchdogNoOpBeforeDeadline() throws {
+        // Guard: the self-firing watchdog must NOT clobber a merely-slow (not
+        // lost) echo. Before the deadline it is a no-op; the real echo still
+        // flushes the queue normally.
+        let (coordinator, textView, sent) = try makeHarness()
+        let active = try XCTUnwrap(coordinator.parent.rendered.activeEditableRange)
+        let caret = active.location + 12
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
+
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "x")
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "\n")
+        XCTAssertEqual(sent().count, 1)
+
+        // Deadline NOT reached: firing is a no-op.
+        coordinator.fireEditEchoWatchdogIfExpired(in: textView)
+        XCTAssertEqual(sent().count, 1, "no premature flush before the deadline")
+
+        // The slow echo finally lands → the queued newline flushes normally.
+        textView.setSelectedRange(NSRange(location: caret + 1, length: 0))
+        coordinator.noteEditEchoApplied(in: textView)
+        XCTAssertEqual(sent().count, 2)
+        XCTAssertEqual(sent()[1].text, "\n")
+    }
+
+    func testQueuedReturnSurvivesPasteOverSelection() throws {
+        // The other reported wedge: a complex mid-flight edit (paste over a
+        // selection / drag / range-cut) used to removeAll() the queue,
+        // discarding a queued Return. It must now be refused (audibly) with the
+        // queue intact, so the Return flushes when the echo lands.
+        let (coordinator, textView, sent) = try makeHarness()
+        let active = try XCTUnwrap(coordinator.parent.rendered.activeEditableRange)
+        let caret = active.location + 12
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
+
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "x")
+        _ = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 0),
+            replacementString: "\n")
+        XCTAssertEqual(sent().count, 1, "the newline queues")
+
+        // A paste-over-selection arrives mid-flight (length > 0, non-empty
+        // replacement): refused, queue preserved.
+        let refused = coordinator.textView(
+            textView, shouldChangeTextIn: NSRange(location: caret, length: 2),
+            replacementString: "PASTED")
+        XCTAssertFalse(refused, "a complex mid-flight edit is refused, not applied against stale coords")
+        XCTAssertEqual(sent().count, 1, "nothing new sent; the queued Return is not discarded")
+
+        // Echo lands → the queued Return still flushes.
+        textView.setSelectedRange(NSRange(location: caret + 1, length: 0))
+        coordinator.noteEditEchoApplied(in: textView)
+        XCTAssertEqual(sent().count, 2)
+        XCTAssertEqual(sent()[1].text, "\n", "the queued Return survived the complex edit")
+    }
+
     func testActivationChangeDropsTheQueue() throws {
         let (coordinator, textView, sent) = try makeHarness()
         let active = try XCTUnwrap(coordinator.parent.rendered.activeEditableRange)
