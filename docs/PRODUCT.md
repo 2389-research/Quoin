@@ -21,7 +21,7 @@ Feature groups are labeled **G1–G9** and referenced by shorthand throughout.
 | Platforms | macOS 14+ (primary). `QuoinCore` is platform-free and builds + tests on Linux; iOS/iPadOS reader exists behind a UIKit path. |
 | Language / runtime | Swift 6.0 tools (QuoinCore in Swift 6 language mode), SwiftUI + TextKit 2. Zero JavaScript at runtime; local-only. |
 | Rendering | Native attributed-string projection + drawn-ink decorations. No web view, no MathJax/KaTeX, no Mermaid.js. |
-| Dependencies | One third-party package (swift-markdown / cmark-gfm) — see [`docs/reference/dependencies.md`](reference/dependencies.md) for the full policy and graph. Two first-party engine packages consumed from GitHub: [MermaidKit](https://github.com/2389-research/MermaidKit) (`from: 1.4.0`) and [Vinculum](https://github.com/2389-research/Vinculum) (`from: 1.5.0`). |
+| Dependencies | One third-party package (swift-markdown / cmark-gfm) — see [`docs/reference/dependencies.md`](reference/dependencies.md) for the full policy and graph. Two first-party engine packages consumed from GitHub: [MermaidKit](https://github.com/2389-research/MermaidKit) (`from: 2.2.0`) and [Vinculum](https://github.com/2389-research/Vinculum) (`from: 1.5.0`). |
 | Verification | A comprehensive package test suite (600+ tests) passes with zero failures; the platform-free core suite also runs headless on Linux. |
 | Origin | Built as a WYSIWYG markdown editor whose source of truth is the markdown string + AST, so that any tool writing markdown — including agents — writes Quoin documents. |
 

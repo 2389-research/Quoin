@@ -47,7 +47,7 @@ default answer is no.
 
 - Mermaid rendering comes from **MermaidKit**, Quoin's own published
   package, consumed FROM GITHUB like any host app would:
-  github.com/2389-research/MermaidKit (`from: "1.4.0"`, first-party — exempt
+  github.com/2389-research/MermaidKit (`from: "2.2.0"`, first-party — exempt
   from the one-third-party-dependency policy; the policy script allowlists
   it). It is no longer vendored in this repo. MermaidLayout is the
   platform-free parser + layout + scene IR + geometry linter; MermaidRender
