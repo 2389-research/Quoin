@@ -262,7 +262,7 @@ public struct AttributedRenderer: Sendable {
         for (index, block) in document.blocks.enumerated() {
             let start = output.length
             if block.id == activeBlockID,
-               let slice = document.source.substring(in: block.range) {
+               let slice = Self.editableSlice(for: block, at: index, in: document) {
                 // Syntax reveal: the active block shows its literal source,
                 // editable in place (led by a live preview for diagram/math
                 // kinds). Only the caret's span reveals its delimiters
@@ -537,7 +537,8 @@ public struct AttributedRenderer: Sendable {
               oldIndex == newIndex,
               oldRendered.activeEditableRange != nil,
               let oldBlockRange = oldRendered.blockRanges[oldActiveBlockID],
-              let newSlice = newDocument.source.substring(in: newDocument.blocks[newIndex].range),
+              let newSlice = Self.editableSlice(
+                for: newDocument.blocks[newIndex], at: newIndex, in: newDocument),
               isActiveBlockPatchable(oldDocument.blocks[oldIndex].kind),
               isActiveBlockPatchable(newDocument.blocks[newIndex].kind),
               // This patch replaces the fragment WITHOUT its separator, so
@@ -724,7 +725,8 @@ public struct AttributedRenderer: Sendable {
         if let newID {
             guard let blockIndex = document.blocks.firstIndex(where: { $0.id == newID }),
                   let blockRange = current.blockRanges[newID],
-                  let slice = document.source.substring(in: document.blocks[blockIndex].range)
+                  let slice = Self.editableSlice(
+                    for: document.blocks[blockIndex], at: blockIndex, in: document)
             else { return nil }
             let block = document.blocks[blockIndex]
             // The patch spans fragment + separator: the separator's
@@ -1116,6 +1118,38 @@ public struct AttributedRenderer: Sendable {
     /// the separator's characters are constant, but its style isn't.
     public static func revealNeedsClampedSeparator(_ slice: String) -> Bool {
         slice.hasSuffix("\n")
+    }
+
+    /// The editable source for a block being revealed. Almost always the
+    /// block's exact source range — EXCEPT the document's LAST prose block,
+    /// whose slice extends through the trailing whitespace to EOF.
+    ///
+    /// Markdown has no representation for an empty paragraph, so a bare
+    /// Return at the end of the document re-parses to the same blocks and the
+    /// caret has nowhere to land ("type a line, hit Enter, nothing happens").
+    /// Everything after the last block's content is whitespace by
+    /// construction, so folding it into the editable slice gives Return an
+    /// empty line the caret can occupy; `clampTrailingNewlinePhantom` keeps
+    /// the reading skeleton (the blank line opens to full height only when the
+    /// caret is ON it). Both the full-render and per-keystroke patch paths
+    /// route through here so their fragments stay byte-identical
+    /// (ProjectorEquivalenceTests).
+    public static func editableSlice(
+        for block: Block, at index: Int, in document: QuoinDocument
+    ) -> String? {
+        guard let base = document.source.substring(in: block.range) else { return nil }
+        guard index == document.blocks.count - 1 else { return base }
+        switch block.kind {
+        case .paragraph, .heading: break
+        default: return base   // code/table/diagram/… keep their exact range
+        }
+        let contentEnd = block.range.offset + block.range.length
+        let total = document.source.utf8.count
+        guard total > contentEnd,
+              let tail = document.source.substring(
+                in: ByteRange(offset: contentEnd, length: total - contentEnd))
+        else { return base }
+        return base + tail
     }
 
     /// THE reveal styler configuration for a block (editor-modes plan, 3.3):

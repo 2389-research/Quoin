@@ -2080,12 +2080,58 @@ extension MarkdownReaderView {
                   NSMaxRange(selection) <= NSMaxRange(active) else { return false }
             let relCaret = selection.location - active.location
             guard let edit = Self.listContinuationEdit(sourceText: sourceText, caretUTF16: relCaret)
-            else { return false }
+            else {
+                // Not a list line. At the very end of the document, Return
+                // starts a NEW PARAGRAPH: markdown's "new line" is a blank
+                // line (\n\n) — a lone \n is a soft break that renders as a
+                // space, which is why plain Return felt dead. The last block's
+                // editable slice extends through the trailing whitespace
+                // (AttributedRenderer.editableSlice), so the caret has an empty
+                // line to occupy; typing there materializes a real paragraph.
+                return newParagraphAtDocumentEnd(
+                    in: textView, active: active, sourceText: sourceText,
+                    relCaret: relCaret, onEdit: onEdit)
+            }
             if let (byteRange, replacement, caretDelta) = edit.byteEdit(inText: sourceText) {
                 onEdit(byteRange, replacement, caretDelta)
                 beginAwaitingEditEcho()
             }
             return true
+        }
+
+        /// Return at the end of the document → a new paragraph. Fires only when
+        /// the caret is at the end of the active block's editable source AND at
+        /// the end of the whole document (where the last-block slice reaches
+        /// EOF). From content it inserts a paragraph break (\n\n) so the caret
+        /// lands on a fresh empty line; already on a trailing empty line it adds
+        /// one more line (\n) to step further down. Returns false (falls through
+        /// to a plain newline) anywhere else — mid-document boundaries are a
+        /// later iteration.
+        private func newParagraphAtDocumentEnd(
+            in textView: NSTextView, active: NSRange, sourceText: String,
+            relCaret: Int, onEdit: (ByteRange, String, Int?) -> Void
+        ) -> Bool {
+            let atDocumentEnd = NSMaxRange(active) == (textView.string as NSString).length
+            guard let insertion = Self.endOfDocumentParagraphInsertion(
+                sourceText: sourceText, relCaret: relCaret, atDocumentEnd: atDocumentEnd)
+            else { return false }
+            let byteRange = ByteRange(offset: sourceText.utf8.count, length: 0)
+            onEdit(byteRange, insertion, nil)   // caret lands at the end of the insertion
+            beginAwaitingEditEcho()
+            return true
+        }
+
+        /// The text a Return at the document's end inserts, or nil when the
+        /// gesture doesn't apply (caret not at the end of the slice, or not at
+        /// the end of the document). From content → a paragraph break (\n\n);
+        /// already sitting on a trailing empty line → one more line (\n). Pure
+        /// so the decision is unit-tested without a live text view.
+        static func endOfDocumentParagraphInsertion(
+            sourceText: String, relCaret: Int, atDocumentEnd: Bool
+        ) -> String? {
+            guard atDocumentEnd, relCaret == (sourceText as NSString).length else { return nil }
+            let trailingNewlines = sourceText.reversed().prefix(while: { $0 == "\n" }).count
+            return trailingNewlines == 0 ? "\n\n" : "\n"
         }
 
         /// The pure computation behind Return list continuation: which UTF-16
