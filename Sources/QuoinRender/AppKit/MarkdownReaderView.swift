@@ -93,6 +93,10 @@ public struct MarkdownReaderView: NSViewRepresentable {
     /// Block-adjacent comment (#68): the comment paragraph lands AFTER the
     /// block — how opaque blocks (code/tables/diagrams/math) get commented.
     public var onAddBlockComment: ((BlockID, String) -> Void)? = nil
+    /// Start a comment on the current selection (#45) — the selection popover's
+    /// Comment button. Same effect as the ⇧⌘M / context-menu comment gesture;
+    /// the app opens the compose popover for the reported selection range.
+    public var onCommentOnSelection: (() -> Void)? = nil
     /// Menu-driven annotation gesture (⇧⌘M etc.), generation-fired like
     /// formatCommand. `.comment`/`.replacement` open the compose popover;
     /// `.deletion`/`.highlight` apply immediately.
@@ -274,6 +278,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         flashScroll: FlashScrollBehavior = .center,
         onAddAnnotation: ((ReviewAuthoring.Kind, BlockID, Int, Int, String) -> Void)? = nil,
         onAddBlockComment: ((BlockID, String) -> Void)? = nil,
+        onCommentOnSelection: (() -> Void)? = nil,
         annotationCommand: AnnotationGesture? = nil,
         annotationGeneration: Int = 0,
         onSuggestionCaretLink: ((ByteRange?) -> Void)? = nil,
@@ -323,6 +328,7 @@ public struct MarkdownReaderView: NSViewRepresentable {
         self.flashScroll = flashScroll
         self.onAddAnnotation = onAddAnnotation
         self.onAddBlockComment = onAddBlockComment
+        self.onCommentOnSelection = onCommentOnSelection
         self.annotationCommand = annotationCommand
         self.annotationGeneration = annotationGeneration
         self.onSuggestionCaretLink = onSuggestionCaretLink
@@ -405,6 +411,9 @@ public struct MarkdownReaderView: NSViewRepresentable {
             queue: .main
         ) { [weak coordinator = context.coordinator] _ in
             coordinator?.reportTopBlock()
+            // Keep the selection popover (#45) glued to its selection as the
+            // content scrolls (it's a fixed-frame subview, not scroll-tracked).
+            if let tv = coordinator?.textView { coordinator?.updateSelectionToolbar(in: tv) }
         }
 
         context.coordinator.textView = textView

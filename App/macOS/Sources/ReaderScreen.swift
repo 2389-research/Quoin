@@ -267,6 +267,12 @@ struct ReaderScreen: View {
                 onAddBlockComment: { blockID, body in
                     model.addBlockComment(blockID: blockID, body: body)
                 },
+                onCommentOnSelection: {
+                    // Selection popover Comment (#45): same as ⇧⌘M / the context
+                    // menu — open the compose popover for the current selection.
+                    annotationCommand = .comment
+                    annotationGeneration += 1
+                },
                 annotationCommand: annotationCommand,
                 annotationGeneration: annotationGeneration,
                 onSuggestionCaretLink: { range in linkedMark = range },
@@ -811,7 +817,11 @@ struct ReaderScreen: View {
 
     @ViewBuilder
     private var formatPill: some View {
-        if isEditingBlock {
+        // The always-available top-right pill covers the caret-only case; once
+        // there's a non-empty selection, the floating selection popover (#45)
+        // takes over (format + Comment, anchored to the selection), so the pill
+        // steps aside to avoid two format toolbars at once.
+        if isEditingBlock, model.selectionSourceRange == nil {
             HStack(spacing: 2) {
                 formatPillButton("bold", command: .bold, help: "Bold (⌘B)")
                 formatPillButton("italic", command: .italic, help: "Italic (⌘I)")

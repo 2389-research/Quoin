@@ -607,6 +607,9 @@ extension MarkdownReaderView {
             editEchoWatchdog = nil
             pendingCommands.removeAll()
             awaitingEditEcho = false
+            // A block flip changes the editable scope — drop the selection
+            // popover; it re-shows on the next selection in the new block (#45).
+            dismissSelectionToolbar()
         }
 
         /// Every keystroke lands here. Inside the active block's revealed
@@ -752,6 +755,10 @@ extension MarkdownReaderView {
             if let report = parent.onSelectionSourceRange {
                 report(selectionSourceRange(selection, in: textView))
             }
+
+            // Selection popover (#45): a floating format + Comment toolbar
+            // anchored to a non-empty selection in the active block.
+            updateSelectionToolbar(in: textView)
 
             // Focus mode follows the caret across blocks.
             refreshFocusDimmingOnSelectionChange(in: textView)
@@ -2491,6 +2498,53 @@ extension MarkdownReaderView {
         private var previewPanel: PreviewPanelView?
         private var panelChoreographer = PreviewPanelChoreographer()
         private var panelBadgeVisible = false
+
+        /// The selection popover (#45), created lazily. Shown for a non-empty
+        /// selection inside the active editable block; hidden otherwise.
+        private var selectionToolbar: SelectionToolbarView?
+
+        /// Show/position/hide the selection popover. A non-empty selection
+        /// inside the active block gets a floating format + Comment toolbar
+        /// anchored above it (below when near the top); anything else hides it.
+        func updateSelectionToolbar(in textView: NSTextView) {
+            let selection = textView.selectedRange()
+            guard selection.length > 0,
+                  let active = parent.rendered.activeEditableRange,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active),
+                  let window = textView.window else {
+                selectionToolbar?.removeFromSuperview()
+                selectionToolbar = nil
+                return
+            }
+            let toolbar: SelectionToolbarView
+            if let existing = selectionToolbar {
+                toolbar = existing
+            } else {
+                toolbar = SelectionToolbarView(frame: .zero)
+                toolbar.onFormat = { [weak self, weak textView] command in
+                    guard let self, let textView else { return }
+                    self.applyFormat(command, in: textView)
+                }
+                toolbar.onComment = { [weak self] in self?.parent.onCommentOnSelection?() }
+                textView.addSubview(toolbar)
+                selectionToolbar = toolbar
+            }
+            // Anchor to the selection's on-screen rect (screen → window → view).
+            let screenRect = textView.firstRect(forCharacterRange: selection, actualRange: nil)
+            let windowRect = window.convertFromScreen(screenRect)
+            let viewRect = textView.convert(windowRect, from: nil)
+            toolbar.layoutSubtreeIfNeeded()
+            let size = NSSize(width: toolbar.fittingSize.width, height: SelectionToolbarView.height)
+            toolbar.frame = SelectionToolbarView.toolbarFrame(
+                selectionRect: viewRect, barSize: size, inBounds: textView.bounds)
+        }
+
+        /// Tear the popover down (block deactivation, teardown).
+        func dismissSelectionToolbar() {
+            selectionToolbar?.removeFromSuperview()
+            selectionToolbar = nil
+        }
         private var panelRecheck: DispatchWorkItem?
         private var lastPanelFrameBox: CGRect?
 
