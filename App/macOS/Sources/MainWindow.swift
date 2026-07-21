@@ -181,7 +181,14 @@ struct MainWindow: View {
         // File ▸ New Document (⌘N).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.newDocumentNotification)) { _ in
             guard isKeyWindow else { return }
-            if let url = library.createDocument() { open(url) }
+            if let url = library.createDocument() {
+                open(url)  // library window: create in the library, open as a tab
+            } else {
+                // No library configured (#18): ⌘N used to silently no-op. Ask
+                // where to put the new document and open it as a standalone tab
+                // — same powerbox fallback the Services provider (#35) uses.
+                createStandaloneDocumentViaPanel()
+            }
         }
         // File ▸ Duplicate: copy the active document to a unique sibling and
         // open the copy (matching the sidebar context menu).
@@ -199,8 +206,14 @@ struct MainWindow: View {
         }
         // File ▸ Close Tab (⌘W).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.closeTabNotification)) { _ in
-            guard isKeyWindow, let tab = activeTab else { return }
-            close(tab)
+            guard isKeyWindow else { return }
+            if let tab = activeTab {
+                close(tab)
+            } else {
+                // No documents open: ⌘W closes the empty window, matching the
+                // standard Close behavior (previously it silently no-op'd).
+                NSApp.keyWindow?.performClose(nil)
+            }
         }
         // Window ▸ Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥): cycle Quoin's own
         // document tabs, wrapping at the ends (the standard tab-nav feel).
@@ -670,6 +683,24 @@ struct MainWindow: View {
         panel.prompt = "Create"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         guard (try? Data(seed.content.utf8).write(to: url)) != nil else {
+            NSSound.beep()
+            return
+        }
+        open(url)
+    }
+
+    /// ⌘N with no library configured (#18): ask where to put a new, empty
+    /// document, create it, and open it as a standalone tab. The save panel is
+    /// the powerbox grant that makes the write legal under the sandbox — the
+    /// same fallback the Services provider (#35) uses when there's no library.
+    private func createStandaloneDocumentViaPanel() {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.markdownDocument]
+        panel.nameFieldStringValue = "Untitled.md"
+        panel.message = "Choose where to save the new document."
+        panel.prompt = "Create"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard (try? Data("".utf8).write(to: url)) != nil else {
             NSSound.beep()
             return
         }
