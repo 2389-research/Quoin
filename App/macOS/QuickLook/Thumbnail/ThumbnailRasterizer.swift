@@ -119,7 +119,7 @@ enum ThumbnailRasterizer {
                 appendLine("———", into: out, size: 8 * scale,
                            bold: false, mono: false, color: faint, spacingAfter: 4 * scale, indent: indent)
 
-            case .frontMatter, .reviewEndmatter, .tableOfContents, .htmlBlock, .mermaid, .mathBlock:
+            case .frontMatter, .reviewEndmatter, .tableOfContents, .htmlBlock, .diagram, .mathBlock:
                 // Front/endmatter is metadata; TOC/HTML are noise at thumbnail
                 // scale; mermaid/math never reach here (BoundedPreview already
                 // swapped them for placeholder code blocks).

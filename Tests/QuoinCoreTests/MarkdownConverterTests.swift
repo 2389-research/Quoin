@@ -93,12 +93,38 @@ final class MarkdownConverterTests: XCTestCase {
 
     func testMermaidFence() {
         let doc = MarkdownConverter.parse("```mermaid\ngraph TD\n  A --> B\n```")
-        guard case .mermaid(let source) = doc.blocks[0].kind else {
+        guard case .diagram(let source, _) = doc.blocks[0].kind else {
             return XCTFail("expected mermaid block")
         }
         XCTAssertEqual(source, "graph TD\n  A --> B")
         XCTAssertEqual(doc.stats.diagramCount, 1)
         XCTAssertEqual(doc.stats.codeBlockCount, 0)
+    }
+
+    func testDotAndDippinFencesAreDiagrams() {
+        // ```dot (Graphviz) and ```dippin route to the native diagram engine
+        // (MermaidKit) with the right format, verbatim source preserved.
+        let dot = MarkdownConverter.parse("```dot\ndigraph { a -> b }\n```")
+        guard case .diagram(let dotSource, let dotFormat) = dot.blocks[0].kind else {
+            return XCTFail("expected a diagram block for ```dot")
+        }
+        XCTAssertEqual(dotFormat, .dot)
+        XCTAssertEqual(dotSource, "digraph { a -> b }")
+        XCTAssertEqual(dot.stats.diagramCount, 1)
+        XCTAssertEqual(dot.stats.codeBlockCount, 0)
+
+        let dip = MarkdownConverter.parse("```dippin\nstart -> stop\n```")
+        guard case .diagram(_, let dipFormat) = dip.blocks[0].kind else {
+            return XCTFail("expected a diagram block for ```dippin")
+        }
+        XCTAssertEqual(dipFormat, .dippin)
+
+        // A non-diagram language stays an ordinary code block — never hijacked.
+        let sql = MarkdownConverter.parse("```sql\nSELECT 1;\n```")
+        guard case .codeBlock = sql.blocks[0].kind else {
+            return XCTFail("```sql must remain a code block, not a diagram")
+        }
+        XCTAssertEqual(sql.stats.diagramCount, 0)
     }
 
     func testMathFence() {

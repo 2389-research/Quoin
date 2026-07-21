@@ -28,7 +28,7 @@ public enum PlainTextExporter {
                 out.append(indent + inlines.plainText.trimmingCharacters(in: .whitespaces))
             case .paragraph(let inlines):
                 out.append(indent + inlines.plainText)
-            case .codeBlock(_, let code), .mermaid(let code):
+            case .codeBlock(_, let code), .diagram(let code, _):
                 out.append(code.split(separator: "\n", omittingEmptySubsequences: false)
                     .map { indent + "    " + $0 }
                     .joined(separator: "\n"))

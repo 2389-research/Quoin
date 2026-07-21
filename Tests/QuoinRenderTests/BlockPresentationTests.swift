@@ -15,7 +15,7 @@ final class BlockPresentationTests: XCTestCase {
 
     func testFlavorTable() {
         // Preview: side-panel live artifact kinds.
-        XCTAssertEqual(EditingFlavor.of(.mermaid(source: "flowchart TD")), .preview)
+        XCTAssertEqual(EditingFlavor.of(.diagram(source: "flowchart TD", format: .mermaid)), .preview)
         XCTAssertEqual(EditingFlavor.of(.mathBlock(latex: "x^2")), .preview)
         // Verbatim: raw source, zero markdown styling.
         XCTAssertEqual(EditingFlavor.of(.codeBlock(language: "swift", code: "let x = 1")), .verbatim)
@@ -29,7 +29,7 @@ final class BlockPresentationTests: XCTestCase {
     func testChromeSetMatchesEmbedEditingKinds() {
         // The embed set + front matter draw the accent frame + ✓ done chip.
         XCTAssertTrue(presentationShowsChrome(.codeBlock(language: nil, code: "x")))
-        XCTAssertTrue(presentationShowsChrome(.mermaid(source: "flowchart TD")))
+        XCTAssertTrue(presentationShowsChrome(.diagram(source: "flowchart TD", format: .mermaid)))
         XCTAssertTrue(presentationShowsChrome(.mathBlock(latex: "x")))
         XCTAssertTrue(presentationShowsChrome(.htmlBlock("<hr>")))
         // Prose is deliberately chrome-free — the caret IS the mode there.

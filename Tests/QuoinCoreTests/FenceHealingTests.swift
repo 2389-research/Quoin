@@ -7,7 +7,7 @@ import XCTest
 final class FenceHealingTests: XCTestCase {
 
     private let code = BlockKind.codeBlock(language: "swift", code: "")
-    private let mermaid = BlockKind.mermaid(source: "")
+    private let mermaid = BlockKind.diagram(source: "", format: .mermaid)
     private let math = BlockKind.mathBlock(latex: "")
 
     func testHealthyFenceNeedsNoHealing() {

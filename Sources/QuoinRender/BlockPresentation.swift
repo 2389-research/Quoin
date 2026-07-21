@@ -19,7 +19,7 @@ public enum EditingFlavor: Equatable, Sendable {
     /// style. Every reveal decision consults this, never the raw kind.
     public static func of(_ kind: BlockKind) -> EditingFlavor {
         switch kind {
-        case .mermaid, .mathBlock:
+        case .diagram, .mathBlock:
             return .preview
         case .codeBlock, .htmlBlock, .frontMatter, .reviewEndmatter:
             return .verbatim
@@ -99,7 +99,7 @@ public func presentation(
 /// original `isEmbedEditingKind`.
 func presentationShowsChrome(_ kind: BlockKind) -> Bool {
     switch kind {
-    case .codeBlock, .mermaid, .mathBlock, .table, .htmlBlock,
+    case .codeBlock, .diagram, .mathBlock, .table, .htmlBlock,
          .tableOfContents, .frontMatter, .reviewEndmatter:
         return true
     default:

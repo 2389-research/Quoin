@@ -607,7 +607,7 @@ struct ReaderScreen: View {
                 Task { @MainActor in
                     try? await Task.sleep(for: .seconds(2))
                     guard let block = model.document.blocks.first(where: {
-                        if case .mermaid = $0.kind { return true }
+                        if case .diagram = $0.kind { return true }
                         return false
                     }) else { return }
                     model.activateBlock(block.id, caretHint: .source(0))

@@ -40,7 +40,7 @@ final class PreviewPanelLoopTests: XCTestCase {
         let base = "# Doc\n\n```mermaid\nflowchart TD\n    A[Start] --> B[End]\n```\n\nTail.\n"
         let document = MarkdownConverter.parse(base)
         let block = try XCTUnwrap(document.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         })
         let renderer = AttributedRenderer()
@@ -81,10 +81,10 @@ final class PreviewPanelLoopTests: XCTestCase {
         let broken = base.replacingOccurrences(of: "flowchart TD", with: "@@@flowchart TD")
         let brokenDocument = MarkdownConverter.parse(broken)
         let brokenBlock = try XCTUnwrap(brokenDocument.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         })
-        guard case .mermaid(let payload) = brokenBlock.kind,
+        guard case .diagram(let payload, _) = brokenBlock.kind,
               MermaidRenderer.attachmentString(source: payload, theme: Theme().diagramTheme) == nil else {
             throw XCTSkip("fixture unexpectedly parses")
         }

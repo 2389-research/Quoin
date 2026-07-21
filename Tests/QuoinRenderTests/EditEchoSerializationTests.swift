@@ -26,7 +26,7 @@ final class EditEchoSerializationTests: XCTestCase {
         let source = "# T\n\n```mermaid\nflowchart TD\n    A --> B\n```\n\nTail.\n"
         let document = MarkdownConverter.parse(source)
         let block = try XCTUnwrap(document.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         })
         let renderer = AttributedRenderer()

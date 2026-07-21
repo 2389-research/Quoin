@@ -185,7 +185,7 @@ enum PerfFixtures {
     /// closing fence line) — the caret position of someone editing a chart.
     static func mermaidEditOffset(in document: QuoinDocument) -> Int? {
         embedContentOffset(in: document) {
-            if case .mermaid = $0 { return true }
+            if case .diagram = $0 { return true }
             return false
         }
     }

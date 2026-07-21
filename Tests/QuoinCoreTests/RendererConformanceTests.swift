@@ -115,7 +115,7 @@ final class RendererConformanceTests: XCTestCase {
             let source = try String(contentsOf: url, encoding: .utf8)
             let doc = MarkdownConverter.parse(source)
             for block in Self.flatten(doc.blocks) {
-                guard case .mermaid(let mermaidSource) = block.kind,
+                guard case .diagram(let mermaidSource, _) = block.kind,
                       let diagram = MermaidParser.parse(mermaidSource),
                       let size = Self.layoutSize(diagram, measure: measure) else { continue }
                 supportedCount += 1

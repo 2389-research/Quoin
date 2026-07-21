@@ -187,7 +187,7 @@ final class ActivationNeighborIntegrityTests: XCTestCase {
         """
         let document = MarkdownConverter.parse(source)
         let chart = try XCTUnwrap(document.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         })
         let renderer = AttributedRenderer()

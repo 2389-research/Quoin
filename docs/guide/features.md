@@ -49,7 +49,9 @@ the file on disk stays clean markdown you own.
 
 - **Rich rendering as you read** — headings, emphasis, lists, tables, task
   lists, callouts, highlights, footnotes, code with syntax highlighting, math,
-  and Mermaid diagrams, all drawn natively (no web view, no JavaScript).
+  and Mermaid diagrams — plus **Graphviz DOT** (` ```dot `) and **Dippin**
+  (` ```dippin `) through the same native engine — all drawn natively (no web
+  view, no JavaScript).
 - **Edit in place** — click into any block and it reveals its literal markdown
   source, character-for-character with the file. Edit it, click away, it
   re-renders. The line you're on never jumps on screen. This projection model

@@ -336,7 +336,7 @@ public struct AttributedRenderer: Sendable {
         case .paragraph: return "paragraph"
         case .heading: return "heading"
         case .codeBlock: return "codeBlock"
-        case .mermaid: return "mermaid"
+        case .diagram: return "diagram"
         case .mathBlock: return "mathBlock"
         case .table: return "table"
         case .list: return "list"
@@ -951,8 +951,8 @@ public struct AttributedRenderer: Sendable {
         let key: String
         let sourceText: String
         switch kind {
-        case .mermaid(let source):
-            key = "mermaid"
+        case .diagram(let source, let format):
+            key = "diagram:" + format.fenceLanguage
             sourceText = source
         case .mathBlock(let latex):
             key = "math"
@@ -974,8 +974,9 @@ public struct AttributedRenderer: Sendable {
             return true // unchanged source: reuse, no re-render
         }
         let fresh: NSAttributedString? = switch kind {
-        case .mermaid(let source):
-            MermaidRenderer.attachmentString(source: source, theme: theme.diagramTheme)
+        case .diagram(let source, let format):
+            MermaidRenderer.attachmentString(source: source, format: format.mermaidRenderFormat,
+                                             theme: theme.diagramTheme)
         case .mathBlock(let latex):
             MathImageRenderer.attachmentString(
                 latex: latex, display: true, mathTheme: theme.mathTheme, baseSize: theme.bodySize)
@@ -1244,7 +1245,7 @@ public struct AttributedRenderer: Sendable {
     /// so two adjacent ones never share a border line.
     private func isCard(_ kind: BlockKind) -> Bool {
         switch kind {
-        case .codeBlock, .mermaid, .table, .callout, .frontMatter, .htmlBlock:
+        case .codeBlock, .diagram, .table, .callout, .frontMatter, .htmlBlock:
             return true
         default:
             return false
@@ -1260,8 +1261,8 @@ public struct AttributedRenderer: Sendable {
             content = renderInlines(inlines, base: bodyAttributes())
         case .codeBlock(let language, let code):
             content = renderCodeBlock(language: language, code: code)
-        case .mermaid(let source):
-            content = renderMermaid(source: source)
+        case .diagram(let source, let format):
+            content = renderMermaid(source: source, format: format)
         case .mathBlock(let latex):
             content = renderMathBlock(latex: latex)
         case .table(let header, let rows, let alignments):
@@ -1339,7 +1340,7 @@ public struct AttributedRenderer: Sendable {
         // reported "click an item in the list and everything shifts wildly");
         // its links must navigate, not flip.
         switch block.kind {
-        case .codeBlock, .mermaid, .mathBlock, .table, .htmlBlock, .tableOfContents:
+        case .codeBlock, .diagram, .mathBlock, .table, .htmlBlock, .tableOfContents:
             tagged.addAttribute(QuoinAttribute.embedBlock, value: NSNumber(value: true), range: whole)
         default:
             break
@@ -1709,10 +1710,12 @@ public struct AttributedRenderer: Sendable {
         return NSAttributedString(string: text, attributes: attributes)
     }
 
-    private func renderMermaid(source: String) -> NSAttributedString {
-        // Native rendering via MermaidKit; unparseable sources keep the
-        // styled-source fallback.
-        if let native = MermaidRenderer.attachmentString(source: source, theme: theme.diagramTheme) {
+    private func renderMermaid(source: String, format: DiagramFormat) -> NSAttributedString {
+        // Native rendering via MermaidKit (Mermaid / DOT / Dippin, per `format`);
+        // unparseable sources keep the styled-source fallback.
+        let renderFormat = format.mermaidRenderFormat
+        if let native = MermaidRenderer.attachmentString(source: source, format: renderFormat,
+                                                         theme: theme.diagramTheme) {
             let output = NSMutableAttributedString()
             output.append(editChipLine(spacingBefore: theme.paragraphSpacing))
             let attachment = NSMutableAttributedString(attributedString: native)
@@ -1721,7 +1724,7 @@ public struct AttributedRenderer: Sendable {
             attachment.refitImageAttachmentsToContentWidth()
             labelAttachmentImages(in: attachment,
                                   label: BlockAccessibility.diagramLabel(
-                                      narration: MermaidRenderer.altText(source: source)))
+                                      narration: MermaidRenderer.altText(source: source, format: renderFormat)))
             let style = paragraphStyle()
             style.paragraphSpacingBefore = 0
             style.paragraphSpacing = theme.paragraphSpacing

@@ -49,7 +49,7 @@ public enum BlockAccessibility {
                 head = "Code block"
             }
             return "\(head), \(pluralized(lineCount(code), "line"))"
-        case .mermaid:
+        case .diagram:
             return "Diagram"
         case .mathBlock:
             return "Equation"

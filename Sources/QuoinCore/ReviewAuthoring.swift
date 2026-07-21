@@ -248,7 +248,7 @@ public enum ReviewAuthoring {
             case .blockQuote(let children): return "q[\(children.map(shape).joined())]"
             case .callout(_, let children): return "callout[\(children.map(shape).joined())]"
             case .codeBlock: return "code"
-            case .mermaid: return "mermaid"
+            case .diagram(_, let format): return format.fenceLanguage
             case .mathBlock: return "math"
             case .table(_, let rows, _): return "table(\(rows.count))"
             case .frontMatter: return "front"

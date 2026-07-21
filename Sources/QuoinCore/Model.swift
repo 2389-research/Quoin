@@ -149,12 +149,37 @@ public struct Footnote: Hashable, Sendable, Identifiable {
     }
 }
 
+/// The source dialect of a native diagram block. MermaidKit renders Mermaid and
+/// its Graphviz DOT / Dippin front-ends through the same engine; the fence
+/// language token (` ```dot `) selects the format.
+public enum DiagramFormat: String, Hashable, Sendable, CaseIterable {
+    case mermaid, dot, dippin
+
+    /// The fenced-code-block language that selects this format (also what the
+    /// block re-serializes to).
+    public var fenceLanguage: String { rawValue }
+
+    /// Map a fence language token to a diagram format, or `nil` for a
+    /// non-diagram language (an ordinary code block).
+    public init?(fenceLanguage: String) {
+        switch fenceLanguage {
+        case "mermaid": self = .mermaid
+        case "dot", "graphviz": self = .dot
+        case "dippin", "dip": self = .dippin
+        default: return nil
+        }
+    }
+}
+
 public indirect enum BlockKind: Hashable, Sendable {
     case heading(level: Int, inlines: [Inline], slug: String)
     case paragraph(inlines: [Inline])
     case codeBlock(language: String?, code: String)
-    /// A ```mermaid fenced block, recognized for the native diagram engine.
-    case mermaid(source: String)
+    /// A native diagram fenced block — ` ```mermaid `, ` ```dot ` (Graphviz), or
+    /// ` ```dippin `, all rendered by MermaidKit through one engine. `format`
+    /// selects the front-end; `source` is the verbatim fence body (kept
+    /// byte-exact so click-to-edit reveals the real DOT/Dippin/Mermaid text).
+    case diagram(source: String, format: DiagramFormat)
     /// Display math from `$$ … $$`.
     case mathBlock(latex: String)
     case table(header: [TableCell], rows: [[TableCell]], alignments: [TableAlignment])

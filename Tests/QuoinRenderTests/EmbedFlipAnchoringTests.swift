@@ -52,7 +52,7 @@ final class EmbedFlipAnchoringTests: XCTestCase {
 
     private func mermaidBlockID(in document: QuoinDocument) -> BlockID? {
         document.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         }?.id
     }

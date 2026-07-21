@@ -32,7 +32,7 @@ public struct DocumentSearch: Sendable {
                     texts.append(BlockText(blockID: block.id, text: inlines.plainText))
                 case .codeBlock(_, let code):
                     texts.append(BlockText(blockID: block.id, text: code))
-                case .mermaid(let source):
+                case .diagram(let source, _):
                     texts.append(BlockText(blockID: block.id, text: source))
                 case .mathBlock(let latex):
                     texts.append(BlockText(blockID: block.id, text: latex))

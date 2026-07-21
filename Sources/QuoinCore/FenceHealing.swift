@@ -15,7 +15,7 @@ public enum FenceHealing {
     /// and `$$` math blocks. Indented code has no fence and never heals.
     public static func healingSuffix(for source: String, kind: BlockKind) -> String? {
         switch kind {
-        case .codeBlock, .mermaid:
+        case .codeBlock, .diagram:
             return fencedCodeSuffix(for: source)
         case .mathBlock:
             return mathSuffix(for: source)

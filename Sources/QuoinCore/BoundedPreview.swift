@@ -182,7 +182,7 @@ public enum BoundedPreview {
 
     private static func reduce(_ block: Block, bounds: PreviewBounds, counter: inout Int) -> Block {
         switch block.kind {
-        case .mermaid:
+        case .diagram:
             return placeholder(PreviewPlaceholder.mermaid, like: block, counter: &counter)
 
         case .mathBlock(let latex):

@@ -96,8 +96,8 @@ public enum HTMLExporter {
             case .codeBlock(let language, let code):
                 let lang = language.map { " class=\"language-\(escape($0))\"" } ?? ""
                 out += "<pre><code\(lang)>\(escape(code))</code></pre>\n"
-            case .mermaid(let source):
-                out += "<pre class=\"mermaid-source\"><code>\(escape(source))</code></pre>\n"
+            case .diagram(let source, let format):
+                out += "<pre class=\"diagram-source language-\(format.fenceLanguage)\"><code>\(escape(source))</code></pre>\n"
             case .mathBlock(let latex):
                 out += "<p class=\"math-display\">\\[\(escape(latex))\\]</p>\n"
             case .table(let header, let rows, let alignments):

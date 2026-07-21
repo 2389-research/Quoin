@@ -115,7 +115,7 @@ final class BoundedPreviewTests: XCTestCase {
         let source = "```mermaid\ngraph TD; A-->B;\n```"
         let bounded = BoundedPreview.make(fromSource: source, bounds: .preview)
         XCTAssertFalse(containsBlock(bounded.document.blocks) {
-            if case .mermaid = $0 { return true } else { return false }
+            if case .diagram = $0 { return true } else { return false }
         }, "no raw mermaid block should survive into the bounded model")
         // It renders as a labelled code placeholder.
         let hasLabel = containsBlock(bounded.document.blocks) {
@@ -167,7 +167,7 @@ final class BoundedPreviewTests: XCTestCase {
         """
         let bounded = BoundedPreview.make(fromSource: source, bounds: .preview)
         XCTAssertFalse(containsBlock(bounded.document.blocks) {
-            if case .mermaid = $0 { return true } else { return false }
+            if case .diagram = $0 { return true } else { return false }
         }, "nested mermaid must be substituted too")
         let inlines = allInlines(bounded.document.blocks)
         XCTAssertFalse(inlines.contains { if case .math = $0 { return true }; return false })

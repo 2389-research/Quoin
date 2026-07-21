@@ -28,7 +28,7 @@ final class PreviewAnchoredRevealTests: XCTestCase {
 
     private func mermaidBlock(in document: QuoinDocument) throws -> Block {
         try XCTUnwrap(document.blocks.first {
-            if case .mermaid = $0.kind { return true }
+            if case .diagram = $0.kind { return true }
             return false
         })
     }
@@ -86,7 +86,7 @@ final class PreviewAnchoredRevealTests: XCTestCase {
         let brokenSlice = slice.replacingOccurrences(of: "flowchart TD", with: "@@@flowchart TD")
         let brokenDocument = MarkdownConverter.parse("# Doc\n\n\(brokenSlice)\n\nTail.\n")
         let brokenBlock = try mermaidBlock(in: brokenDocument)
-        guard case .mermaid(let payload) = brokenBlock.kind,
+        guard case .diagram(let payload, _) = brokenBlock.kind,
               MermaidRenderer.attachmentString(source: payload, theme: Theme().diagramTheme) == nil else {
             throw XCTSkip("fixture unexpectedly parses; paused path not exercised")
         }

@@ -162,7 +162,9 @@ packages:
 - **[MermaidKit](https://github.com/2389-research/MermaidKit)** — a native Mermaid
   engine (Sugiyama-style layering, orthogonal elbow routing, cycle-safe layout,
   UML markers, composite states, front-matter `title`/`config`), drawn with
-  CoreGraphics. No Mermaid.js, no headless browser.
+  CoreGraphics. No Mermaid.js, no headless browser. It also renders **Graphviz
+  DOT** (` ```dot `) and **Dippin** (` ```dippin `) fenced blocks through the
+  same engine — the fence language picks the front-end.
 
 Both are Quoin-owned, independently versioned, CI-tested, and reusable by any
 Swift host — so the quality is a shared, provable asset, not a black box buried

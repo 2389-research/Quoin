@@ -181,7 +181,7 @@ public enum MarkdownConverter {
 
         let block = previous.blocks[blockIndex]
         switch block.kind {
-        case .codeBlock, .mermaid, .mathBlock: break
+        case .codeBlock, .diagram, .mathBlock: break
         default: return nil
         }
         guard let oldSlice = previous.source.substring(in: block.range) else { return nil }
@@ -293,7 +293,7 @@ public enum MarkdownConverter {
     private static func sameEmbedFamily(_ a: BlockKind, _ b: BlockKind) -> Bool {
         switch (a, b) {
         case (.codeBlock(let la, _), .codeBlock(let lb, _)): return la == lb
-        case (.mermaid, .mermaid): return true
+        case (.diagram, .diagram): return true
         case (.mathBlock, .mathBlock): return true
         default: return false
         }
@@ -930,13 +930,18 @@ public enum MarkdownConverter {
             let language = code.language?.trimmingCharacters(in: .whitespaces).lowercased()
 
             switch language {
-            case "mermaid":
-                stats.diagramCount += 1
-                return makeBlock(kind: .mermaid(source: body), range: range)
             case "math", "latex", "tex":
                 stats.mathCount += 1
                 return makeBlock(kind: .mathBlock(latex: expandMathBlock(body)), range: range)
             default:
+                // Native diagram fences: mermaid, dot (Graphviz), dippin — all
+                // rendered by MermaidKit. A non-diagram language is an ordinary
+                // code block. (`sql`/`git` stay code blocks: those are far more
+                // often literal code than a diagram, so we never hijack them.)
+                if let language, let format = DiagramFormat(fenceLanguage: language) {
+                    stats.diagramCount += 1
+                    return makeBlock(kind: .diagram(source: body, format: format), range: range)
+                }
                 stats.codeBlockCount += 1
                 appendProse(body)
                 return makeBlock(kind: .codeBlock(language: code.language, code: body), range: range)

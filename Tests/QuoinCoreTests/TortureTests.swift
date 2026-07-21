@@ -70,7 +70,7 @@ final class TortureTests: XCTestCase {
 
     func testBrokenMermaidFallsBack() {
         let doc = MarkdownConverter.parse("```mermaid\n%%%% not a diagram {{{\n```")
-        guard case .mermaid(let source) = doc.blocks[0].kind else {
+        guard case .diagram(let source, _) = doc.blocks[0].kind else {
             return XCTFail("expected mermaid block")
         }
         XCTAssertNil(MermaidParser.parse(source)) // renderer will fall back

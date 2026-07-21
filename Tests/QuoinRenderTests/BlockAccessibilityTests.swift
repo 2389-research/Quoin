@@ -100,7 +100,7 @@ final class BlockAccessibilityTests: XCTestCase {
     }
 
     func testSimpleKindAnnouncements() {
-        XCTAssertEqual(BlockAccessibility.announcement(for: .mermaid(source: "graph TD")), "Diagram")
+        XCTAssertEqual(BlockAccessibility.announcement(for: .diagram(source: "graph TD", format: .mermaid)), "Diagram")
         XCTAssertEqual(BlockAccessibility.announcement(for: .mathBlock(latex: "x^2")), "Equation")
         XCTAssertEqual(BlockAccessibility.announcement(for: .blockQuote(children: [])), "Block quote")
         XCTAssertEqual(BlockAccessibility.announcement(for: .thematicBreak), "Separator")

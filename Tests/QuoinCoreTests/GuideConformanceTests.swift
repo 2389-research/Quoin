@@ -35,7 +35,7 @@ final class GuideConformanceTests: XCTestCase {
         hasBlock({ if case .table = $0 { return true }; return false }, "table")
         hasBlock({ if case .blockQuote = $0 { return true }; return false }, "blockquote")
         hasBlock({ if case .list = $0 { return true }; return false }, "list")
-        hasBlock({ if case .mermaid = $0 { return true }; return false }, "mermaid diagram")
+        hasBlock({ if case .diagram = $0 { return true }; return false }, "mermaid diagram")
         hasBlock({ if case .mathBlock = $0 { return true }; return false }, "math block")
 
         // Every block's range must map back to the exact bytes it claims.

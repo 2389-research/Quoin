@@ -298,7 +298,7 @@ public enum SpotlightIndexing {
                 for item in items { collectText(item.blocks, into: &parts) }
             case .blockQuote(let children), .callout(_, let children):
                 collectText(children, into: &parts)
-            case .mermaid, .frontMatter, .reviewEndmatter, .tableOfContents,
+            case .diagram, .frontMatter, .reviewEndmatter, .tableOfContents,
                  .thematicBreak, .htmlBlock:
                 // Diagrams, metadata chips, the TOC marker, rules, and raw HTML
                 // are not prose — indexing them would only add noise.
