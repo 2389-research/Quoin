@@ -183,11 +183,12 @@ struct MainWindow: View {
             guard isKeyWindow else { return }
             if let url = library.createDocument() {
                 open(url)  // library window: create in the library, open as a tab
-            } else {
-                // No library configured (#18): ⌘N used to silently no-op. Ask
-                // where to put the new document and open it as a standalone tab
-                // — same powerbox fallback the Services provider (#35) uses.
-                createStandaloneDocumentViaPanel()
+            } else if let url = ScratchStore.createUntitled() {
+                // No library (#18): create an INSTANT, autosaved untitled document
+                // in the scratch store and open it standalone — no save panel
+                // (frictionless creation; docs/design/principles.md). It survives
+                // quit; ⌘S later gives it a real home.
+                open(url)
             }
         }
         // File ▸ Duplicate: copy the active document to a unique sibling and
@@ -214,6 +215,12 @@ struct MainWindow: View {
                 // standard Close behavior (previously it silently no-op'd).
                 NSApp.keyWindow?.performClose(nil)
             }
+        }
+        // File ▸ Save (⌘S): flush a saved document, or Save-As an untitled
+        // scratch document to a real home (docs/design/principles.md).
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.saveNotification)) { _ in
+            guard isKeyWindow else { return }
+            saveActiveDocument()
         }
         // Window ▸ Show Next/Previous Tab (⌃⇥ / ⌃⇧⇥): cycle Quoin's own
         // document tabs, wrapping at the ends (the standard tab-nav feel).
@@ -335,6 +342,12 @@ struct MainWindow: View {
             // before any observer existed — drain it once the library connects.
             // Single window here, so the save-panel fallback is allowed inline.
             claimPendingSelectionSeed(fallbackToPanel: true)
+            // Reopen untitled scratch documents from a previous session so
+            // unsaved work survives quit (principles.md). Launch-only, and one
+            // window claims them so they don't reopen in every window.
+            if AppDelegate.isLaunchRestoration, AppDelegate.claimScratchReopen() {
+                for url in ScratchStore.existingUntitled() { open(url) }
+            }
             // Publish the active document as the current activity (#36) once the
             // library (its confinement root) is connected.
             updateUserActivity()
@@ -689,22 +702,41 @@ struct MainWindow: View {
         open(url)
     }
 
-    /// ⌘N with no library configured (#18): ask where to put a new, empty
-    /// document, create it, and open it as a standalone tab. The save panel is
-    /// the powerbox grant that makes the write legal under the sandbox — the
-    /// same fallback the Services provider (#35) uses when there's no library.
-    private func createStandaloneDocumentViaPanel() {
-        let panel = NSSavePanel()
-        panel.allowedContentTypes = [.markdownDocument]
-        panel.nameFieldStringValue = "Untitled.md"
-        panel.message = "Choose where to save the new document."
-        panel.prompt = "Create"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        guard (try? Data("".utf8).write(to: url)) != nil else {
-            NSSound.beep()
+    /// ⌘S on an untitled scratch document (docs/design/principles.md): the
+    /// deferred commitment. Prompt for a real home (rooted in the user's home
+    /// directory), MOVE the file out of the scratch store to there, and reopen
+    /// it at its new location — now an ordinary document. On a document that
+    /// already has a home, ⌘S just flushes the pending autosave.
+    private func saveActiveDocument() {
+        guard let tab = activeTab else { return }
+        guard ScratchStore.isScratch(tab.url) else {
+            Task { await store.flush(tab.url) }  // already has a home; just flush
             return
         }
-        open(url)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.markdownDocument]
+        panel.nameFieldStringValue = tab.url.lastPathComponent
+        panel.directoryURL = FileManager.default.homeDirectoryForCurrentUser
+        panel.message = "Save this document."
+        panel.prompt = "Save"
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        Task {
+            // Flush unsaved keystrokes into the scratch file, release the live
+            // session (stops the watcher so the move isn't seen as a delete),
+            // move the file to its new home, then reopen it there.
+            await store.flush(tab.url)
+            close(tab)
+            do {
+                if FileManager.default.fileExists(atPath: destination.path) {
+                    try FileManager.default.removeItem(at: destination)
+                }
+                try FileManager.default.moveItem(at: tab.url, to: destination)
+            } catch {
+                NSSound.beep()
+                return
+            }
+            open(destination)
+        }
     }
 
     /// Publish (or resign) the active document as the current `NSUserActivity`
@@ -758,6 +790,15 @@ struct MainWindow: View {
         // Let go of this window's hold on the file; the store stops the session
         // only when the LAST tab (across all windows) releases it.
         store.release(tab.url)
+        // A never-typed-into scratch document shouldn't linger and reopen every
+        // launch: discard an EMPTY untitled file on close (there's nothing to
+        // keep). A scratch doc with content is left in place — closing it keeps
+        // your unsaved work, which reopens next launch (principles.md).
+        if ScratchStore.isScratch(tab.url),
+           (try? String(contentsOf: tab.url, encoding: .utf8))?
+               .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false {
+            try? FileManager.default.removeItem(at: tab.url)
+        }
         // Browser-standard positional stability (#77): focus the tab now in
         // the closed tab's slot, not the rightmost tab.
         if activeTabID == tab.id {

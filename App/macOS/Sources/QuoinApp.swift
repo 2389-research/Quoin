@@ -30,8 +30,14 @@ struct QuoinApp: App {
             // system's "New Window"/"Close" pair lied about ⌘N/⌘W (launch
             // ledger UI #5); the real grammar is documents and tabs.
             FileCommands()
-            // Save is automatic (autosave-in-place).
-            CommandGroup(replacing: .saveItem) {}
+            // Saved documents autosave in place, so ⌘S there just flushes the
+            // pending write. For an UNTITLED scratch document it is the deferred
+            // commitment — Save As, relocating it out of the scratch store to a
+            // real home (docs/design/principles.md).
+            CommandGroup(replacing: .saveItem) {
+                Button("Save…") { post(AppDelegate.saveNotification) }
+                    .keyboardShortcut("s", modifiers: .command)
+            }
             EditCommands()
             AboutCommands()
             #if canImport(Sparkle)
@@ -670,6 +676,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let toggleSentenceFocusNotification = Notification.Name("quoin.toggleSentenceFocus")
     static let toggleTypewriterNotification = Notification.Name("quoin.toggleTypewriter")
     static let newDocumentNotification = Notification.Name("quoin.newDocument")
+    static let saveNotification = Notification.Name("quoin.save")
     static let duplicateDocumentNotification = Notification.Name("quoin.duplicateDocument")
     static let trashDocumentNotification = Notification.Name("quoin.trashDocument")
     static let closeTabNotification = Notification.Name("quoin.closeTab")
@@ -761,6 +768,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     static func claimDurableSession() { durableSessionClaimed = true }
+
+    /// Untitled scratch documents (principles.md) reopen at launch so unsaved
+    /// work survives quit — but only ONE window claims them (else every window
+    /// reopens every scratch doc). Returns true for the first caller this launch.
+    private static var scratchReopened = false
+    static func claimScratchReopen() -> Bool {
+        guard !scratchReopened else { return false }
+        scratchReopened = true
+        return true
+    }
 
     /// Opt into secure state restoration (the modern default); without this
     /// macOS logs "does not implement… returning NO" and opts the app out.
