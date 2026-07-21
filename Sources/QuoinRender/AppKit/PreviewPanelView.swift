@@ -31,6 +31,10 @@ final class PreviewPanelView: NSView {
     private var generation = 0
     /// Session-locked display scale (steady frame).
     private var lockedScale: CGFloat?
+    /// The image size the `lockedScale` was fitted to. When a live edit grows
+    /// (or shrinks) the diagram, the size changes and we must re-fit — otherwise
+    /// the stale scale lets a widening diagram overflow the panel and clip.
+    private var lastFittedImageSize: CGSize?
 
     static let interiorPadding: CGFloat = 10
 
@@ -101,12 +105,16 @@ final class PreviewPanelView: NSView {
 
         if let image = plan.image, plan.treatment != .none {
             // Steady frame: lock the display scale on first presentation;
-            // isolated re-fits (dissolve swaps) may re-lock.
-            if lockedScale == nil || plan.treatment == .appear || plan.treatment == .dissolve {
+            // appear/dissolve swaps re-lock. ALSO re-lock when the image size
+            // changed — a live edit that widens the diagram must re-fit, else it
+            // overflows the panel at the stale scale and clips (#42).
+            if lockedScale == nil || plan.treatment == .appear || plan.treatment == .dissolve
+                || image.size != lastFittedImageSize {
                 lockedScale = Self.fitScale(
                     for: image.size,
                     maxWidth: panelWidth - Self.interiorPadding * 2,
                     maxHeight: Self.maxImageHeight(frameBox: frameBox))
+                lastFittedImageSize = image.size
             }
         }
         let target = Self.panelFrame(

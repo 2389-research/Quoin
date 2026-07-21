@@ -402,6 +402,11 @@ public struct AttributedRenderer: Sendable {
 
     /// Width reserved for the side-by-side preview panel (plus its gap):
     /// the revealed source's paragraphs take a matching tail indent.
+    // NOTE: a fixed bump here regresses narrow windows — a wider panel leaves
+    // the source below `minimumSourceWidth`, so the panel dismisses entirely
+    // (no preview). The "too small / wastes space" fix needs a RESPONSIVE width
+    // coordinated with the renderer's source inset — tracked in #42, not a
+    // constant change. The clip fix (re-fit on size change) ships independently.
     public static let previewPanelWidth: CGFloat = 320
     public static let previewPanelGap: CGFloat = 16
 
