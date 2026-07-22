@@ -1914,6 +1914,12 @@ public struct AttributedRenderer: Sendable {
         style.lineHeightMultiple = 1.2
         style.paragraphSpacing = 5
         style.paragraphSpacingBefore = 3
+        // Keep a wrapping prose cell inside its column: wrapped lines indent to
+        // the widest column's start rather than collapsing to the left margin
+        // (tab stops can't hold a wrapping column). First line stays at 0 so the
+        // tab-stop columns lay out normally.
+        style.firstLineHeadIndent = 0
+        style.headIndent = layout.wrapIndent
 
         func renderRow(_ cells: [TableCell], font: PlatformFont, color: PlatformColor) -> NSAttributedString {
             let row = NSMutableAttributedString()

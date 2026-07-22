@@ -92,5 +92,24 @@ final class TableLayoutTests: XCTestCase {
         XCTAssertFalse(TableLayout.isNumeric("--"), "punctuation alone with no digit is not numeric")
         XCTAssertFalse(TableLayout.isNumeric(""))
     }
+
+    func testWrapIndentAnchorsToWidestColumnStart() {
+        // A wide LAST prose column: wrapped lines must indent to its start so
+        // they stay under the column, not the left margin.
+        let l = try! XCTUnwrap(layout(
+            header: ["Repo", "Disposition", "Role"],
+            rows: [["tracker", "keep-core", "a very long role description that wraps"]]))
+        // col0=70, col1=110 (Disposition), col2 widest. Starts: 0, 94, 228.
+        XCTAssertEqual(l.wrapIndent, 228, "wrap indent = widest (last) column's left edge")
+    }
+
+    func testWrapIndentZeroWhenWidestColumnIsNotLeftAligned() {
+        // A right-aligned widest column has no left-edge tab stop to anchor to.
+        let l = try! XCTUnwrap(layout(
+            header: ["Name", "Amount"],
+            rows: [["a", "1234567890 a long right aligned value"]],
+            alignments: [.left, .right]))
+        XCTAssertEqual(l.wrapIndent, 0)
+    }
 }
 #endif

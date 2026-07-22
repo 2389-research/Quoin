@@ -29,6 +29,13 @@ struct TableLayout {
     let tabStops: [NSTextTab]
     /// Content width of the table (last column's right edge), for the rules.
     let totalWidth: CGFloat
+    /// The left edge (x) of the WIDEST column — the one most likely to wrap.
+    /// Used as the row paragraph's `headIndent` so a long prose cell's
+    /// wrapped lines stay under their column instead of collapsing to the
+    /// left margin (tab stops can't hold a wrapping column). Handles the
+    /// common "one wide last/prose column" table; a second wide column in the
+    /// same row would still misalign — the real fix is block layout.
+    let wrapIndent: CGFloat
 
     /// Measures a cell's rendered text width in the given font.
     typealias Measurer = (_ text: String, _ font: PlatformFont) -> CGFloat
@@ -79,7 +86,9 @@ struct TableLayout {
         var tabStops: [NSTextTab] = []
         var columnStart: CGFloat = 0
         var totalWidth: CGFloat = 0
+        var columnStarts = [CGFloat](repeating: 0, count: columnCount)
         for column in 0..<columnCount {
+            columnStarts[column] = columnStart
             if column > 0 {
                 switch alignments[column] {
                 case .center:
@@ -94,13 +103,21 @@ struct TableLayout {
             columnStart += widths[column] + columnGap
         }
 
+        // The widest column is the one most likely to wrap; anchor wrapped
+        // lines to its left edge. A left-aligned column wraps under its own
+        // start; for center/right alignment the tab stop isn't the left edge,
+        // so only left-aligned wide columns get the anchor (0 otherwise).
+        let widestColumn = widths.indices.max(by: { widths[$0] < widths[$1] }) ?? 0
+        let wrapIndent = alignments[widestColumn] == .left ? columnStarts[widestColumn] : 0
+
         return TableLayout(
             columnCount: columnCount,
             widths: widths,
             alignments: alignments,
             isNumeric: isNumeric,
             tabStops: tabStops,
-            totalWidth: totalWidth
+            totalWidth: totalWidth,
+            wrapIndent: wrapIndent
         )
     }
 
