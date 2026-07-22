@@ -215,7 +215,7 @@ resolution rules are covered in [suggestions.md](suggestions.md).
 | **H2** | 20 / 1.3 | 700 | above 28, below 10 | ink |
 | **H3** | 16 / 1.35 | 600 | above 22, below 8 | ink |
 | **H4–H6** | 14 | 600 | above 16, below 8 | 55% ink |
-| **Body** | 14 / 1.7 | 400 | paragraph gap 12 | `#333` |
+| **Body** | 14 / 1.4 | 400 | paragraph gap 12 | `#333` |
 
 The ramp steps down in size, weight, and surrounding space together — each
 level's whitespace shrinks along with its type, so hierarchy reads from

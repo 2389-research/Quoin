@@ -64,7 +64,10 @@ public struct Theme: Sendable {
         return copy
     }
     public var bodySize: CGFloat = 14
-    public var bodyLineHeightMultiple: CGFloat = 1.7
+    // Handoff spec was 1.7; tightened on Clint's directive (2026-07-21) — 1.7
+    // read too loose next to a terminal. Long-form still wants a touch more
+    // than a terminal's ~1.25, so 1.4.
+    public var bodyLineHeightMultiple: CGFloat = 1.4
     public var paragraphSpacing: CGFloat = 12
     public var contentInset: CGFloat = 48   // gutters ≥48pt
     public var maxContentWidth: CGFloat = 680
