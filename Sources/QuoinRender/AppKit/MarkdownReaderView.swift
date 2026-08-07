@@ -390,6 +390,12 @@ public struct MarkdownReaderView: NSViewRepresentable {
         textView.selectAllScope = { [weak coordinator = context.coordinator] in
             coordinator?.parent.rendered.activeEditableRange
         }
+        // ⇧Return → hard break, but only in a prose block (macOS routes it to
+        // insertNewline: by default; QuoinTextView.keyDown re-routes it here).
+        textView.shiftReturnMakesHardBreak = { [weak coordinator = context.coordinator] in
+            guard let kind = coordinator?.parent.rendered.activeBlockKind else { return false }
+            return ReturnSemantics.mode(for: kind) == .paragraphBreak
+        }
         textView.drawsBackground = true
         textView.backgroundColor = theme.canvas
         textView.linkTextAttributes = [

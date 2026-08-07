@@ -59,6 +59,26 @@ final class QuoinTextView: NSTextView {
         super.selectAll(sender)
     }
 
+    /// ⇧Return in a prose block inserts an explicit hard line break. macOS binds
+    /// `insertLineBreak:` to ⌃Return, not ⇧Return — StandardKeyBinding.dict has
+    /// NO Shift+Return entry, so Shift+Return otherwise falls through to
+    /// `insertNewline:` and reads as a plain paragraph break. Every app that
+    /// offers "Shift-Return = line break" (Slack, browsers, most editors)
+    /// intercepts the keystroke here. Gated to prose (the closure consults the
+    /// active block's kind) so ⇧Return inside a code/table/verbatim block stays
+    /// an ordinary newline via the normal `insertNewline:` path.
+    var shiftReturnMakesHardBreak: (() -> Bool)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 76,   // Return / keypad Enter
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .shift,
+           shiftReturnMakesHardBreak?() == true {
+            doCommand(by: #selector(NSTextView.insertLineBreak(_:)))
+            return
+        }
+        super.keyDown(with: event)
+    }
+
     /// Internal for tests (the incremental-maintenance equivalence check).
     var decorationRuns: [(range: NSRange, decoration: BlockDecoration)] = []
     private var runsAreStale = true
