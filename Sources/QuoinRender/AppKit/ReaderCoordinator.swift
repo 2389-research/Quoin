@@ -1986,11 +1986,10 @@ extension MarkdownReaderView {
             if commandSelector == #selector(NSTextView.insertBacktab(_:)) {
                 return indentListLines(outdent: true, in: textView)
             }
-            // Return on a list/quote/checkbox line continues the marker (or
-            // ends the list on an empty item), like every native editor.
-            // Non-list lines fall through to the ordinary newline.
+            // Return is routed through THE rule table (ReturnSemantics), so
+            // every block kind's behavior is decided in exactly one place.
             if commandSelector == #selector(NSTextView.insertNewline(_:)) {
-                return continueListOnReturn(in: textView)
+                return handleReturn(in: textView)
             }
             // ⌘A while EDITING selects the active block's editable range,
             // not the whole document (live redline 2026-07-15) — the block
@@ -2063,6 +2062,50 @@ extension MarkdownReaderView {
             return true
         }
 
+        /// Return, routed through THE rule table (ReturnSemantics) so every
+        /// block kind's behavior is decided in exactly one place. Reads the
+        /// active block's kind from Task 1's seam and dispatches; unhandled
+        /// modes return false so the system inserts a plain newline.
+        private func handleReturn(in textView: NSTextView) -> Bool {
+            guard let kind = parent.rendered.activeBlockKind else { return false }
+            switch ReturnSemantics.mode(for: kind) {
+            case .listAware:
+                return continueListOnReturn(in: textView)
+            case .paragraphBreak:
+                return insertParagraphBreak(in: textView)
+            case .quoteAware:
+                return false   // Task 7
+            case .tableRow:
+                return false   // Task 8
+            case .verbatim:
+                return false   // plain \n — the system's own insertion
+            }
+        }
+
+        /// Return in a prose block (paragraph/heading): insert a real paragraph
+        /// break at the caret. Mirrors `newParagraphAtDocumentEnd` but drops the
+        /// end-of-document guard, uses `paragraphBreakInsertion`, and computes
+        /// the byte range AT the caret (mid-paragraph Return splits the block).
+        private func insertParagraphBreak(in textView: NSTextView) -> Bool {
+            guard let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            let atEnd = NSMaxRange(active) == (textView.string as NSString).length
+            guard let insertion = Self.paragraphBreakInsertion(
+                    sourceText: sourceText, relCaret: relCaret, atDocumentEnd: atEnd),
+                  let byteOffset = EditMapping.utf8Offset(inText: sourceText, utf16Offset: relCaret)
+            else { return false }
+            onEdit(ByteRange(offset: byteOffset, length: 0), insertion, nil)
+            beginAwaitingEditEcho()
+            return true
+        }
+
         /// Return inside the active block's revealed source: continue a
         /// list/quote/checkbox marker onto the new line (or, on an empty item,
         /// end the list by removing the marker), as ONE relative byte edit.
@@ -2121,17 +2164,37 @@ extension MarkdownReaderView {
             return true
         }
 
+        /// The text a Return inserts in PROSE, or nil when the gesture doesn't
+        /// apply. From content → a paragraph break (`\n\n`); already sitting on
+        /// a blank line → one more line (`\n`). Pure, so the decision is
+        /// unit-tested without a live text view. This is THE prose recognizer;
+        /// `endOfDocumentParagraphInsertion` is a guarded forwarder to it.
+        static func paragraphBreakInsertion(
+            sourceText: String, relCaret: Int, atDocumentEnd: Bool
+        ) -> String? {
+            let ns = sourceText as NSString
+            guard relCaret >= 0, relCaret <= ns.length else { return nil }
+            // Everything from the caret to the slice's end: only newlines means
+            // the caret is on (or before) absorbed blank lines.
+            let rest = ns.substring(from: relCaret)
+            guard rest.allSatisfy({ $0 == "\n" }) else { return "\n\n" }
+            let before = ns.substring(to: relCaret)
+            let trailing = before.reversed().prefix(while: { $0 == "\n" }).count
+            return trailing == 0 ? "\n\n" : "\n"
+        }
+
         /// The text a Return at the document's end inserts, or nil when the
         /// gesture doesn't apply (caret not at the end of the slice, or not at
-        /// the end of the document). From content → a paragraph break (\n\n);
-        /// already sitting on a trailing empty line → one more line (\n). Pure
-        /// so the decision is unit-tested without a live text view.
+        /// the end of the document). A thin, guarded forwarder to
+        /// `paragraphBreakInsertion` — kept because `newParagraphAtDocumentEnd`
+        /// (the non-list fallthrough inside a LIST block) still routes through
+        /// it; the end-of-document guard is what distinguishes that path.
         static func endOfDocumentParagraphInsertion(
             sourceText: String, relCaret: Int, atDocumentEnd: Bool
         ) -> String? {
             guard atDocumentEnd, relCaret == (sourceText as NSString).length else { return nil }
-            let trailingNewlines = sourceText.reversed().prefix(while: { $0 == "\n" }).count
-            return trailingNewlines == 0 ? "\n\n" : "\n"
+            return paragraphBreakInsertion(
+                sourceText: sourceText, relCaret: relCaret, atDocumentEnd: atDocumentEnd)
         }
 
         /// The pure computation behind Return list continuation: which UTF-16

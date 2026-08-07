@@ -78,5 +78,39 @@ final class EndOfDocumentReturnTests: XCTestCase {
             MarkdownReaderView.Coordinator.endOfDocumentParagraphInsertion(
                 sourceText: "Hello", relCaret: 2, atDocumentEnd: true))
     }
+
+    // MARK: mid-document Return — the general case
+
+    typealias C = MarkdownReaderView.Coordinator
+
+    func testReturnAtEndOfMidDocumentParagraphInsertsAParagraphBreak() {
+        // Caret at the end of "A" in "A\n\nB"; the slice is "A" (canonical gap).
+        XCTAssertEqual(
+            C.paragraphBreakInsertion(sourceText: "A", relCaret: 1, atDocumentEnd: false),
+            "\n\n")
+    }
+
+    func testReturnOnAnAbsorbedBlankLineAddsOneMoreLine() {
+        // A Return already happened: the slice is "A\n", caret on the blank line.
+        XCTAssertEqual(
+            C.paragraphBreakInsertion(sourceText: "A\n", relCaret: 2, atDocumentEnd: false),
+            "\n")
+    }
+
+    func testReturnMidParagraphSplitsIt() {
+        // Caret between "He" and "llo" — a paragraph break splits into two blocks.
+        XCTAssertEqual(
+            C.paragraphBreakInsertion(sourceText: "Hello", relCaret: 2, atDocumentEnd: false),
+            "\n\n")
+    }
+
+    func testEndOfDocumentBehaviorIsUnchanged() {
+        XCTAssertEqual(
+            C.paragraphBreakInsertion(sourceText: "Hello", relCaret: 5, atDocumentEnd: true),
+            "\n\n")
+        XCTAssertEqual(
+            C.paragraphBreakInsertion(sourceText: "Hello\n", relCaret: 6, atDocumentEnd: true),
+            "\n")
+    }
 }
 #endif
