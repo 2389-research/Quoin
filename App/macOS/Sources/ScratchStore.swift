@@ -61,8 +61,13 @@ enum ScratchStore {
     /// reopens scratch documents, or it races the reopen.
     static func purgeEmptyUntitled() {
         for url in existingUntitled() {
-            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Same emptiness predicate as the on-close GC (MainWindow.close), via
+            // one shared source of truth: a FAILED read (nil — invalid UTF-8, a
+            // transient I/O error) is treated as NON-empty and the file is KEPT.
+            // A scratch doc with real content must NEVER be purged, even when it
+            // momentarily fails to read.
+            let contents = try? String(contentsOf: url, encoding: .utf8)
+            if ScratchHousekeeping.isDiscardableEmptyScratch(contents: contents) {
                 try? FileManager.default.removeItem(at: url)
             }
         }
