@@ -627,6 +627,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// notification never loses an open. Empty between deliveries.
     static var pendingOpenURLs: [URL] = []
 
+    /// Read-only peek at whether a file open is still pending — used by the
+    /// first-run auto-untitled guard so a Finder double-click that hasn't drained
+    /// yet suppresses the blank document. Does NOT clear the slot (unlike
+    /// `drainPendingOpenURLs`), so the real drain still runs.
+    static var hasPendingOpenURLs: Bool { !pendingOpenURLs.isEmpty }
+
     /// Append a file URL to the pending-open slot and signal a window to drain
     /// it. Routes Finder/menu/dock/drop opens through the ONE open path
     /// (`MainWindow.open`, i.e. a real tab + session), never detached state.

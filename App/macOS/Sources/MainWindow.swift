@@ -57,6 +57,12 @@ struct MainWindow: View {
     /// unless the user accepts. Not persisted: the offer is tied to the pick
     /// action, never nagged on every launch.
     @State private var offerSample = false
+    /// First-run guidance card (Part B): shown once, right below the caret, when
+    /// `onAppear` materialized the auto-untitled document because nothing else
+    /// claimed the window. It fades on the first keystroke (the document stops
+    /// being empty) or the ×; not persisted — it belongs to that one window's
+    /// birth, never nagged again.
+    @State private var showFirstRunBanner = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     /// Menu actions must land in the KEY window only — every observer
     /// below guards on this (launch ledger BLOCKER: two windows used to
@@ -91,8 +97,12 @@ struct MainWindow: View {
             VStack(spacing: 0) {
                 // A library is NOT required to edit: opening a file (⌘O / Finder
                 // / Open Recent) builds a standalone tab with no rootURL (#18).
-                // Onboard only when there is genuinely nothing to show.
-                if openTabs.isEmpty && !library.hasLibrary {
+                // First run is no longer a filing decision — `onAppear`
+                // materializes a writable untitled document (principles.md), so
+                // `chooseLibraryPrompt` survives ONLY as the recovery surface for
+                // a vanished library (a restore failure must never masquerade as
+                // a fresh install). Everything else falls through to the editor.
+                if openTabs.isEmpty && library.bookmarkRestoreFailure != nil {
                     chooseLibraryPrompt
                 } else {
                     DocumentTabBar(tabs: openTabs, activeTabID: $activeTabID) { tab in
@@ -129,6 +139,37 @@ struct MainWindow: View {
                             onInitialScrollConsumed: { pendingRestoreAnchor = nil }
                         )
                         .id(tab.id)
+                        // First-run guidance, just below the caret (Part B). Only
+                        // when `onAppear` created the auto-untitled document;
+                        // fades on the first keystroke or the ×.
+                        .overlay(alignment: .top) {
+                            if showFirstRunBanner {
+                                FirstRunBanner(
+                                    model: model,
+                                    onOpenFile: {
+                                        presentOpenPanel()
+                                        withAnimation(reduceMotion ? nil : .default) {
+                                            showFirstRunBanner = false
+                                        }
+                                    },
+                                    onConnectLibrary: {
+                                        if library.chooseLibraryFolder() {
+                                            offerSample = library.shouldOfferSampleDocuments
+                                        }
+                                        withAnimation(reduceMotion ? nil : .default) {
+                                            showFirstRunBanner = false
+                                        }
+                                    },
+                                    onDismiss: {
+                                        withAnimation(reduceMotion ? nil : .default) {
+                                            showFirstRunBanner = false
+                                        }
+                                    }
+                                )
+                                .padding(.top, 14)
+                                .transition(.opacity)
+                            }
+                        }
                     } else {
                         emptyState
                     }
@@ -345,8 +386,25 @@ struct MainWindow: View {
             // Reopen untitled scratch documents from a previous session so
             // unsaved work survives quit (principles.md). Launch-only, and one
             // window claims them so they don't reopen in every window.
+            var reopenedScratchCount = 0
             if AppDelegate.isLaunchRestoration, AppDelegate.claimScratchReopen() {
-                for url in ScratchStore.existingUntitled() { open(url) }
+                let scratch = ScratchStore.existingUntitled()
+                for url in scratch { open(url) }
+                reopenedScratchCount = scratch.count
+            }
+            // The first window someone sees is a DOCUMENT, not a filing
+            // decision (principles.md). LAST, after every drain, so a Finder
+            // open / restored session / reopened scratch doc always wins the
+            // window — a blank untitled must never race one into existence.
+            if FirstRunDecision.shouldCreateUntitled(
+                hasOpenTabs: !openTabs.isEmpty,
+                hasLibrary: library.hasLibrary,
+                hasPendingOpens: AppDelegate.hasPendingOpenURLs,
+                isLaunchRestoration: AppDelegate.isLaunchRestoration,
+                reopenedScratchCount: reopenedScratchCount),
+               let url = ScratchStore.createUntitled() {
+                open(url)
+                showFirstRunBanner = true
             }
             // Publish the active document as the current activity (#36) once the
             // library (its confinement root) is connected.
