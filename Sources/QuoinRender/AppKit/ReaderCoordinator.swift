@@ -1991,6 +1991,16 @@ extension MarkdownReaderView {
             if commandSelector == #selector(NSTextView.insertNewline(_:)) {
                 return handleReturn(in: textView)
             }
+            // Backspace / Delete UNDO the paragraph-break Return symmetrically:
+            // on an absorbed trailing blank line, remove exactly one newline
+            // (the last one merges the caret back to the paragraph's end).
+            // Ordinary deletion inside content falls through to the system.
+            if commandSelector == #selector(NSResponder.deleteBackward(_:)) {
+                return handleGapDeletion(forward: false, in: textView)
+            }
+            if commandSelector == #selector(NSResponder.deleteForward(_:)) {
+                return handleGapDeletion(forward: true, in: textView)
+            }
             // ⌘A while EDITING selects the active block's editable range,
             // not the whole document (live redline 2026-07-15) — the block
             // is the editing scope, and whole-doc selection from inside a
@@ -2106,6 +2116,34 @@ extension MarkdownReaderView {
             return true
         }
 
+        /// Backspace/Delete when the caret sits in a prose block's ABSORBED
+        /// trailing blank lines: remove exactly one newline (mirroring one
+        /// Return), routing the deletion as ONE relative byte edit so the
+        /// caret rises one line — or, on the last blank line, merges back to
+        /// the paragraph's end. Returns false for ordinary deletion, which
+        /// falls through to the system unchanged.
+        private func handleGapDeletion(forward: Bool, in textView: NSTextView) -> Bool {
+            guard let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            guard let decision = Self.gapDeletion(
+                    sourceText: sourceText, relCaret: relCaret, forward: forward),
+                  let byteRange = EditMapping.utf8Range(
+                    inText: sourceText, utf16Range: decision.utf16Range),
+                  let caretByte = EditMapping.utf8Offset(
+                    inText: sourceText, utf16Offset: decision.caretUTF16)
+            else { return false }
+            onEdit(byteRange, "", caretByte - byteRange.offset)
+            beginAwaitingEditEcho()
+            return true
+        }
+
         /// Return inside the active block's revealed source: continue a
         /// list/quote/checkbox marker onto the new line (or, on an empty item,
         /// end the list by removing the marker), as ONE relative byte edit.
@@ -2181,6 +2219,26 @@ extension MarkdownReaderView {
             let before = ns.substring(to: relCaret)
             let trailing = before.reversed().prefix(while: { $0 == "\n" }).count
             return trailing == 0 ? "\n\n" : "\n"
+        }
+
+        /// Backspace/Delete when the caret sits in a block's ABSORBED trailing
+        /// newlines: remove exactly one newline, mirroring one Return. Returns
+        /// nil for ordinary deletion, which falls through to the system.
+        static func gapDeletion(
+            sourceText: String, relCaret: Int, forward: Bool
+        ) -> (utf16Range: Range<Int>, caretUTF16: Int)? {
+            let ns = sourceText as NSString
+            guard relCaret >= 0, relCaret <= ns.length else { return nil }
+            // Only the run of trailing newlines is ours.
+            let trailing = sourceText.reversed().prefix(while: { $0 == "\n" }).count
+            let contentEnd = ns.length - trailing
+            guard trailing > 0 else { return nil }
+            if forward {
+                guard relCaret >= contentEnd, relCaret < ns.length else { return nil }
+                return (relCaret ..< relCaret + 1, relCaret)
+            }
+            guard relCaret > contentEnd, relCaret <= ns.length else { return nil }
+            return (relCaret - 1 ..< relCaret, relCaret - 1)
         }
 
         /// The text a Return at the document's end inserts, or nil when the
