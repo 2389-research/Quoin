@@ -310,19 +310,13 @@ struct MainWindow: View {
             guard isKeyWindow else { return }
             presentOpenPanel()
         }
-        // File ▸ Change Library Folder….
-        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.changeLibraryNotification)) { _ in
-            guard isKeyWindow else { return }
-            // Same first-run offer if the newly chosen folder has no samples (#13).
-            if library.chooseLibraryFolder() {
-                offerSample = library.shouldOfferSampleDocuments
-            }
-        }
         // File ▸ Connect a Library… — pick an existing folder as this window's
         // library. Relocated here after the first-run screen that hosted it was
-        // removed (Task 10/12); same sample offer as Change Library Folder.
+        // removed (Task 10/12). Sole "choose a folder" item — an earlier
+        // byte-identical "Change Library Folder…" duplicate was removed.
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.connectLibraryNotification)) { _ in
             guard isKeyWindow else { return }
+            // Same first-run offer if the newly chosen folder has no samples (#13).
             if library.chooseLibraryFolder() {
                 offerSample = library.shouldOfferSampleDocuments
             }

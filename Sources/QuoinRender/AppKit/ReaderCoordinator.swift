@@ -2291,6 +2291,8 @@ extension MarkdownReaderView {
         /// a blank line → one more line (`\n`). Pure, so the decision is
         /// unit-tested without a live text view. This is THE prose recognizer;
         /// `endOfDocumentParagraphInsertion` is a guarded forwarder to it.
+        // Inserts LF ("\n"); CRLF-fidelity on insert is a known, accepted
+        // limitation (LF-only), not a bug.
         static func paragraphBreakInsertion(
             sourceText: String, relCaret: Int, atDocumentEnd: Bool
         ) -> String? {

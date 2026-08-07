@@ -246,10 +246,10 @@ private struct FileCommands: Commands {
             Button("Show in Finder") { post(AppDelegate.revealInFinderNotification) }
                 .disabled(hasDocument != true)
             Divider()
-            Button("Change Library Folder…") { post(AppDelegate.changeLibraryNotification) }
-            // These two were reachable ONLY from the first-run screen that was
-            // removed; without a permanent home the ability to connect a library
-            // at all would be lost. The key window observes both (see MainWindow).
+            // Connect/choose an existing library folder. Reachable ONLY from the
+            // first-run screen that was removed; this is its permanent home. The
+            // key window observes it (see MainWindow). One item only — an earlier
+            // "Change Library Folder…" was a byte-identical duplicate.
             Button("Connect a Library…") {
                 post(AppDelegate.connectLibraryNotification)
             }
@@ -740,7 +740,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let findPreviousNotification = Notification.Name("quoin.findPrevious")
     static let goBackNotification = Notification.Name("quoin.goBack")
     static let goForwardNotification = Notification.Name("quoin.goForward")
-    static let changeLibraryNotification = Notification.Name("quoin.changeLibrary")
     static let connectLibraryNotification = Notification.Name("quoin.connectLibrary")
     static let newLibraryNotification = Notification.Name("quoin.newLibrary")
     static let connectDroppedFolderNotification = Notification.Name("quoin.connectDroppedFolder")

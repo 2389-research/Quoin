@@ -364,6 +364,9 @@ final class ReaderModel {
                     activeBlockID: activeBlockID,
                     activeEditableRange: patch.activeEditableRange,
                     activeSourceText: patch.activeSourceText,
+                    // Must carry activeBlockKind — Return dispatch (handleReturn)
+                    // reads rendered.activeBlockKind; nil = dead Return handling.
+                    activeBlockKind: patch.activeBlockKind,
                     storagePatch: patch.storagePatch,
                     revision: nextRevision(),
                     patchBaseLength: baseLength,
@@ -384,6 +387,9 @@ final class ReaderModel {
                     activeBlockID: next.activeBlockID,
                     activeEditableRange: next.activeEditableRange,
                     activeSourceText: next.activeSourceText,
+                    // Must carry activeBlockKind — Return dispatch (handleReturn)
+                    // reads rendered.activeBlockKind; nil = dead Return handling.
+                    activeBlockKind: next.activeBlockKind,
                     spliceHint: spliceHint,
                     revision: nextRevision(),
                     previewPanel: next.previewPanel,
@@ -465,6 +471,9 @@ final class ReaderModel {
                 activeBlockID: output.next.activeBlockID,
                 activeEditableRange: output.next.activeEditableRange,
                 activeSourceText: output.next.activeSourceText,
+                // Must carry activeBlockKind — Return dispatch (handleReturn)
+                // reads rendered.activeBlockKind; nil = dead Return handling.
+                activeBlockKind: output.next.activeBlockKind,
                 revision: self.nextRevision(),
                 previewPanel: output.next.previewPanel,
                 revealStyler: output.next.revealStyler
@@ -653,6 +662,10 @@ final class ReaderModel {
             activeBlockID: newID,
             activeEditableRange: update.activeEditableRange,
             activeSourceText: update.activeSourceText,
+            // Must carry activeBlockKind — Return dispatch (handleReturn)
+            // reads rendered.activeBlockKind; nil = dead Return handling.
+            // Optional here: a deactivation-only flip has no active block.
+            activeBlockKind: update.activeBlockKind,
             storagePatches: update.storagePatches,
             revision: nextRevision(),
             patchBaseLength: baseLength,
