@@ -644,7 +644,8 @@ public struct AttributedRenderer: Sendable {
         let oldIsLast = oldIndex == oldDocument.blocks.count - 1
         let newIsLast = newIndex == newDocument.blocks.count - 1
         if oldIsLast || newIsLast { return oldIsLast && newIsLast }
-        let oldSlice = oldDocument.source.substring(in: oldDocument.blocks[oldIndex].range) ?? ""
+        let oldSlice = Self.editableSlice(
+            for: oldDocument.blocks[oldIndex], at: oldIndex, in: oldDocument) ?? ""
         let oldSeparator = separator(
             after: oldDocument.blocks[oldIndex].kind,
             before: oldDocument.blocks[oldIndex + 1].kind,
@@ -1142,35 +1143,66 @@ public struct AttributedRenderer: Sendable {
     }
 
     /// The editable source for a block being revealed. Almost always the
-    /// block's exact source range — EXCEPT the document's LAST prose block,
-    /// whose slice extends through the trailing whitespace to EOF.
+    /// block's exact source range — EXCEPT prose blocks (paragraph/heading)
+    /// followed by more whitespace than the canonical "\n\n" block separator.
     ///
     /// Markdown has no representation for an empty paragraph, so a bare
-    /// Return at the end of the document re-parses to the same blocks and the
-    /// caret has nowhere to land ("type a line, hit Enter, nothing happens").
-    /// Everything after the last block's content is whitespace by
-    /// construction, so folding it into the editable slice gives Return an
-    /// empty line the caret can occupy; `clampTrailingNewlinePhantom` keeps
-    /// the reading skeleton (the blank line opens to full height only when the
-    /// caret is ON it). Both the full-render and per-keystroke patch paths
-    /// route through here so their fragments stay byte-identical
-    /// (ProjectorEquivalenceTests).
+    /// Return re-parses to the same blocks and the caret has nowhere to land
+    /// ("type a line, hit Enter, nothing happens"). The blank line between two
+    /// paragraphs belongs to NEITHER block's byte range, so the caret has no
+    /// legal position in the gap. Folding the excess whitespace into the
+    /// editable slice gives Return an empty line the caret can occupy:
+    ///
+    /// - The LAST prose block absorbs everything to EOF (there is no separator
+    ///   after it, so the whole trailing run is fair game).
+    /// - A MID-DOCUMENT prose block absorbs only the whitespace in EXCESS of
+    ///   the canonical "\n\n" separator to the next block. An ordinary
+    ///   document (gap == exactly "\n\n") therefore absorbs NOTHING and is
+    ///   bit-identical to today — the whole point. The final "\n\n" always
+    ///   stays the separator; absorbing the whole gap would give every
+    ///   paragraph in every existing document a caret-occupiable blank line.
+    ///
+    /// `clampTrailingNewlinePhantom` / the clamped separator keep the reading
+    /// skeleton (the blank line opens to full height only when the caret is ON
+    /// it). Both the full-render and per-keystroke patch paths route through
+    /// here so their fragments stay byte-identical (ProjectorEquivalenceTests).
     public static func editableSlice(
         for block: Block, at index: Int, in document: QuoinDocument
     ) -> String? {
         guard let base = document.source.substring(in: block.range) else { return nil }
-        guard index == document.blocks.count - 1 else { return base }
         switch block.kind {
         case .paragraph, .heading: break
         default: return base   // code/table/diagram/… keep their exact range
         }
         let contentEnd = block.range.offset + block.range.length
-        let total = document.source.utf8.count
-        guard total > contentEnd,
-              let tail = document.source.substring(
-                in: ByteRange(offset: contentEnd, length: total - contentEnd))
+
+        // LAST block: absorb everything to EOF (unchanged behavior).
+        guard index < document.blocks.count - 1 else {
+            let total = document.source.utf8.count
+            guard total > contentEnd,
+                  let tail = document.source.substring(
+                    in: ByteRange(offset: contentEnd, length: total - contentEnd))
+            else { return base }
+            return base + tail
+        }
+
+        // MID-DOCUMENT: absorb only the whitespace in EXCESS of the canonical
+        // "\n\n" separator. The final "\n\n" always stays the separator, so an
+        // ordinary document (gap == "\n\n") absorbs NOTHING and is untouched.
+        // Byte-wise on purpose: "\r\n" is one Character in Swift, so dropLast(2)
+        // would mangle CRLF files.
+        let nextStart = document.blocks[index + 1].range.offset
+        guard nextStart > contentEnd,
+              let gap = document.source.substring(
+                in: ByteRange(offset: contentEnd, length: nextStart - contentEnd))
         else { return base }
-        return base + tail
+        let bytes = Array(gap.utf8)
+        guard bytes.count > 2,
+              bytes[bytes.count - 1] == 0x0A, bytes[bytes.count - 2] == 0x0A,
+              let absorbed = document.source.substring(
+                in: ByteRange(offset: contentEnd, length: bytes.count - 2))
+        else { return base }
+        return base + absorbed
     }
 
     /// THE reveal styler configuration for a block (editor-modes plan, 3.3):

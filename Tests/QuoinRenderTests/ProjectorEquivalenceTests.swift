@@ -104,8 +104,9 @@ final class ProjectorEquivalenceTests: XCTestCase {
             // the gap (task #60).
             let flippable = document.blocks.prefix(6)
             let patchable = Set(patchableBlocks(in: document).map(\.id))
-            for block in flippable {
-                guard let slice = document.source.substring(in: block.range),
+            for (index, block) in flippable.enumerated() {
+                guard let slice = AttributedRenderer.editableSlice(
+                        for: block, at: index, in: document),
                       !slice.isEmpty else { continue }
                 let caret = min(3, slice.utf16.count)
 
@@ -139,6 +140,7 @@ final class ProjectorEquivalenceTests: XCTestCase {
                 var edits: [String] = [
                     slice.replacingCharacters(in: insertAt..<insertAt, with: "x"),
                     slice + "\n",   // the clamp-flip case: patch must bail OR match
+                    slice + "\n\n", // NEW: a mid-document Return
                 ]
                 if slice.count > 4 {
                     let deleteAt = slice.index(slice.startIndex, offsetBy: 3)
