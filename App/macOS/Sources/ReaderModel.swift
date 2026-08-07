@@ -938,6 +938,17 @@ final class ReaderModel {
         }
     }
 
+    /// Format ▸ Tidy Blank Lines — explicit, undoable blank-line cleanup.
+    /// Rides the ordinary edit pipeline (serialized, undoable, autosaved); the
+    /// whole-document replacement is computed INSIDE the session actor at apply
+    /// time, so a keystroke that landed first can't leave its offsets stale
+    /// (CLAUDE.md compute-where-applied rule). A no-op when nothing changes.
+    func tidyBlankLines() {
+        applySessionResolution(refusalMessage: nil, flashOffset: nil) { session in
+            try await session.applyTidyBlankLines(publishSnapshot: false)
+        }
+    }
+
     /// Find & Replace (#85): replace operates on the RAW SOURCE (a replace
     /// changes what the file says), computed against the model's current
     /// truth and routed through the atomic edit pipeline. Returns whether a

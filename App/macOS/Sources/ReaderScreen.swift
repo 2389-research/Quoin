@@ -745,6 +745,13 @@ struct ReaderScreen: View {
                   let command = structureCommand(for: op) else { return }
             model.applyStructure(command)
         }
+        // Format ▸ Tidy Blank Lines (#9): explicit, undoable whole-document
+        // blank-line cleanup. Acts on the front document (needs no active
+        // block); the model no-ops when nothing changes.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.tidyBlankLinesNotification)) { _ in
+            guard isKeyWindow else { return }
+            model.tidyBlankLines()
+        }
         // Format ▸ Table (#14): structural edits on the active table block at
         // the caret's cell. The model no-ops when the active block is not a
         // table, so the shared handler can stay simple.

@@ -650,6 +650,25 @@ public actor DocumentSession {
         return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .bulkSuggestion)
     }
 
+    /// Format ▸ Tidy Blank Lines — the ONLY thing that changes blank-line
+    /// bytes, and only on explicit invocation (Quoin is byte-lossless, so a
+    /// save must never move the user's text). Collapses runs of 2+ blank
+    /// lines to one OUTSIDE fenced code, computed in-actor against the
+    /// session's CURRENT source at apply time (the `applyResolution` pattern —
+    /// never compute-then-queue, or a keystroke that landed first would leave
+    /// the whole-document range stale). One edit, one undo. Nil when the tidy
+    /// would not change a byte.
+    @discardableResult
+    public func applyTidyBlankLines(publishSnapshot: Bool = true) throws -> QuoinDocument? {
+        let source = document.source
+        let tidied = BlankLineTidy.tidied(source)
+        guard tidied != source else { return nil }
+        let edit = SourceEdit(
+            range: ByteRange(offset: 0, length: source.utf8.count),
+            replacement: tidied)
+        return try applyEdit(edit, publishSnapshot: publishSnapshot, actionName: .tidyBlankLines)
+    }
+
     /// Hoisted out of `applyAnnotation` — allocating a formatter per annotation
     /// is pure waste (QoL #34). Only `string(from:)` is called (never a config
     /// mutation), which is safe to share across the actor's calls, so the

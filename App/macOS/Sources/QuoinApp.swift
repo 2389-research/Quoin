@@ -487,6 +487,8 @@ private struct FormatCommands: Commands {
                     postFormat(AppDelegate.toggleEditSourceNotification)
                 }
                 .keyboardShortcut(.return, modifiers: .command)
+                Divider()
+                Button("Tidy Blank Lines") { post(AppDelegate.tidyBlankLinesNotification) }
             }
             .disabled(hasDocument != true)
             Divider()
@@ -657,6 +659,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let openBundledDocumentNotification = Notification.Name("quoin.openBundledDocument")
     static let formatNotification = Notification.Name("quoin.format")
     static let structureNotification = Notification.Name("quoin.structure")
+    /// Format ▸ Tidy Blank Lines (#9): explicit, undoable blank-line cleanup —
+    /// the only thing that changes blank-line bytes, and never automatically.
+    static let tidyBlankLinesNotification = Notification.Name("quoin.tidyBlankLines")
     /// Format ▸ Table structural edit (#14). `userInfo["op"]` names the
     /// operation; it acts on the active table block at the caret's cell.
     static let tableCommandNotification = Notification.Name("quoin.tableCommand")

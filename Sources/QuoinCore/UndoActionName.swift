@@ -26,6 +26,7 @@ public enum UndoActionName: String, Sendable, Equatable, CaseIterable {
     case suggestedEdit = "Suggested Edit"
     case highlight = "Highlight"
     case properties = "Edit Properties"
+    case tidyBlankLines = "Tidy Blank Lines"
 
     /// The noun shown after "Undo "/"Redo " in the menu.
     public var menuTitle: String { rawValue }
