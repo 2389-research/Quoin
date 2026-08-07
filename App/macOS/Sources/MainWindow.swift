@@ -57,6 +57,9 @@ struct MainWindow: View {
     /// unless the user accepts. Not persisted: the offer is tied to the pick
     /// action, never nagged on every launch.
     @State private var offerSample = false
+    /// A folder was dropped on the editor; staged here so a confirmation dialog
+    /// can ask before re-rooting this window's library (never a silent re-root).
+    @State private var droppedLibraryFolder: URL?
     /// First-run guidance card (Part B): shown once, right below the caret, when
     /// `onAppear` materialized the auto-untitled document because nothing else
     /// claimed the window. It fades on the first keystroke (the document stops
@@ -187,6 +190,22 @@ struct MainWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
+        .confirmationDialog(
+            droppedLibraryFolder.map { "Connect “\($0.lastPathComponent)” as this window’s library?" } ?? "",
+            isPresented: Binding(
+                get: { droppedLibraryFolder != nil },
+                set: { if !$0 { droppedLibraryFolder = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Connect") {
+                if let url = droppedLibraryFolder, library.adoptDroppedFolder(url) {
+                    offerSample = library.shouldOfferSampleDocuments
+                }
+                droppedLibraryFolder = nil
+            }
+            Button("Cancel", role: .cancel) { droppedLibraryFolder = nil }
+        }
         .background(windowShortcuts)
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.openDocumentNotification)) { _ in
             guard isKeyWindow else { return }
@@ -298,6 +317,27 @@ struct MainWindow: View {
             if library.chooseLibraryFolder() {
                 offerSample = library.shouldOfferSampleDocuments
             }
+        }
+        // File ▸ Connect a Library… — pick an existing folder as this window's
+        // library. Relocated here after the first-run screen that hosted it was
+        // removed (Task 10/12); same sample offer as Change Library Folder.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.connectLibraryNotification)) { _ in
+            guard isKeyWindow else { return }
+            if library.chooseLibraryFolder() {
+                offerSample = library.shouldOfferSampleDocuments
+            }
+        }
+        // File ▸ New Library… — create a fresh, seeded starter library and open
+        // its welcome note.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.newLibraryNotification)) { _ in
+            guard isKeyWindow else { return }
+            if let welcome = library.createStarterLibrary() { open(welcome) }
+        }
+        // A folder dropped on the editor: confirm before re-rooting (never
+        // silent). ReaderScreen posts the candidate; we stage it for the dialog.
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.connectDroppedFolderNotification)) { note in
+            guard isKeyWindow, let url = note.userInfo?["url"] as? URL else { return }
+            droppedLibraryFolder = url
         }
         // Go ▸ Quick Open (⇧⌘O) / Daily Note (⌘D).
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.toggleQuickOpenNotification)) { _ in

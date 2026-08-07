@@ -77,12 +77,20 @@ public enum DropValidation {
         /// A markdown file: open it as a document (inserting its bytes would
         /// be surprising — a tab is what the gesture means).
         case openDocument
+        /// A directory: offer to connect it as this window's library (always
+        /// confirmed at the call site — never a silent re-root).
+        case connectLibrary
         /// Anything else: rejected with feedback (never a silent no-op).
         case reject
     }
 
-    /// Classify a file dropped onto the editor by extension.
-    public static func editorDrop(_ url: URL) -> EditorDrop {
+    /// Classify a file dropped onto the editor. A directory is a
+    /// connect-library gesture (checked first — a folder named `Notes` has no
+    /// extension and would otherwise fall through to `.reject`); everything
+    /// else is classified by extension. `isDirectory` is passed by the caller
+    /// (an `.isDirectoryKey` resource read at drop time) so this stays pure.
+    public static func editorDrop(_ url: URL, isDirectory: Bool = false) -> EditorDrop {
+        if isDirectory { return .connectLibrary }
         let ext = url.pathExtension.lowercased()
         if imageExtensions.contains(ext) { return .insertImage }
         if Library.markdownExtensions.contains(ext) { return .openDocument }

@@ -302,12 +302,25 @@ struct ReaderScreen: View {
                             url = item as? URL
                         }
                         guard let url else { return }
+                        // Resource read off the main actor at drop time; the
+                        // pure classifier just consumes the flag.
+                        let isDirectory = (try? url.resourceValues(
+                            forKeys: [.isDirectoryKey]
+                        ).isDirectory) ?? false
                         Task { @MainActor in
-                            switch DropValidation.editorDrop(url) {
+                            switch DropValidation.editorDrop(url, isDirectory: isDirectory) {
                             case .insertImage:
                                 model.insertImage(from: url)
                             case .openDocument:
                                 AppDelegate.requestOpen(url)
+                            case .connectLibrary:
+                                // Never re-root silently — hand the folder to the
+                                // window, which confirms before adopting it.
+                                NotificationCenter.default.post(
+                                    name: AppDelegate.connectDroppedFolderNotification,
+                                    object: nil,
+                                    userInfo: ["url": url]
+                                )
                             case .reject:
                                 model.reportUnsupportedDrop(url)
                             }

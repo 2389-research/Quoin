@@ -94,4 +94,17 @@ final class DropValidationTests: XCTestCase {
         XCTAssertEqual(DropValidation.editorDrop(URL(fileURLWithPath: "/tmp/archive.zip")), .reject)
         XCTAssertEqual(DropValidation.editorDrop(URL(fileURLWithPath: "/tmp/report.pdf")), .reject)
     }
+
+    func testEditorDirectoryDropOffersLibraryConnect() {
+        // A folder — even one with no extension — is a connect-library gesture,
+        // regardless of what its name would classify as by extension alone.
+        XCTAssertEqual(
+            DropValidation.editorDrop(URL(fileURLWithPath: "/tmp/Notes"), isDirectory: true),
+            .connectLibrary
+        )
+        XCTAssertEqual(
+            DropValidation.editorDrop(URL(fileURLWithPath: "/tmp/notes.md"), isDirectory: true),
+            .connectLibrary
+        )
+    }
 }

@@ -247,6 +247,15 @@ private struct FileCommands: Commands {
                 .disabled(hasDocument != true)
             Divider()
             Button("Change Library Folder…") { post(AppDelegate.changeLibraryNotification) }
+            // These two were reachable ONLY from the first-run screen that was
+            // removed; without a permanent home the ability to connect a library
+            // at all would be lost. The key window observes both (see MainWindow).
+            Button("Connect a Library…") {
+                post(AppDelegate.connectLibraryNotification)
+            }
+            Button("New Library…") {
+                post(AppDelegate.newLibraryNotification)
+            }
         }
     }
 }
@@ -732,6 +741,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static let goBackNotification = Notification.Name("quoin.goBack")
     static let goForwardNotification = Notification.Name("quoin.goForward")
     static let changeLibraryNotification = Notification.Name("quoin.changeLibrary")
+    static let connectLibraryNotification = Notification.Name("quoin.connectLibrary")
+    static let newLibraryNotification = Notification.Name("quoin.newLibrary")
+    static let connectDroppedFolderNotification = Notification.Name("quoin.connectDroppedFolder")
     static let addCommentNotification = Notification.Name("quoin.review.addComment")
     static let suggestReplacementNotification = Notification.Name("quoin.review.suggestReplacement")
     static let suggestDeletionNotification = Notification.Name("quoin.review.suggestDeletion")

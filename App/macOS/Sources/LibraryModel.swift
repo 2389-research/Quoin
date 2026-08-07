@@ -162,6 +162,21 @@ final class LibraryModel {
         return true
     }
 
+    /// Adopt a folder dropped onto the editor as this window's library. The
+    /// drag grants a temporary sandbox extension, so `adopt` can start scoped
+    /// access and `saveBookmarks` persists a security-scoped bookmark for the
+    /// next launch. Confirmation lives at the call site (MainWindow) — this
+    /// never prompts. Returns `false` (no-op) if the folder is already the
+    /// library or has gone missing.
+    @discardableResult
+    func adoptDroppedFolder(_ url: URL) -> Bool {
+        guard rootURL?.standardizedFileURL.path != url.standardizedFileURL.path else { return false }
+        guard FileManager.default.fileExists(atPath: url.path) else { return false }
+        adopt(rootURL: url)
+        Self.saveBookmarks(for: url)
+        return true
+    }
+
     /// Why the saved library didn't come back (bookmark dead, folder
     /// gone) — shown by the first-run prompt so a vanished library never
     /// looks like a fresh install (ledger senior #11).
