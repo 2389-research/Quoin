@@ -2089,7 +2089,7 @@ extension MarkdownReaderView {
             case .paragraphBreak:
                 return insertParagraphBreak(in: textView)
             case .quoteAware:
-                return false   // Task 7
+                return continueQuoteOnReturn(in: textView)
             case .tableRow:
                 return false   // Task 8
             case .verbatim:
@@ -2203,6 +2203,33 @@ extension MarkdownReaderView {
                 return newParagraphAtDocumentEnd(
                     in: textView, active: active, sourceText: sourceText,
                     relCaret: relCaret, onEdit: onEdit)
+            }
+            if let (byteRange, replacement, caretDelta) = edit.byteEdit(inText: sourceText) {
+                onEdit(byteRange, replacement, caretDelta)
+                beginAwaitingEditEcho()
+            }
+            return true
+        }
+
+        /// Return inside a blockquote (or callout body): carry the "> " prefix
+        /// onto the new line, preserving nesting depth (`>>`); on an empty quoted
+        /// line, remove the marker to exit the quote. Mirrors
+        /// `continueListOnReturn`'s edit plumbing; falls back to a real paragraph
+        /// break when `quoteContinuationEdit` returns nil (caret inside the
+        /// marker, or a non-quote line).
+        private func continueQuoteOnReturn(in textView: NSTextView) -> Bool {
+            guard let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            guard let edit = Self.quoteContinuationEdit(sourceText: sourceText, caretUTF16: relCaret)
+            else {
+                return insertParagraphBreak(in: textView)
             }
             if let (byteRange, replacement, caretDelta) = edit.byteEdit(inText: sourceText) {
                 onEdit(byteRange, replacement, caretDelta)
@@ -2336,6 +2363,38 @@ extension MarkdownReaderView {
             let replacement = "\n" + continuation
             return ListContinuationEdit(
                 utf16Range: caret ..< caret, replacement: replacement, caretUTF16: replacement.utf16.count)
+        }
+
+        /// Return inside a blockquote: carry the "> " prefix onto the new line,
+        /// or — on an empty quoted line — delete the marker to exit the quote.
+        /// Mirrors listContinuationEdit exactly; nil for non-quote lines.
+        static func quoteContinuationEdit(
+            sourceText: String, caretUTF16 caret: Int
+        ) -> ListContinuationEdit? {
+            let ns = sourceText as NSString
+            guard caret >= 0, caret <= ns.length else { return nil }
+            let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
+            let rawLine = ns.substring(with: lineRange)
+            let line = Substring(rawLine.hasSuffix("\n") ? String(rawLine.dropLast()) : rawLine)
+            // Leading '>' run, then at most one space. All ASCII, so character
+            // count == UTF-16 length.
+            let markers = line.prefix(while: { $0 == ">" })
+            guard !markers.isEmpty else { return nil }
+            var prefixCount = markers.count
+            if line.dropFirst(prefixCount).first == " " { prefixCount += 1 }
+            let contentStart = lineRange.location + prefixCount
+            guard caret >= contentStart else { return nil }  // inside the marker
+            let content = line.dropFirst(prefixCount)
+            if content.trimmingCharacters(in: .whitespaces).isEmpty {
+                // Empty quoted line + Return: remove the marker, ending the quote.
+                return ListContinuationEdit(
+                    utf16Range: lineRange.location ..< contentStart,
+                    replacement: "", caretUTF16: 0)
+            }
+            let replacement = "\n" + String(markers) + " "
+            return ListContinuationEdit(
+                utf16Range: caret ..< caret, replacement: replacement,
+                caretUTF16: replacement.utf16.count)
         }
 
         /// Parses a list/quote/checkbox marker at the start of `line`, returning
