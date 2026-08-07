@@ -388,6 +388,51 @@ final class RevealFidelityTests: XCTestCase {
                       + "(got \(perLineSpacing))")
     }
 
+    /// New projection path (first-run-and-return): a MID-DOCUMENT paragraph
+    /// followed by more than the canonical "\n\n" gap absorbs the excess
+    /// newline into its editable slice, so its reveal now ends in an
+    /// occupiable "\n". With the caret on the paragraph's CONTENT (not the new
+    /// blank line) the clamped separator keeps the reveal height-neutral, so
+    /// the prose below does not shift on activation.
+    func testMidDocumentAbsorbedNewlineParagraphRevealIsHeightNeutral() throws {
+        let source = """
+        # Title
+
+        First paragraph of prose, plain as can be, sitting above an extra gap.
+
+
+        Second paragraph below the oversized gap.
+
+        Closing paragraph for good measure.
+        """
+        let document = MarkdownConverter.parse(source)
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+
+        // The paragraph BEFORE the oversized gap absorbs exactly one newline.
+        let index = try XCTUnwrap(document.blocks.firstIndex {
+            document.source.substring(in: $0.range)
+                == "First paragraph of prose, plain as can be, sitting above an extra gap."
+        })
+        let para = document.blocks[index].id
+        XCTAssertEqual(
+            AttributedRenderer.editableSlice(for: document.blocks[index], at: index, in: document),
+            "First paragraph of prose, plain as can be, sitting above an extra gap.\n",
+            "test premise: this mid-document paragraph absorbs exactly one newline")
+
+        let reading = renderer.render(document, activeBlockID: nil, activeCaret: nil, cache: &cache)
+        // Caret on the CONTENT (offset 3), NOT on the absorbed blank line.
+        let revealed = renderer.render(document, activeBlockID: para, activeCaret: 3, cache: &cache)
+        // The occupiable-but-empty line collapses to the clamp's designed
+        // ~2pt sliver, so the prose below barely moves — the same order the
+        // heading/list reveals in this suite accept (6-8pt), and well within
+        // the viewport invariant's own 2pt tolerance (CaretLineAnchorTests).
+        let delta = abs(measureHeight(reading.attributed) - measureHeight(revealed.attributed))
+        XCTAssertLessThan(delta, 3,
+                          "mid-document absorbed-newline reveal shifted the prose below by "
+                          + "\(delta)pt (the occupiable blank line must stay clamped to a sliver)")
+    }
+
     private func measureHeight(_ attributed: NSAttributedString, width: CGFloat = 600) -> CGFloat {
         let storage = NSTextStorage(attributedString: attributed)
         let contentStorage = NSTextContentStorage()

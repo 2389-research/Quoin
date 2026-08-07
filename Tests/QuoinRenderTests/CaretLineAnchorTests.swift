@@ -78,6 +78,84 @@ final class CaretLineAnchorTests: XCTestCase {
                        "the clicked table row must stay where the user was looking (was \(before), now \(after))")
     }
 
+    /// New projection path (first-run-and-return): a MID-DOCUMENT paragraph
+    /// followed by more than the canonical "\n\n" gap now absorbs the excess
+    /// newline into its editable slice, so its reveal ends in an occupiable
+    /// "\n". Activating it must not move the line the caret is on — the exact
+    /// viewport invariant CLAUDE.md requires this new path to extend.
+    func testCaretLineStaysPutAcrossMidDocumentAbsorbedNewlineReveal() throws {
+        var source = "# Anchor\n\n"
+        for i in 0..<30 { source += "Paragraph \(i) of filler prose to make the document scroll.\n\n" }
+        // A mid-document paragraph followed by an OVERSIZED gap ("\n\n\n"),
+        // so it absorbs exactly one newline into its reveal.
+        source += "Target paragraph sitting above an extra blank line.\n\n\n"
+        for i in 30..<60 { source += "Paragraph \(i) of filler prose below the target.\n\n" }
+        let document = MarkdownConverter.parse(source)
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        let targetIndex = try XCTUnwrap(document.blocks.firstIndex {
+            document.source.substring(in: $0.range)
+                == "Target paragraph sitting above an extra blank line."
+        })
+        let target = document.blocks[targetIndex]
+        XCTAssertEqual(
+            AttributedRenderer.editableSlice(for: target, at: targetIndex, in: document),
+            "Target paragraph sitting above an extra blank line.\n",
+            "test premise: the target paragraph absorbs exactly one newline")
+
+        let reading = renderer.render(document, activeBlockID: nil, activeCaret: nil, cache: &cache)
+
+        // Real TextKit stack in a scrollable viewport.
+        let contentStorage = NSTextContentStorage()
+        let layoutManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.textContainer = container
+        let textView = QuoinTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 0), textContainer: container)
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        scroll.documentView = textView
+        let storage = try XCTUnwrap(textView.textContentStorage?.textStorage)
+        storage.setAttributedString(reading.attributed)
+        textView.textLayoutManager?.ensureLayout(for: try XCTUnwrap(textView.textContentStorage?.documentRange))
+        textView.sizeToFit()
+
+        let view = MarkdownReaderView(rendered: RenderedDocument(
+            attributed: reading.attributed, blockRanges: reading.blockRanges))
+        let coordinator = MarkdownReaderView.Coordinator(parent: view)
+        coordinator.textView = textView
+
+        // "Click" the target paragraph: caret on its content, scrolled into view.
+        let targetRange = try XCTUnwrap(reading.blockRanges[target.id])
+        let targetOffset = (reading.attributed.string as NSString)
+            .range(of: "Target", options: [], range: targetRange).location
+        XCTAssertNotEqual(targetOffset, NSNotFound)
+        coordinator.scrollBlockTop(targetRange, toScreenY: 120, in: textView)
+        let before = try XCTUnwrap(coordinator.lineScreenY(at: targetOffset, in: textView))
+
+        // The flip (activation patches) lands, then the caret pin — exactly
+        // what updateNSView does.
+        let base = RenderedDocument(attributed: reading.attributed, blockRanges: reading.blockRanges)
+        let update = try XCTUnwrap(renderer.activationFlipUpdate(
+            document: document, current: base, from: nil, to: target.id, caret: nil))
+        for patch in update.storagePatches {
+            _ = MarkdownReaderView.Coordinator.applyStoragePatch(in: storage, patch: patch)
+        }
+        let newTargetRange = try XCTUnwrap(update.blockRanges[target.id])
+        let newTarget = (storage.string as NSString)
+            .range(of: "Target", options: [], range: newTargetRange).location
+        XCTAssertNotEqual(newTarget, NSNotFound)
+        coordinator.pinCaretLine(at: newTarget, toScreenY: before, in: textView)
+
+        let after = try XCTUnwrap(coordinator.lineScreenY(at: newTarget, in: textView))
+        XCTAssertEqual(after, before, accuracy: 2,
+                       "the revealed paragraph's caret line must stay where the user was looking "
+                       + "(was \(before), now \(after))")
+    }
+
     /// Phase 0.2 guard (editor-modes plan): above 200k chars the production
     /// path skips eager whole-document layout, so the pre-draw viewport
     /// settle (`viewWillDraw` → `layoutViewport`) is what resolves estimated

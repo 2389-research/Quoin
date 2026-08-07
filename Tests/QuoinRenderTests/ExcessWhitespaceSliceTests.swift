@@ -60,7 +60,7 @@ final class ExcessWhitespaceSliceTests: XCTestCase {
     /// mid-document paragraph must stay on the per-keystroke PATCH path; a
     /// silent fall back to full re-render is a performance regression that no
     /// equivalence test can see.
-    func testTypingAtAMidDocumentParagraphEndStaysOnThePatchPath() {
+    func testTypingAtAMidDocumentParagraphEndStaysOnThePatchPath() throws {
         let source = "A\n\n\nB\n\nC"      // block 0 has one absorbed newline
         let document = MarkdownConverter.parse(source)
         let block = document.blocks[0]
@@ -82,7 +82,31 @@ final class ExcessWhitespaceSliceTests: XCTestCase {
             oldDocument: document, oldRendered: rendered, oldActiveBlockID: block.id,
             newDocument: newDocument, newActiveBlockID: newDocument.blocks[0].id,
             caret: 2, heldPreview: &editHeld)
-        XCTAssertNotNil(update, "typing near a block end must not bail to a full render")
+        let taken = try XCTUnwrap(
+            update, "typing near a block end must not bail to a full render")
+
+        // NotNil alone only proves the patch was TAKEN, not that it is
+        // CORRECT — and ProjectorEquivalenceTests can't see this state
+        // (its prefix(6) never reaches an oversized gap, and a
+        // canonical→absorbed edit flips the separator unclamped→clamped in
+        // one step, so the patch there bails and `continue`s WITHOUT
+        // comparing storage). So compare the taken patch directly: applying
+        // it to the pre-edit active storage must equal a full re-render of
+        // the edited document with the same block active at the same caret.
+        let patched = NSMutableAttributedString(attributedString: active.attributed)
+        patched.replaceCharacters(
+            in: taken.storagePatch.oldRange, with: taken.storagePatch.replacement)
+        var refCache: [BlockID: NSAttributedString] = [:]
+        var refHeld: AttributedRenderer.HeldPreview?
+        let reference = renderer.render(
+            newDocument, activeBlockID: newDocument.blocks[0].id, activeCaret: 2,
+            cache: &refCache, heldPreview: &refHeld)
+        XCTAssertEqual(patched.string, reference.attributed.string,
+                       "patched storage string drifted from a full re-render")
+        XCTAssertTrue(patched.isEqual(to: reference.attributed),
+                      "patched storage attributes drifted from a full re-render")
+        XCTAssertEqual(taken.blockRanges, reference.blockRanges,
+                       "patch block ranges drifted from a full re-render")
     }
 }
 #endif
