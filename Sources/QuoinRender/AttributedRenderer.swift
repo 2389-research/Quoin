@@ -60,6 +60,10 @@ public struct RenderedDocument {
     public let activeBlockID: BlockID?
     public let activeEditableRange: NSRange?
     public let activeSourceText: String?
+    /// The revealed block's kind. Return semantics key on this — NOT on
+    /// EditingFlavor, which classifies tables as .prose (a blank line
+    /// terminates a table, so the two must never be conflated).
+    public let activeBlockKind: BlockKind?
     /// AppKit can use this to apply a bounded TextKit splice for simple
     /// active-block edits instead of scanning the whole rendered string.
     public let spliceHint: RenderSpliceHint?
@@ -128,6 +132,7 @@ public struct RenderedDocument {
         activeBlockID: BlockID? = nil,
         activeEditableRange: NSRange? = nil,
         activeSourceText: String? = nil,
+        activeBlockKind: BlockKind? = nil,
         spliceHint: RenderSpliceHint? = nil,
         storagePatch: RenderStoragePatch? = nil,
         storagePatches: [RenderStoragePatch] = [],
@@ -141,6 +146,7 @@ public struct RenderedDocument {
         self.activeBlockID = activeBlockID
         self.activeEditableRange = activeEditableRange
         self.activeSourceText = activeSourceText
+        self.activeBlockKind = activeBlockKind
         self.spliceHint = spliceHint
         self.storagePatches = storagePatch.map { [$0] } ?? storagePatches
         self.revision = revision
@@ -255,6 +261,7 @@ public struct AttributedRenderer: Sendable {
         var blockRanges: [BlockID: NSRange] = [:]
         var activeEditableRange: NSRange?
         var activeSourceText: String?
+        var activeBlockKind: BlockKind?
         var revealConfig: RevealStylerConfig?
         var newCache: [BlockID: NSAttributedString] = [:]
         var tally = PhaseTrace.renderEnabled ? PhaseTrace.Tally() : nil
@@ -276,6 +283,7 @@ public struct AttributedRenderer: Sendable {
                 activeEditableRange = NSRange(
                     location: start, length: revealed.editableRange.length)
                 activeSourceText = slice
+                activeBlockKind = block.kind
                 revealConfig = Self.revealStylerConfig(kind: block.kind, slice: slice)
                 output.append(revealed.attributed)
                 tally?.add("reveal (active)", 0)
@@ -324,6 +332,7 @@ public struct AttributedRenderer: Sendable {
             activeBlockID: activeBlockID,
             activeEditableRange: activeEditableRange,
             activeSourceText: activeSourceText,
+            activeBlockKind: activeBlockKind,
             previewPanel: activeBlockID != nil ? Self.previewPanel(for: heldPreview) : nil,
             revealStyler: revealConfig
         )
@@ -508,6 +517,10 @@ public struct AttributedRenderer: Sendable {
         public let blockRanges: [BlockID: NSRange]
         public let activeEditableRange: NSRange
         public let activeSourceText: String
+        /// The active block's kind, carried so the host can republish it on
+        /// `RenderedDocument.activeBlockKind` without re-parsing (Return rule
+        /// seam; EditingFlavor mislabels tables as .prose).
+        public let activeBlockKind: BlockKind
         /// The pre-edit active id (content-hashed ids change with content);
         /// the host evicts both ids from its fragment cache.
         public let oldActiveBlockID: BlockID
@@ -606,6 +619,7 @@ public struct AttributedRenderer: Sendable {
                 location: oldBlockRange.location,
                 length: revealed.editableRange.length),
             activeSourceText: newSlice,
+            activeBlockKind: newDocument.blocks[newIndex].kind,
             oldActiveBlockID: oldActiveBlockID
         )
     }
@@ -650,6 +664,10 @@ public struct AttributedRenderer: Sendable {
         public let blockRanges: [BlockID: NSRange]
         public let activeEditableRange: NSRange?
         public let activeSourceText: String?
+        /// The newly active block's kind (nil when this flip only deactivates),
+        /// carried so the host can republish `RenderedDocument.activeBlockKind`
+        /// without re-parsing (Return rule seam).
+        public let activeBlockKind: BlockKind?
         /// The deactivated block's fresh read fragment, safe to cache
         /// (nil when it holds still-decoding async content).
         public let cacheableReadFragment: (id: BlockID, fragment: NSAttributedString)?
@@ -690,6 +708,7 @@ public struct AttributedRenderer: Sendable {
         var patches: [(location: Int, patch: RenderStoragePatch, blockID: BlockID, newLength: Int, oldLength: Int)] = []
         var cacheable: (id: BlockID, fragment: NSAttributedString)?
         var activeSourceText: String?
+        var activeBlockKind: BlockKind?
 
         // Deactivation: the old editable run flips back to its read fragment,
         // and its separator (clamped during the reveal) back to normal. The
@@ -749,6 +768,7 @@ public struct AttributedRenderer: Sendable {
                 blockID: newID, newLength: replacement.length, oldLength: blockRange.length
             ))
             activeSourceText = slice
+            activeBlockKind = block.kind
             newEditableRangeInFragment = revealed.editableRange
         }
 
@@ -786,6 +806,7 @@ public struct AttributedRenderer: Sendable {
             blockRanges: ranges,
             activeEditableRange: activeEditableRange,
             activeSourceText: activeSourceText,
+            activeBlockKind: activeBlockKind,
             cacheableReadFragment: cacheable
         )
     }
