@@ -656,17 +656,16 @@ struct MainWindow: View {
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
     }
 
-    /// Open every file waiting in `AppDelegate.pendingOpenURLs` (#16) as a tab in
+    /// Open every file waiting in `AppDelegate.pendingOpenSlot` (#16) as a tab in
     /// THIS window, draining the slot atomically so a dropped notification never
     /// loses an open and two windows can't race to open the same file twice.
     /// Every Finder / Open With / Open Recent / dock / editor-drop open lands
     /// here, so they all share the ONE open path (`open`) — a real tab + session,
     /// never detached state.
     private func drainPendingOpenURLs() {
-        guard !AppDelegate.pendingOpenURLs.isEmpty else { return }
-        let urls = AppDelegate.pendingOpenURLs
-        AppDelegate.pendingOpenURLs = []
-        for url in urls { open(url) }
+        // Atomic take — the slot clears itself, so a later window (or a second
+        // observer) sees nothing (#41). Empty batch is a no-op.
+        for url in AppDelegate.drainPendingOpenURLs() { open(url) }
     }
 
     /// Resolve and open the pending `quoin://` deep link, if one is waiting and

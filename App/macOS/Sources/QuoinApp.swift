@@ -24,6 +24,21 @@ struct QuoinApp: App {
                 // don't floor the whole window).
                 .frame(minWidth: 720, minHeight: 480)
         }
+        // #41 HYPOTHESIS FIX (pending human Dock-drop confirmation — a
+        // background agent cannot drag files onto the Dock icon). Dragging N
+        // .md files onto the Dock icon opened ONE correct window PLUS N blank,
+        // unclosable windows. Mechanism: with a markdown CFBundleTypeRole=Editor
+        // registration (project.yml), SwiftUI's WindowGroup handles external
+        // open events by DEFAULT and spawns a fresh (blank) scene per incoming
+        // file-open — while AppDelegate.application(_:open:) SEPARATELY batches
+        // all N URLs into pendingOpenSlot and the first window drains them into
+        // tabs. Declaring the group to match NO external events makes AppKit's
+        // application(_:open:) the SOLE owner of document opens, so no extra
+        // scenes spawn. In-process openWindow (New Window ⇧⌘N, Open Folder in
+        // New Window…) is a programmatic request, not an external event, so it
+        // is unaffected; quoin:// deep links, Handoff, and Spotlight all route
+        // through application(_:open:)/application(_:continue:), also unaffected.
+        .handlesExternalEvents(matching: [])
         .defaultSize(width: 1280, height: 800) // 16:10 — room for sidebar + editor + outline/inspector
         .commands {
             // File menu: honest items for what the keys actually do. The
@@ -621,23 +636,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// A SLOT — not the notification's `userInfo` — so a COLD launch, where the
     /// open arrives before any `MainWindow` observer is subscribed, can still be
     /// drained from the first window's `onAppear` (the same reason `quoin://`
-    /// deep links and Services seeds use slots). Every opener appends here and
+    /// deep links and Services seeds use slots). Every opener enqueues here and
     /// posts `openDocumentNotification`; the key window (or, cold, the first
-    /// window's `onAppear`) drains the whole array atomically, so a dropped
+    /// window's `onAppear`) drains the whole batch atomically, so a dropped
     /// notification never loses an open. Empty between deliveries.
-    static var pendingOpenURLs: [URL] = []
+    ///
+    /// The batch/peek/atomic-drain contract lives in the pure, Linux-testable
+    /// `PendingOpenSlot` (QuoinCore) — regression-guarded by
+    /// EntryPathRoutingTests (#41). MainActor-confined: written from
+    /// `application(_:open:)` and drained by `MainWindow`, both on the main actor.
+    static var pendingOpenSlot = PendingOpenSlot()
 
     /// Read-only peek at whether a file open is still pending — used by the
     /// first-run auto-untitled guard so a Finder double-click that hasn't drained
     /// yet suppresses the blank document. Does NOT clear the slot (unlike
     /// `drainPendingOpenURLs`), so the real drain still runs.
-    static var hasPendingOpenURLs: Bool { !pendingOpenURLs.isEmpty }
+    static var hasPendingOpenURLs: Bool { pendingOpenSlot.hasPending }
 
-    /// Append a file URL to the pending-open slot and signal a window to drain
+    /// Take the whole pending-open batch atomically. A second drainer sees
+    /// nothing, so a dropped notification never loses an open and two windows
+    /// can't race to open the same file twice (#41).
+    static func drainPendingOpenURLs() -> [URL] {
+        pendingOpenSlot.drain()
+    }
+
+    /// Enqueue a file URL onto the pending-open slot and signal a window to drain
     /// it. Routes Finder/menu/dock/drop opens through the ONE open path
     /// (`MainWindow.open`, i.e. a real tab + session), never detached state.
     static func requestOpen(_ url: URL) {
-        pendingOpenURLs.append(url)
+        pendingOpenSlot.enqueue(url)
         NotificationCenter.default.post(name: openDocumentNotification, object: nil)
     }
     /// A `quoin://` deep link was received (#31). The parsed link is stashed in
