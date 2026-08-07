@@ -536,6 +536,17 @@ struct MainWindow: View {
     /// library — they have no sandbox-safe handle) and guarantees no absolute
     /// path or bookmark ever reaches the blob.
     private func persistSession() {
+        // A window whose ONLY tab is an untouched untitled document has nothing
+        // worth restoring — persisting it would reopen a blank note forever
+        // (Task 10 auto-creates one on first launch). Same emptiness test the
+        // on-close GC applies (see close()): a scratch doc, whitespace-empty.
+        let onlyTabIsEmptyScratch = openTabs.count == 1
+            && ScratchStore.isScratch(openTabs[0].url)
+            && ((try? String(contentsOf: openTabs[0].url, encoding: .utf8))?
+                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false)
+        guard ScratchHousekeeping.shouldPersistSession(
+            tabCount: openTabs.count, onlyTabIsEmptyScratch: onlyTabIsEmptyScratch)
+        else { return }
         let state = WindowSessionState.capture(
             rootPath: library.rootURL?.standardizedFileURL.path,
             openTabPaths: openTabs.map { $0.url.standardizedFileURL.path },

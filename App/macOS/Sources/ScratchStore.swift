@@ -54,4 +54,17 @@ enum ScratchStore {
             .filter { $0.pathExtension.lowercased() == "md" }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
+
+    /// Delete untitled documents that were never typed into. Mirrors the
+    /// on-close GC (MainWindow.close) so a crash or a force-quit can't leave a
+    /// pile of blank notes to reopen. Must run at launch BEFORE any window
+    /// reopens scratch documents, or it races the reopen.
+    static func purgeEmptyUntitled() {
+        for url in existingUntitled() {
+            let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                try? FileManager.default.removeItem(at: url)
+            }
+        }
+    }
 }

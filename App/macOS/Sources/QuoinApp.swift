@@ -859,6 +859,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Quoin has its own document tabs; the system window-tab items
         // ("Show Tab Bar" etc.) would only confuse the View menu.
         NSWindow.allowsAutomaticWindowTabbing = false
+        // GC blank untitled documents left by a crash or force-quit (the
+        // on-close GC in MainWindow.close never ran). Runs HERE, synchronously,
+        // before any SwiftUI window's onAppear reopens scratch documents
+        // (MainWindow reopens them from ScratchStore.existingUntitled()) — so
+        // the purge always precedes the reopen and never deletes a doc out from
+        // under a window that just reopened it. A scratch doc WITH content
+        // survives and reopens (deferred-commitment principle).
+        ScratchStore.purgeEmptyUntitled()
         // Apply the stored appearance preference (System / Light / Dark).
         // The screenshot-automation pin (-QuoinForceDarkMode YES) wins over
         // the preference inside applyStored, so CI captures stay
