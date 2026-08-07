@@ -2091,7 +2091,7 @@ extension MarkdownReaderView {
             case .quoteAware:
                 return continueQuoteOnReturn(in: textView)
             case .tableRow:
-                return false   // Task 8
+                return continueTableRowOnReturn(in: textView)
             case .verbatim:
                 return false   // plain \n — the system's own insertion
             }
@@ -2235,6 +2235,32 @@ extension MarkdownReaderView {
                 onEdit(byteRange, replacement, caretDelta)
                 beginAwaitingEditEcho()
             }
+            return true
+        }
+
+        /// Return at the end of a table row: insert a new EMPTY row matching the
+        /// header's column count (`\n|  |  |`), so the caret drops into a fresh
+        /// row. The insertion NEVER contains a blank line — `\n\n` would
+        /// terminate the table (the whole reason tables are excluded from
+        /// `.paragraphBreak`). Returns false when `tableRowInsertion` yields nil
+        /// (caret not at a row end), so Return falls through to a plain newline.
+        /// Mirrors `continueQuoteOnReturn`'s edit plumbing.
+        private func continueTableRowOnReturn(in textView: NSTextView) -> Bool {
+            guard let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            guard let insertion = Self.tableRowInsertion(
+                    sourceText: sourceText, caretUTF16: relCaret),
+                  let byteOffset = EditMapping.utf8Offset(inText: sourceText, utf16Offset: relCaret)
+            else { return false }
+            onEdit(ByteRange(offset: byteOffset, length: 0), insertion, nil)
+            beginAwaitingEditEcho()
             return true
         }
 
@@ -2395,6 +2421,28 @@ extension MarkdownReaderView {
             return ListContinuationEdit(
                 utf16Range: caret ..< caret, replacement: replacement,
                 caretUTF16: replacement.utf16.count)
+        }
+
+        /// Return at the end of a table row: a new EMPTY row matching the
+        /// header's column count. Never a blank line — that would terminate the
+        /// table. Nil anywhere else, so Return falls through to a plain newline.
+        static func tableRowInsertion(sourceText: String, caretUTF16 caret: Int) -> String? {
+            let ns = sourceText as NSString
+            guard caret >= 0, caret <= ns.length else { return nil }
+            let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
+            let rawLine = ns.substring(with: lineRange)
+            let line = rawLine.hasSuffix("\n") ? String(rawLine.dropLast()) : rawLine
+            // Only at the END of a row line.
+            guard caret == lineRange.location + (line as NSString).length,
+                  line.hasPrefix("|") else { return nil }
+            // Column count from the HEADER (first line), not this row: a
+            // malformed row must not shrink the table.
+            let headerRange = ns.lineRange(for: NSRange(location: 0, length: 0))
+            let rawHeader = ns.substring(with: headerRange)
+            let header = rawHeader.hasSuffix("\n") ? String(rawHeader.dropLast()) : rawHeader
+            let columns = header.filter { $0 == "|" }.count - 1
+            guard columns > 0 else { return nil }
+            return "\n|" + String(repeating: "  |", count: columns)
         }
 
         /// Parses a list/quote/checkbox marker at the start of `line`, returning

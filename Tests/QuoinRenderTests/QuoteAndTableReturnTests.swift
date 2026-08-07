@@ -32,5 +32,27 @@ final class QuoteAndTableReturnTests: XCTestCase {
     func testNonQuoteLineIsNotOurs() {
         XCTAssertNil(C.quoteContinuationEdit(sourceText: "plain", caretUTF16: 5))
     }
+
+    func testReturnAtTheEndOfARowAddsAnEmptyRow() {
+        let table = "| a | b |\n| - | - |\n| 1 | 2 |"
+        XCTAssertEqual(
+            C.tableRowInsertion(sourceText: table, caretUTF16: (table as NSString).length),
+            "\n|  |  |",
+            "a new row must match the header's column count")
+    }
+
+    func testReturnMidRowIsAPlainNewline() {
+        let table = "| a | b |\n| - | - |\n| 1 | 2 |"
+        XCTAssertNil(C.tableRowInsertion(sourceText: table, caretUTF16: 3),
+                     "mid-row Return falls through to a plain newline")
+    }
+
+    /// The whole reason tables are excluded from .paragraphBreak.
+    func testTableInsertionNeverContainsABlankLine() {
+        let table = "| a |\n| - |\n| 1 |"
+        let out = C.tableRowInsertion(sourceText: table, caretUTF16: (table as NSString).length)
+        XCTAssertFalse(out?.contains("\n\n") ?? false,
+                       "a blank line would TERMINATE the table")
+    }
 }
 #endif
