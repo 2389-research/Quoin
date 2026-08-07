@@ -112,5 +112,17 @@ final class EndOfDocumentReturnTests: XCTestCase {
             C.paragraphBreakInsertion(sourceText: "Hello\n", relCaret: 6, atDocumentEnd: true),
             "\n")
     }
+
+    // MARK: ⇧Return — the explicit line break
+
+    func testShiftReturnInsertsACommonMarkHardBreak() {
+        XCTAssertEqual(
+            C.hardBreakInsertion(sourceText: "Hello", relCaret: 5), "\\\n",
+            "a backslash hard break is VISIBLE in source; trailing spaces are not")
+    }
+
+    func testShiftReturnDoesNotDoubleTheBackslash() {
+        XCTAssertNil(C.hardBreakInsertion(sourceText: "Hello\\", relCaret: 6))
+    }
 }
 #endif

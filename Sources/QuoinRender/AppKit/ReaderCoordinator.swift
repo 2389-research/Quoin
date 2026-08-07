@@ -1991,6 +1991,11 @@ extension MarkdownReaderView {
             if commandSelector == #selector(NSTextView.insertNewline(_:)) {
                 return handleReturn(in: textView)
             }
+            // ⇧Return (`insertLineBreak`) inserts an explicit CommonMark hard
+            // line break in prose — the backslash form, visible in the reveal.
+            if commandSelector == #selector(NSTextView.insertLineBreak(_:)) {
+                return insertHardLineBreak(in: textView)
+            }
             // Backspace / Delete UNDO the paragraph-break Return symmetrically:
             // on an absorbed trailing blank line, remove exactly one newline
             // (the last one merges the caret back to the paragraph's end).
@@ -2116,6 +2121,32 @@ extension MarkdownReaderView {
             return true
         }
 
+        /// ⇧Return in a prose block: insert an explicit CommonMark hard line
+        /// break at the caret (backslash form). Gated to `.paragraphBreak`
+        /// blocks so soft breaks stay a prose gesture; other block kinds fall
+        /// through to the system's plain line break. Mirrors
+        /// `insertParagraphBreak`'s edit plumbing.
+        private func insertHardLineBreak(in textView: NSTextView) -> Bool {
+            guard let kind = parent.rendered.activeBlockKind,
+                  ReturnSemantics.mode(for: kind) == .paragraphBreak,
+                  let onEdit = parent.onEditIntent,
+                  !awaitingEditEcho,
+                  let active = parent.rendered.activeEditableRange,
+                  let sourceText = parent.rendered.activeSourceText else { return false }
+            let selection = textView.selectedRange()
+            guard selection.length == 0,
+                  selection.location >= active.location,
+                  NSMaxRange(selection) <= NSMaxRange(active) else { return false }
+            let relCaret = selection.location - active.location
+            guard let insertion = Self.hardBreakInsertion(
+                    sourceText: sourceText, relCaret: relCaret),
+                  let byteOffset = EditMapping.utf8Offset(inText: sourceText, utf16Offset: relCaret)
+            else { return false }
+            onEdit(ByteRange(offset: byteOffset, length: 0), insertion, nil)
+            beginAwaitingEditEcho()
+            return true
+        }
+
         /// Backspace/Delete when the caret sits in a prose block's ABSORBED
         /// trailing blank lines: remove exactly one newline (mirroring one
         /// Return), routing the deletion as ONE relative byte edit so the
@@ -2219,6 +2250,19 @@ extension MarkdownReaderView {
             let before = ns.substring(to: relCaret)
             let trailing = before.reversed().prefix(while: { $0 == "\n" }).count
             return trailing == 0 ? "\n\n" : "\n"
+        }
+
+        /// ⇧Return: an explicit CommonMark hard line break. Backslash form, not
+        /// two-trailing-spaces: the reveal shows literal source, and invisible
+        /// trailing spaces are both unseeable and routinely stripped by other
+        /// editors. Nil when the caret already follows a backslash.
+        static func hardBreakInsertion(sourceText: String, relCaret: Int) -> String? {
+            let ns = sourceText as NSString
+            guard relCaret > 0, relCaret <= ns.length else { return relCaret == 0 ? "\\\n" : nil }
+            guard ns.substring(with: NSRange(location: relCaret - 1, length: 1)) != "\\" else {
+                return nil
+            }
+            return "\\\n"
         }
 
         /// Backspace/Delete when the caret sits in a block's ABSORBED trailing
