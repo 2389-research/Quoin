@@ -509,6 +509,36 @@ each edit against the exact bytes it targets.
 `contentRevision` and throws `staleEditBase` on mismatch. Session editing tests
 cover the reload-between-compute-and-apply window.
 
+### 19. Teardown is awaitable; a discarded document is never written back
+
+**Guarantees.** A document's lifecycle is a single-owner state machine. Teardown
+is an *awaitable* operation (`DocumentSession.teardown(save:)`), and **discard and
+final-flush are mutually exclusive**: closing an empty scratch document discards
+it (`teardown(save: false)`, which never writes), while closing one with content
+saves it (`teardown(save: true)`). No destructive filesystem op — delete, move
+(Save-As), trash — may run before the session that owns the URL is *provably* fully
+torn down: callers `await store.release(url, discard:)` first, then delete/move.
+
+**Why it matters.** The lifecycle's worst bug is a *resurrection*: a fire-and-forget
+final save that lands after the file was deleted/moved, re-creating a discarded
+document (or clobbering a reused `Untitled.md` with old text). Making teardown
+awaitable and discard-aware closes the whole family — close (no resurrection),
+Save-As (no duplicate at the old path, no delete-then-fail), and trash (a trashed
+doc is never re-written at its library path). The discard decision reads the
+model's **pipeline-inclusive** in-memory emptiness (`currentlyEmpty()` drains the
+edit FIFO first), never a debounce-stale disk read.
+
+**How it's enforced.** `DocumentLifecycle.onClose` is the one pure close-decision
+(discard only when scratch + empty + last-reference); `OpenDocumentStore.release`
+removes its entry synchronously then `await`s `stop()`/`discard()` (whose first
+synchronous act, `cancelBackgroundWork()`, cancels any armed H1-rename before a
+suspension); `MainWindow.close`/`saveActiveDocument` and the trash handler delete
+or move only *after* that await, gated on the real last-reference. Auto-rename and
+the untitled/empty decision key on document **state** (`isUncommitted`), not a
+filename prefix or a disk read. Covered by `DocumentLifecycleTests` and
+`DocumentSessionTeardownTests` (the pure/actor core); the GUI paths (close, Save-As,
+trash, quit/relaunch) require manual verification.
+
 ---
 
 ## Testing culture
