@@ -188,11 +188,14 @@ public actor EditorCore {
 
     // MARK: - Edit pipeline
 
-    /// The keystroke hot path. Defaults `publishSnapshot: false` so the shell's
-    /// synchronous caret/render path is preserved (it renders from the returned
-    /// `QuoinDocument`, and its `ingest` echo-skip drops the duplicate). We
-    /// still `publish()` so `State` mirrors advance for observers. Rethrows
-    /// `SessionError.staleEditBase` on base mismatch.
+    /// The keystroke hot path. Defaults `publishSnapshot: false`, which means
+    /// "don't publish ANYWHERE": neither the session nor the core emits a
+    /// `State` — the caller renders synchronously from the RETURNED
+    /// `QuoinDocument`. This is the pre-strangler keystroke behavior: the
+    /// hottest path stays echo-free, so there is no per-keystroke `State` to
+    /// ingest and no MainActor scheduling race to arbitrate. Programmatic ops
+    /// pass `publishSnapshot: true` and DO publish so observers' mirrors
+    /// advance. Rethrows `SessionError.staleEditBase` on base mismatch.
     @discardableResult
     public func apply(edit: SourceEdit, baseRevision: Int?, actionName: UndoActionName?,
                       publishSnapshot: Bool = false) async throws -> QuoinDocument {
@@ -204,7 +207,12 @@ public actor EditorCore {
         let doc = try await session.applyEdit(
             edit, baseRevision: baseRevision,
             publishSnapshot: publishSnapshot, actionName: actionName)
-        await publish()
+        // Respect the flag: `publishSnapshot: false` must not publish here
+        // either, or the keystroke path re-acquires the echo this contract
+        // exists to avoid.
+        if publishSnapshot {
+            await publish()
+        }
         return doc
     }
 

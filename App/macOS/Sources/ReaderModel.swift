@@ -1352,11 +1352,12 @@ final class ReaderModel {
                     metadata: "range_offset=\(absolute.offset) replacement_bytes=\(replacement.utf8.count)"
                 ) {
                     // Stage 4: route the keystroke hot path through the core actor.
-                    // `publishSnapshot: false` keeps the SESSION from publishing;
-                    // core.apply still calls publish() (State mirrors advance for
-                    // observers), but restoreCaret below sets self.document
-                    // synchronously first, so ingest's sourceHash/activeBlockID
-                    // guard drops that echo — exactly one render per keystroke.
+                    // `publishSnapshot: false` means "don't publish anywhere" —
+                    // neither the session nor the core emits a State — so the
+                    // keystroke path is echo-free: restoreCaret below renders
+                    // synchronously from the returned doc, and there is no
+                    // per-keystroke State to ingest. Exactly one render per
+                    // keystroke, with no MainActor scheduling race.
                     try await core.apply(
                         edit: edit, baseRevision: baseRevision,
                         actionName: actionName, publishSnapshot: false)

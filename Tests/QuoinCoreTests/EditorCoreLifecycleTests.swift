@@ -61,11 +61,12 @@ final class EditorCoreLifecycleTests: XCTestCase {
     func testUndoRedoOrdering() async throws {
         let core = EditorCore(source: "abc\n", fileURL: nil)
         await core.start()
-        _ = try await core.apply(edit: SourceEdit(range: ByteRange(offset: 3, length: 0),
-                                                  replacement: "d"), baseRevision: nil,
-                                 actionName: .append, publishSnapshot: false)
-        let afterApply = await core.getSnapshot().document.source
-        XCTAssertEqual(afterApply, "abcd\n")
+        // publishSnapshot: false (the keystroke contract) does not update the
+        // cached snapshot, so assert on the doc RETURNED by apply.
+        let afterApply = try await core.apply(
+            edit: SourceEdit(range: ByteRange(offset: 3, length: 0), replacement: "d"),
+            baseRevision: nil, actionName: .append, publishSnapshot: false)
+        XCTAssertEqual(afterApply.source, "abcd\n")
         let undone = await core.undo()
         XCTAssertEqual(undone?.source, "abc\n")
         let redone = await core.redo()

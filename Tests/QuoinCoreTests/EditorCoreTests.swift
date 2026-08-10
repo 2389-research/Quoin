@@ -27,13 +27,34 @@ final class EditorCoreTests: XCTestCase {
         let core = EditorCore(source: "a", fileURL: nil)
         await core.start()
         let before = await core.getSnapshot()
+        // publishSnapshot: true is the publishing contract under test — an edit
+        // that publishes advances the State mirror.
         _ = try await core.apply(edit: SourceEdit(range: ByteRange(offset: 1, length: 0),
                                                   replacement: "b"), baseRevision: nil,
-                                 actionName: nil, publishSnapshot: false)
+                                 actionName: nil, publishSnapshot: true)
         let after = await core.getSnapshot()
         XCTAssertEqual(after.document.source, "ab")
         XCTAssertGreaterThan(after.version, before.version,
-                             "apply() must publish so State mirrors advance")
+                             "apply(publishSnapshot: true) must publish so State mirrors advance")
+    }
+
+    /// The corrected contract (Task 6 review): `apply(publishSnapshot: false)`
+    /// is the keystroke hot path — it must NOT publish (no State echo, no
+    /// version bump, cached snapshot untouched), yet must RETURN the edited
+    /// document so the caller can render synchronously.
+    func testApplyWithoutPublishDoesNotAdvanceStateStream() async throws {
+        let core = EditorCore(source: "a", fileURL: nil)
+        await core.start()
+        let before = await core.getSnapshot()
+        let returned = try await core.apply(
+            edit: SourceEdit(range: ByteRange(offset: 1, length: 0), replacement: "b"),
+            baseRevision: nil, actionName: nil, publishSnapshot: false)
+        let after = await core.getSnapshot()
+        XCTAssertEqual(returned.source, "ab", "the returned doc reflects the edit")
+        XCTAssertEqual(after.version, before.version,
+                       "apply(publishSnapshot: false) must not advance the State version")
+        XCTAssertEqual(after.document.source, "a",
+                       "cached snapshot is untouched when not publishing")
     }
 
     /// Task 3b: a save failure surfaces through the session's failure handler
@@ -72,11 +93,15 @@ final class EditorCoreTests: XCTestCase {
                         "a dirty session losing its file must surface a save failure in State")
 
         // Re-attach to a fresh, writable path; a successful edit clears it.
+        // publishSnapshot: true because this asserts on the PUBLISHED mirror —
+        // core.apply clears lastSaveError on every call, but only a publish
+        // surfaces the clear into State (the keystroke path defers surfacing to
+        // the next publish; a programmatic op like this one publishes now).
         let newFile = dir.appendingPathComponent("moved.md")
         await session.relocate(to: newFile)
         _ = try await core.apply(
             edit: SourceEdit(range: ByteRange(offset: 0, length: 0), replacement: "x"),
-            baseRevision: nil, actionName: nil)
+            baseRevision: nil, actionName: nil, publishSnapshot: true)
         let cleared = await core.getSnapshot()
         XCTAssertNil(cleared.lastSaveError,
                      "a successful edit supersedes a stale save failure")
