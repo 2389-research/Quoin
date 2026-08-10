@@ -1410,8 +1410,16 @@ final class ReaderModel {
         } catch {
             return
         }
+        // A concurrent teardown or Save-As may have cancelled renameTask
+        // DURING the saveNow suspension (LIFE-6). Bail BEFORE the rename
+        // moveItem so this rename and the racing relocate/Save-As can't both
+        // target the same source file.
+        guard !Task.isCancelled else { return }
         guard let renamed = try? Library.rename(url, to: title) else { return }
         await session.relocate(to: renamed)
+        // A cancel may also have landed during the relocate suspension; don't
+        // publish a rename the teardown/Save-As has already superseded.
+        guard !Task.isCancelled else { return }
         fileURL = renamed
         // Recompute committed-ness against the NEW home: an H1 rename keeps a
         // scratch doc inside the scratch folder (still uncommitted), while a
