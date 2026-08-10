@@ -877,6 +877,27 @@ public actor DocumentSession {
         }
     }
 
+    /// Awaitable, discard-aware teardown. Replaces the fire-and-forget final
+    /// save: the caller can sequence a move/delete strictly AFTER this returns,
+    /// and a discard (save == false) never writes — so a deleted scratch file
+    /// is never resurrected. Idempotent.
+    public func teardown(save: Bool) async {
+        autosaveTask?.cancel()
+        autosaveTask = nil
+        if save {
+            try? saveNowIfSafe()
+        }
+        stopWatching()
+    }
+
+    /// saveNow, but silently declines when there is nothing safe to write
+    /// (not dirty, detached, or an unresolved conflict). Distinct from saveNow()
+    /// which throws for those — teardown must not throw.
+    private func saveNowIfSafe() throws {
+        guard isDirty, !isDetached, !hasUnresolvedConflict else { return }
+        try saveNow()
+    }
+
     /// Atomically write `source` to `url`, record it as a self-write so the
     /// file watcher ignores the echo, and clear (or, on failure, set +
     /// rethrow) `lastSaveError`. Callers own the dirty-flag, autosave, and
