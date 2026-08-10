@@ -890,30 +890,37 @@ struct MainWindow: View {
     private func close(_ tab: DocumentTab) {
         let closedIndex = openTabs.firstIndex { $0.id == tab.id }
         openTabs.removeAll { $0.id == tab.id }
-        // Decide discard from the MODEL's in-memory content (source of truth),
-        // captured BEFORE release drops the model. The old code read the on-disk
-        // file, which lags the 400ms-debounced autosave: a fast close saw a
-        // stale-empty file and discarded a doc that still held unsaved text,
-        // after which stop()'s async final save resurrected that text onto a
-        // reused "Untitled.md" (the "new document has old text" bug). Default
-        // to KEEP (`?? false`) when the model can't be found — never delete a
-        // scratch file whose emptiness we can't confirm.
-        let isEmptyScratch = ScratchStore.isScratch(tab.url)
-            && (store.model(for: tab.url)?.isEffectivelyEmpty ?? false)
-        // Let go of this window's hold on the file; the store stops the session
-        // only when the LAST tab (across all windows) releases it. MINIMAL for
-        // Task 4: release is now async, so detach it (behavior-preserving — the
-        // old sync release already detached teardown). Task 5/6 formalizes the
-        // discard-vs-save decision and gates the removeItem on the last-ref bool.
-        Task { await store.release(tab.url) }
-        // A never-typed-into scratch document shouldn't linger and reopen every
-        // launch: discard it. A scratch doc with content is left in place —
-        // closing it keeps your unsaved work, which reopens next launch.
-        if isEmptyScratch {
-            try? FileManager.default.removeItem(at: tab.url)
+        // Capture the model BEFORE release drops it, then route the whole
+        // teardown decision through the lifecycle state machine (Task 1) on a
+        // detached Task. The old code read the on-disk file, which lags the
+        // 400ms-debounced autosave: a fast close saw a stale-empty file and
+        // discarded a doc that still held unsaved text, after which stop()'s
+        // async final save resurrected that text onto a reused "Untitled.md"
+        // (the resurrection bug, LIFE-1/LIFE-2). Now emptiness is
+        // PIPELINE-INCLUSIVE (`currentlyEmpty()`), the discard intent is
+        // threaded into `release`, and the file delete is gated on the REAL
+        // last-ref result so we never delete a file another live session owns
+        // (LIFE-5). Because teardown is awaited before `removeItem`, and the
+        // discard path never writes, the file cannot be resurrected.
+        let model = store.model(for: tab.url)
+        let url = tab.url
+        Task {
+            let isScratch = ScratchStore.isScratch(url)
+            // Pipeline-inclusive emptiness — never the debounce-stale disk file.
+            let isEmpty = isScratch ? await (model?.currentlyEmpty() ?? true) : false
+            // We don't yet know last-ref; ask release. Compute the discard
+            // intent from a provisional last-ref=true, then reconcile with the
+            // truth `release` returns.
+            let wantsDiscard = DocumentLifecycle.onClose(
+                .init(isScratch: isScratch, isEmpty: isEmpty, isLastReference: true)) == .discardWithoutSaving
+            let wasLast = await store.release(url, discard: wantsDiscard)
+            if DocumentLifecycle.shouldDeleteBackingFile(
+                .init(isScratch: isScratch, isEmpty: isEmpty, isLastReference: wasLast)) {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         // Browser-standard positional stability (#77): focus the tab now in
-        // the closed tab's slot, not the rightmost tab.
+        // the closed tab's slot, not the rightmost tab. Stays synchronous.
         if activeTabID == tab.id {
             activeTabID = closedIndex
                 .flatMap { TabSuccession.successorIndex(closedIndex: $0, remainingCount: openTabs.count) }
