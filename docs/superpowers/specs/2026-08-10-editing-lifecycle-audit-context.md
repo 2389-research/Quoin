@@ -120,3 +120,13 @@ Concrete, code-cited findings (bugs AND design fragilities), each with:
 Then a synthesized first-principles issue list, organized by subsystem, that
 Clint can use to redo this portion — the Layer-0 (document) / Layer-1 (vault)
 re-layering, with the edit-path and lifecycle guarantees made explicit.
+
+## Live repro of CARET-1 (Clint, 2026-08-10, on the post-Plan-1 build)
+
+Confirmed the CARET-1 critical is live (expected — the empty-paragraph-node plan is not yet done):
+1. Type `# i am a cool developer` (heading).
+2. Enter → HUGE newline gap (the `\n\n` renders as full-height lines + H1 spacing; no real empty-paragraph node to size it).
+3. Start typing → the gap collapses to the expected paragraph spacing (viewport heaves on Enter, un-heaves on first keystroke — the invariant violation).
+4. NEW/sharper symptom (data-touching, add to CARET-1 scope): backspace to the start of the new line, then ONE more backspace DELETES the `e` in "developer" — i.e. backspace across the synthetic gap lands in the HEADING's content instead of cleanly removing the paragraph break / merging the empty line. This is a correctness bug, not just visual.
+
+Implication for the redo (RC-2 / audit step 2): the blank line between blocks must be a first-class model entity with its own byte range and caret home; rendered height a pure function of document state; and Backspace at the start of a materialized paragraph must remove the paragraph break (merge) — never delete a trailing content char of the previous block.
