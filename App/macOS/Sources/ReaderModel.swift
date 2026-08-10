@@ -315,31 +315,41 @@ final class ReaderModel {
     }
 
     /// Awaitable teardown that SAVES pending work (normal close of a kept
-    /// doc). Drains the edit FIFO first so no keystroke is lost, then hands
-    /// the session its final save + unwatch through `teardown(save:)`.
+    /// doc). Drains the edit FIFO first so no keystroke is lost, then delegates
+    /// the final save + unwatch to the core's `stop(save:)`.
+    ///
+    /// The `editPipelineTask` drain stays HERE (not in the core) until Task 6:
+    /// edits are still applied by the shell straight to the session, so the
+    /// core's `stop` — which only cancels its pump and calls
+    /// `session.teardown` — has no knowledge of an in-flight shell keystroke.
+    /// Draining before delegating preserves ordering; once edits move into the
+    /// core (Task 6) this drain becomes the core's responsibility.
     func stop() async {
         cancelBackgroundWork()
         await editPipelineTask?.value
-        await session?.teardown(save: true)
+        await core?.stop(save: true)
     }
 
     /// Awaitable teardown that DISCARDS (an empty scratch doc being thrown
     /// away). Never writes — so a subsequent removeItem can't be resurrected
-    /// by a final save landing after the delete.
+    /// by a final save landing after the delete. Drains the shell edit FIFO
+    /// first (see `stop()`) before delegating to the core's `discard()`.
     func discard() async {
         cancelBackgroundWork()
         await editPipelineTask?.value
-        await session?.teardown(save: false)
+        await core?.discard()
     }
 
     /// Emptiness AFTER the edit pipeline drains — the authoritative value a
     /// close/discard decision must use. `isEffectivelyEmpty` alone reads
     /// `document`, which lags until `restoreCaret` runs inside the pipeline
     /// (LIFE-2): a fast type-then-close would read pre-edit-empty and discard
-    /// a doc that actually has text.
+    /// a doc that actually has text. Drains the shell FIFO here (Task 6 will
+    /// fold it into the core) before asking the core for the emptiness read;
+    /// a nil core means no adopted document, so treat as empty.
     func currentlyEmpty() async -> Bool {
         await editPipelineTask?.value
-        return isEffectivelyEmpty
+        return await core?.currentlyEmpty() ?? true
     }
 
     /// Drain any queued edits and force an immediate save WITHOUT tearing the
@@ -350,10 +360,11 @@ final class ReaderModel {
     /// unconditionally after its detached/conflict guards (only `saveNowIfSafe`
     /// gates on dirty), so a redundant flush just re-writes identical bytes.
     func flush() async {
-        let session = session
-        let pendingEdits = editPipelineTask
-        await pendingEdits?.value
-        try? await session?.saveNow()
+        // Drain the shell edit FIFO first (Task 6 will move this into the
+        // core) so the core's `flush` — which calls `session.saveNow` — writes
+        // the post-keystroke bytes, not the pre-edit file (#12).
+        await editPipelineTask?.value
+        await core?.flush()
     }
 
     /// A new snapshot from the session (file change, checkbox, or our own
