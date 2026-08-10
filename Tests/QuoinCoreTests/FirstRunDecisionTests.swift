@@ -29,10 +29,17 @@ final class FirstRunDecisionTests: XCTestCase {
             isLaunchRestoration: true, reopenedScratchCount: 1))
     }
 
-    func testAConnectedLibraryStillGetsAnUntitledDocument() {
-        XCTAssertTrue(FirstRunDecision.shouldCreateUntitled(
+    func testLibraryWindowWithNoTabsDoesNotGetAScratchUntitled() {
+        // A window with a connected library and zero tabs should NOT materialize
+        // a scratch Untitled — it should show the library empty state instead.
+        XCTAssertFalse(FirstRunDecision.shouldCreateUntitled(
             hasOpenTabs: false, hasLibrary: true, hasPendingOpens: false,
-            isLaunchRestoration: false, reopenedScratchCount: 0),
-            "an empty window should be writable regardless of library state")
+            isLaunchRestoration: false, reopenedScratchCount: 0))
+    }
+
+    func testNoLibraryTrueFirstLaunchStillGetsUntitled() {
+        XCTAssertTrue(FirstRunDecision.shouldCreateUntitled(
+            hasOpenTabs: false, hasLibrary: false, hasPendingOpens: false,
+            isLaunchRestoration: false, reopenedScratchCount: 0))
     }
 }
