@@ -33,6 +33,10 @@ targets:
       base:
         SWIFT_VERSION: "6.0"
         TEST_TARGET_NAME: Quoin
+        # Without a generated Info.plist the UI-test bundle fails code signing,
+        # so `xcodebuild test` could never run locally. Generate one so behavioral
+        # XCUITests (real key events, resurrection/Return/Save-As flows) run here.
+        GENERATE_INFOPLIST_FILE: "YES"
 
   Quoin:
     type: application
