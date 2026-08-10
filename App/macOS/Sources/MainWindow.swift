@@ -959,7 +959,10 @@ struct MainWindow: View {
                 .quoinScaledFont(size: 12)
                 .foregroundStyle(.secondary)
             Button("New Document") {
+                // Match ⌘N: create in the library if one exists, else an
+                // instant autosaved scratch document (no library required).
                 if let url = library.createDocument() { open(url) }
+                else if let url = ScratchStore.createUntitled() { open(url) }
             }
             .buttonStyle(.bordered)
             .tint(.accentColor)
