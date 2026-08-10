@@ -788,13 +788,32 @@ compile. Supporting it means changing those guards to
 ## Concurrency and the Swift 6 language mode
 
 The threading model is deliberately small: **one actor for the document, one
-main actor for everything the user sees.**
+main actor for everything the user sees**, with a platform-free engine between
+them.
 
 - `DocumentSession` is a `public actor`. It owns the source string, the AST,
   the undo stacks, and autosave; every mutation is serialized on its executor.
+- `EditorCore` is a `public actor` in **QuoinCore** (platform-free,
+  Linux-testable — no SwiftUI/AppKit/QuoinRender). It is the **document engine**:
+  it owns the one `DocumentSession`, the lifecycle state machine
+  (`start`/`stop(save:)`/`discard`/`flush`/`currentlyEmpty` + awaitable teardown),
+  edit application (`apply(edit:…,publishSnapshot:)`), undo/redo, conflict
+  resolution, and the programmatic ops, and publishes a `Sendable`
+  `EditorCore.State` snapshot via `AsyncStream<State>` + `getSnapshot()`. Because
+  it holds no view types, the lifecycle/edit/undo/conflict behavior is covered by
+  `swift test` (`EditorCoreTests`/`EditorCoreLifecycleTests`) rather than only by
+  the GUI. `apply(edit:…,publishSnapshot:false)` applies and returns the new
+  document WITHOUT publishing, so the keystroke hot path renders synchronously
+  from the returned doc with zero State echo.
 - `ReaderModel`, `LibraryModel`, and `OpenDocumentStore` are
-  `@MainActor` (`ReaderModel`/`LibraryModel` are also `@Observable`). All view
-  state, caret bookkeeping, and the reveal projection live on the main actor.
+  `@MainActor` (`ReaderModel`/`LibraryModel` are also `@Observable`). `ReaderModel`
+  is now a **thin adapter over `EditorCore`**: it holds an `EditorCore` (which
+  *adopts* the single `DocumentSession` it builds — object identity, so exactly
+  one session/autosaver per file), mirrors `EditorCore.State` onto its
+  `@Observable` properties for SwiftUI, and does only the platform-bound work —
+  the `RenderedDocument`/`NSAttributedString` projection, caret bookkeeping, and
+  viewport. (Caret-mapping/edit-intent and H1-rename policy remain shell-side by
+  design; carving those out is future work.)
 - Edits flow through a **serialized FIFO** on the main actor
   (`ReaderModel.editPipelineTask`): each keystroke/command chains off the prior
   task's completion, hops onto the session actor to apply, then adopts the
