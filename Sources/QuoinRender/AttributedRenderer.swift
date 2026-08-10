@@ -1166,6 +1166,30 @@ public struct AttributedRenderer: Sendable {
     /// skeleton (the blank line opens to full height only when the caret is ON
     /// it). Both the full-render and per-keystroke patch paths route through
     /// here so their fragments stay byte-identical (ProjectorEquivalenceTests).
+    /// Map a document caret (UTF-8 offset) back onto the block it lands in and
+    /// the caret's UTF-16 offset WITHIN that block's editable slice. The caret
+    /// is bounded by the EDITABLE SLICE — which extends the last prose block
+    /// through trailing whitespace and mid-document prose blocks through
+    /// absorbed excess whitespace — NOT by the raw `block.range`. Bounding by
+    /// the raw range clamps a caret aimed at an absorbed blank line back to the
+    /// block's content end, so Return at the end of a heading/paragraph never
+    /// advances (the live "type a line, hit Enter, nothing happens" bug that
+    /// the pure insertion tests could not see, because caret restoration lives
+    /// in the app model). nil for an empty/blockless document.
+    public static func caretMapping(
+        inDocument document: QuoinDocument, atUTF8Offset caretUTF8: Int
+    ) -> (blockID: BlockID, caretUTF16InSlice: Int)? {
+        guard let block = document.blocks.last(where: { $0.range.offset <= caretUTF8 })
+                ?? document.blocks.first,
+              let index = document.blocks.firstIndex(where: { $0.id == block.id }),
+              let slice = editableSlice(for: block, at: index, in: document)
+        else { return nil }
+        let relative = max(0, min(caretUTF8 - block.range.offset, slice.utf8.count))
+        let utf16 = EditMapping.utf16Offset(inText: slice, utf8Offset: relative)
+            ?? (slice as NSString).length
+        return (block.id, utf16)
+    }
+
     public static func editableSlice(
         for block: Block, at index: Int, in document: QuoinDocument
     ) -> String? {

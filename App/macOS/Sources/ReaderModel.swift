@@ -1446,12 +1446,14 @@ final class ReaderModel {
         let oldActiveBlockID = activeBlockID
         document = newDocument
         if let caretUTF8 {
-            let block = newDocument.blocks.last(where: { $0.range.offset <= caretUTF8 })
-                ?? newDocument.blocks.first
-            if let block, let slice = newDocument.source.substring(in: block.range) {
-                activeBlockID = block.id
-                let relative = max(0, min(caretUTF8 - block.range.offset, slice.utf8.count))
-                caretInActiveBlock = EditMapping.utf16Offset(inText: slice, utf8Offset: relative) ?? slice.utf16.count
+            // Bound the caret by the block's EDITABLE SLICE (which extends the
+            // last prose block through trailing whitespace), not the raw
+            // block.range — else a caret aimed at an absorbed blank line clamps
+            // back to the block's content end and Return never advances.
+            if let mapping = AttributedRenderer.caretMapping(
+                inDocument: newDocument, atUTF8Offset: caretUTF8) {
+                activeBlockID = mapping.blockID
+                caretInActiveBlock = mapping.caretUTF16InSlice
             } else {
                 activeBlockID = nil
                 caretInActiveBlock = nil
