@@ -142,6 +142,26 @@ public actor EditorCore {
     /// The current cached mirror. Correct before and after `start()`.
     public func getSnapshot() -> State { currentState }
 
+    // MARK: - Live session reads
+    //
+    // The keystroke hot path applies edits with `publishSnapshot: false`, so
+    // `currentState` (recomputed only on `publish()`) can lag the session
+    // between keystrokes. These accessors read the session LIVE — the caller
+    // needs the session's real truth right now (edit-recovery adoption,
+    // post-op undo-label refresh, the revision stamp after undo/redo) rather
+    // than a possibly-stale mirror.
+
+    /// The session's current parsed document.
+    public func currentDocument() async -> QuoinDocument { await session.document }
+
+    /// The session's current non-edit adoption revision — the stamp a shell
+    /// edit must carry so an external reload landing first makes the session
+    /// REJECT the edit rather than splice stale offsets (ledger #14).
+    public func currentContentRevision() async -> Int { await session.contentRevision }
+
+    /// The session's current Undo/Redo labels (nil = empty stack).
+    public func currentUndoState() async -> DocumentSession.UndoState { await session.undoState }
+
     /// A stream of `State` snapshots, starting with the current one.
     public func stateStream() -> AsyncStream<State> {
         AsyncStream { continuation in
@@ -169,6 +189,22 @@ public actor EditorCore {
     /// Drop the document without ever writing it — `teardown(save: false)`.
     /// Never resurrects a file the user deleted out from under us.
     public func discard() async { await stop(save: false) }
+
+    /// Force a synchronous save now WITHOUT republishing — the H1-rename path
+    /// needs the on-disk bytes settled before it moves the file, but does its
+    /// own model reconciliation, so a `State` publish here is redundant.
+    /// Rethrows so the caller can abort the rename when the save fails.
+    public func saveNow() async throws {
+        try await session.saveNow()
+    }
+
+    /// Adopt a new file URL for the same document (H1 rename / Save-As moved the
+    /// file on disk). Thin passthrough; the session re-points its watcher and
+    /// clears the detached flag. No publish — the caller reconciles its own
+    /// `fileURL`, and the next edit's `State` carries the new URL anyway.
+    public func relocate(to url: URL) async {
+        await session.relocate(to: url)
+    }
 
     /// Force a synchronous save now, then republish so mirrors see the cleared
     /// dirty flag. Save failures surface through the session's failure handler.
@@ -284,6 +320,23 @@ public actor EditorCore {
     @discardableResult
     public func resolveAllSuggestions(action: SuggestionResolver.Action) async throws -> QuoinDocument? {
         let doc = try await session.applyBulkResolution(action: action)
+        await publish()
+        return doc
+    }
+
+    // MARK: - Annotations (Review authoring)
+
+    /// Create an annotation (comment / block comment / highlight / suggested
+    /// edit) over a byte range. The session recomputes against ITS current
+    /// source and returns nil on drift (the caller surfaces a refusal banner).
+    @discardableResult
+    public func applyAnnotation(
+        kind: ReviewAuthoring.Kind, range: ByteRange, expectedSlice: String,
+        reviewer: String
+    ) async throws -> QuoinDocument? {
+        let doc = try await session.applyAnnotation(
+            kind: kind, range: range, expectedSlice: expectedSlice,
+            reviewer: reviewer, publishSnapshot: false)
         await publish()
         return doc
     }

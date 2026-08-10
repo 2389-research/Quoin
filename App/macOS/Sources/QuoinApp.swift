@@ -763,12 +763,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// flush — only the box (a Sendable @MainActor class) crosses, and the
     /// reply hops back to the main actor to fire.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let sessions = ReaderModel.liveSessionSnapshot()
-        guard !sessions.isEmpty else { return .terminateNow }
+        let cores = ReaderModel.liveCoreSnapshot()
+        guard !cores.isEmpty else { return .terminateNow }
         let replyBox = TerminationReplyBox(sender)
         Task.detached(priority: .userInitiated) {
-            for session in sessions {
-                try? await session.saveNow()
+            // Each core owns its `DocumentSession`; `flush()` calls
+            // `session.saveNow()`, so this drains every live document's
+            // pending autosave before the reply — BLOCKER #4 intact.
+            for core in cores {
+                await core.flush()
             }
             await MainActor.run { replyBox.reply() }
         }

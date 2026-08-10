@@ -3,10 +3,12 @@ import SwiftUI
 import QuoinCore
 import QuoinRender
 
-/// Owns the `DocumentSession` for one window and republishes its snapshots
-/// as rendered output for SwiftUI — including the editor's syntax-reveal
-/// state (active block + caret), which lives here because it must survive
-/// each edit's re-parse round trip.
+/// The `@MainActor` adapter for one window: it owns an `EditorCore` (the
+/// platform-free engine that owns the `DocumentSession`), mirrors the core's
+/// `stateStream()`, and republishes it as rendered output for SwiftUI —
+/// including the editor's syntax-reveal state (active block + caret), which
+/// lives here because it must survive each edit's re-parse round trip. This
+/// model holds no `DocumentSession` itself (EditorCore extraction, Stage 5).
 @MainActor
 @Observable
 final class ReaderModel {
@@ -100,13 +102,13 @@ final class ReaderModel {
     /// supply a haptic/no-op when this moves to the shared EditorViewModel.
     @ObservationIgnored var feedback: EditorFeedback = SystemEditorFeedback()
 
-    @ObservationIgnored private var session: DocumentSession?
-    /// The platform-free engine that owns document/undo/conflict state for this
-    /// window (EditorCore extraction, Stage 1). It ADOPTS the same
-    /// `DocumentSession` above — there is exactly ONE session per file (ledger
-    /// #12) — and this model now mirrors its `stateStream()` instead of
-    /// subscribing to the session's snapshots directly. `session` stays for now;
-    /// later stages route the remaining direct uses through the core and drop it.
+    /// The platform-free engine that owns document/undo/conflict state — and
+    /// the sole `DocumentSession` — for this window (EditorCore extraction,
+    /// Stage 5, exit criterion). This model holds ONLY the core plus its
+    /// platform-bound render/caret/viewport state: every session touch now
+    /// routes through a `core` API, and this model mirrors `stateStream()`
+    /// rather than subscribing to the session directly. There is exactly ONE
+    /// `DocumentSession` per file (ledger #12), owned by the core.
     @ObservationIgnored private var core: EditorCore?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     /// The last save-failure message mirrored from `EditorCore.State`, so the
@@ -187,7 +189,7 @@ final class ReaderModel {
     @ObservationIgnored private var fragmentCache: [BlockID: NSAttributedString] = [:]
 
     func start(fileURL: URL?, initialText: String) {
-        guard session == nil else { return }
+        guard core == nil else { return }
         self.fileURL = fileURL
         self.isUncommitted = fileURL.map(ScratchStore.isScratch) ?? false
         renderer = makeRenderer()
@@ -210,16 +212,17 @@ final class ReaderModel {
         } else {
             session = DocumentSession(source: initialText, fileURL: fileURL)
         }
-        self.session = session
         // ONE session per file (ledger #12): the core ADOPTS the session this
-        // model just built rather than opening its own. `session` and `core`
-        // therefore wrap the identical `DocumentSession` — no second autosaver.
+        // model just built rather than opening its own, and is now its SOLE
+        // owner — this model keeps no `session` reference. No second autosaver.
         let core = EditorCore(adopting: session)
         self.core = core
 
-        // Termination flush registry: ⌘Q must drain every live session's
-        // autosave before the process dies (launch audit BLOCKER #4).
-        Self.registerLiveSession(session)
+        // Termination flush registry: ⌘Q must drain every live document's
+        // autosave before the process dies (launch audit BLOCKER #4). The
+        // registry now holds the CORE and flushes through it — the core owns
+        // the session, so `core.flush()` still calls `session.saveNow()`.
+        Self.registerLiveCore(core)
 
         snapshotTask = Task { [weak self] in
             // The core owns the session's conflict + save-failure handlers and
@@ -265,7 +268,7 @@ final class ReaderModel {
     /// per-theme by construction — every cached fragment has the old
     /// palette baked in — so it empties rather than carries stale colors.
     func refreshTheme() {
-        guard session != nil else { return }
+        guard core != nil else { return }
         renderer = makeRenderer()
         fragmentCache.removeAll()
         // Off-main full render (issue #33): a theme flip re-projects the whole
@@ -277,10 +280,10 @@ final class ReaderModel {
     // MARK: - Merge banner
 
     func resolveConflictKeepingMine() {
-        guard let session else { return }
+        guard let core else { return }
         Task {
             do {
-                try await session.resolveConflictKeepingMine()
+                try await core.resolveConflictKeepingMine()
                 self.conflictDiskSource = nil
             } catch {
                 // The banner stays (the version is still unresolved), but tell
@@ -292,11 +295,11 @@ final class ReaderModel {
     }
 
     func resolveConflictTakingDisk() {
-        guard let session, let diskSource = conflictDiskSource else { return }
+        guard let core, let diskSource = conflictDiskSource else { return }
         conflictDiskSource = nil
         activeBlockID = nil
         caretInActiveBlock = nil
-        Task { await session.resolveConflictTakingDisk(diskSource) }
+        Task { await core.resolveConflictTakingDisk(diskSource) }
     }
 
     /// Cancel every background task the model owns WITHOUT tearing down the
@@ -759,9 +762,9 @@ final class ReaderModel {
     var isSuggestMode = false
 
     func applyEdit(relativeRange: ByteRange, replacement: String, caretDelta: Int? = nil) {
-        // `applyAbsolute` re-guards the session at apply time; here we only
+        // `applyAbsolute` re-guards the core at apply time; here we only
         // need to know one exists, so this binding is existence-only.
-        guard session != nil,
+        guard core != nil,
               let activeBlockID,
               let block = document.blocks.first(where: { $0.id == activeBlockID })
         else { return }
@@ -1014,7 +1017,7 @@ final class ReaderModel {
         guard let core else { return }
         // Nothing to resolve is a quiet no-op, not a failure. No pulse:
         // a batch changes the whole document, there is no one "where".
-        applySessionResolution(refusalMessage: nil, flashOffset: nil) { _ in
+        applySessionResolution(refusalMessage: nil, flashOffset: nil) {
             try await core.resolveAllSuggestions(action: action)
         }
     }
@@ -1026,7 +1029,7 @@ final class ReaderModel {
     /// (CLAUDE.md compute-where-applied rule). A no-op when nothing changes.
     func tidyBlankLines() {
         guard let core else { return }
-        applySessionResolution(refusalMessage: nil, flashOffset: nil) { _ in
+        applySessionResolution(refusalMessage: nil, flashOffset: nil) {
             try await core.tidyBlankLines()
         }
     }
@@ -1108,10 +1111,11 @@ final class ReaderModel {
 
         // Document-level comment: no selection, no mark, no mapping.
         if case .comment = kind, renderedStart == renderedEnd {
-            applySessionResolution(refusalMessage: refusal) { [reviewer = Self.reviewerName] session in
-                try await session.applyAnnotation(
+            guard let core else { return }
+            applySessionResolution(refusalMessage: refusal) { [reviewer = Self.reviewerName] in
+                try await core.applyAnnotation(
                     kind: kind, range: ByteRange(offset: 0, length: 0), expectedSlice: "",
-                    reviewer: reviewer, publishSnapshot: false)
+                    reviewer: reviewer)
             }
             return
         }
@@ -1156,13 +1160,14 @@ final class ReaderModel {
         let bytes = Array(document.source.utf8)
         let expected = String(decoding: bytes[absolute.offset..<(absolute.offset + absolute.length)], as: UTF8.self)
 
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: refusal,
             flashOffset: absolute.offset
-        ) { [reviewer = Self.reviewerName] session in
-            try await session.applyAnnotation(
+        ) { [reviewer = Self.reviewerName] in
+            try await core.applyAnnotation(
                 kind: kind, range: absolute, expectedSlice: expected,
-                reviewer: reviewer, publishSnapshot: false)
+                reviewer: reviewer)
         }
     }
 
@@ -1174,13 +1179,14 @@ final class ReaderModel {
             reportFailure("Couldn't comment on that block — try again.")
             return
         }
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: "Couldn't comment on that block — try again.",
             flashOffset: block.range.offset + block.range.length + 2
-        ) { [reviewer = Self.reviewerName, range = block.range] session in
-            try await session.applyAnnotation(
+        ) { [reviewer = Self.reviewerName, range = block.range] in
+            try await core.applyAnnotation(
                 kind: .blockComment(body: body), range: range,
-                expectedSlice: slice, reviewer: reviewer, publishSnapshot: false)
+                expectedSlice: slice, reviewer: reviewer)
         }
     }
 
@@ -1196,7 +1202,7 @@ final class ReaderModel {
         applySessionResolution(
             refusalMessage: "Couldn't set “\(key)” — that property isn't a simple value.",
             flashOffset: nil
-        ) { _ in
+        ) {
             try await core.setFrontMatterField(key: key, value: value)
         }
     }
@@ -1209,7 +1215,7 @@ final class ReaderModel {
         applySessionResolution(
             refusalMessage: "Couldn't set “\(key)” — the value lost its type. Try Edit as Text.",
             flashOffset: nil
-        ) { _ in
+        ) {
             try await core.setTypedFrontMatterField(key: key, rawValue: rawValue)
         }
     }
@@ -1221,7 +1227,7 @@ final class ReaderModel {
         applySessionResolution(
             refusalMessage: "Couldn't remove “\(key)” — the front matter changed underneath. Try again.",
             flashOffset: nil
-        ) { _ in
+        ) {
             try await core.removeFrontMatterField(key: key)
         }
     }
@@ -1272,7 +1278,7 @@ final class ReaderModel {
         applySessionResolution(
             refusalMessage: "That suggestion changed since it was rendered — try again.",
             flashOffset: markRange.offset
-        ) { _ in
+        ) {
             try await core.applyResolution(
                 markRange: markRange, action: action, expectedSlice: expected)
         }
@@ -1288,9 +1294,9 @@ final class ReaderModel {
     private func applySessionResolution(
         refusalMessage: String?,
         flashOffset: Int? = nil,
-        _ operation: @escaping @Sendable (DocumentSession) async throws -> QuoinDocument?
+        _ operation: @escaping @Sendable () async throws -> QuoinDocument?
     ) {
-        guard let session else { return }
+        guard core != nil else { return }
         latestEditGeneration += 1
         let generation = latestEditGeneration
         let previousEditTask = editPipelineTask
@@ -1301,7 +1307,7 @@ final class ReaderModel {
             do {
                 let newDocument = try await QuoinPerformanceTrace.measure(
                     "model.session.applyResolution") {
-                    try await operation(session)
+                    try await operation()
                 }
                 guard generation == self.latestEditGeneration else { return }
                 if let newDocument {
@@ -1390,9 +1396,9 @@ final class ReaderModel {
     /// loss of the queue when the active block itself is gone — is
     /// surfaced as a banner, never swallowed.
     private func recoverFromFailedEdit(_ error: Error, generation: Int) async {
-        guard let session else { return }
-        let truth = await session.document
-        sessionContentRevision = await session.contentRevision
+        guard let core else { return }
+        let truth = await core.currentDocument()
+        sessionContentRevision = await core.currentContentRevision()
         await refreshUndoState()
         // Superseded submissions stay quiet: the newest one (or its own
         // recovery) owns the projection and the banner.
@@ -1445,9 +1451,9 @@ final class ReaderModel {
     }
 
     private func performH1Rename(to title: String) async {
-        guard let session, let url = fileURL else { return }
+        guard let core, let url = fileURL else { return }
         do {
-            try await session.saveNow()
+            try await core.saveNow()
         } catch {
             return
         }
@@ -1459,7 +1465,7 @@ final class ReaderModel {
         // once Library.rename runs, the move is irreversible.
         guard !Task.isCancelled else { return }
         guard let renamed = try? Library.rename(url, to: title) else { return }
-        await session.relocate(to: renamed)
+        await core.relocate(to: renamed)
         // Past this point the file has ALREADY moved on disk and the session
         // has relocated — the reconciliation below is UNCONDITIONAL even if a
         // re-arm/teardown cancelled us during the relocate suspension. Skipping
@@ -1479,11 +1485,11 @@ final class ReaderModel {
     }
 
     func undo() {
-        performHistoryOperation { try await $0.undo() }
+        performHistoryOperation { await $0.undo() }
     }
 
     func redo() {
-        performHistoryOperation { try await $0.redo() }
+        performHistoryOperation { await $0.redo() }
     }
 
     /// Pull the session's current Undo/Redo labels onto the main actor so the
@@ -1491,8 +1497,8 @@ final class ReaderModel {
     /// every edit, resolution, history op, and external adoption — the only
     /// events that can change the stacks.
     private func refreshUndoState() async {
-        guard let session else { return }
-        let state = await session.undoState
+        guard let core else { return }
+        let state = await core.currentUndoState()
         undoActionName = state.undoActionName
         redoActionName = state.redoActionName
     }
@@ -1516,20 +1522,20 @@ final class ReaderModel {
     /// the backstop: an edit stamped against pre-undo content is rejected
     /// as `staleEditBase` rather than spliced.)
     private func performHistoryOperation(
-        _ operation: @escaping @Sendable (DocumentSession) async throws -> QuoinDocument?
+        _ operation: @escaping @Sendable (EditorCore) async -> QuoinDocument?
     ) {
-        guard let session else { return }
+        guard let core else { return }
         latestEditGeneration += 1
         let generation = latestEditGeneration
         let previousEditTask = editPipelineTask
         editPipelineTask = Task { [weak self] in
             await previousEditTask?.value
             guard let self else { return }
-            let newDocument = (try? await operation(session)) ?? nil
+            let newDocument = await operation(core)
             // Adopt the bumped revision stamp immediately — the ingest of
             // the published snapshot is asynchronous, and a keystroke typed
             // in that window must not be stamped (and rejected) as stale.
-            self.sessionContentRevision = await session.contentRevision
+            self.sessionContentRevision = await core.currentContentRevision()
             guard generation == self.latestEditGeneration else { return }
             if let newDocument {
                 QuoinPerformanceTrace.measure("model.restoreCaret.history") {
@@ -1615,7 +1621,7 @@ final class ReaderModel {
     /// can fail; a failure is surfaced as a banner rather than swallowed, so
     /// the user never believes an image landed when it didn't.
     func insertImage(from sourceURL: URL) {
-        guard session != nil,
+        guard core != nil,
               Self.imageExtensions.contains(sourceURL.pathExtension.lowercased()),
               let assetsFolder = ensureAssetsFolder()
         else { return }
@@ -1652,7 +1658,7 @@ final class ReaderModel {
     /// was found and handled (so the caller can skip the plain-text paste).
     @discardableResult
     func insertPastedImage(from source: PasteboardImageSource) -> Bool {
-        guard session != nil, fileURL != nil else { return false }
+        guard core != nil, fileURL != nil else { return false }
 
         if let imageURL = source.imageFileURLs().first(where: {
             Self.imageExtensions.contains($0.pathExtension.lowercased()) }) {
@@ -1764,32 +1770,37 @@ final class ReaderModel {
 
     // MARK: - Termination flush (launch audit BLOCKER #4)
 
-    /// Weak registry of live sessions so app termination can drain every
+    /// Weak registry of live editor cores so app termination can drain every
     /// pending autosave before the process exits — SwiftUI's onDisappear
     /// is not reliably delivered at ⌘Q, and a detached flush task races
-    /// process death.
-    private static var liveSessions: [() -> DocumentSession?] = []
+    /// process death. The core owns the `DocumentSession`, so flushing the
+    /// core (`core.flush()` → `session.saveNow()`) preserves the exact
+    /// drain-every-live-document guarantee the old session registry gave
+    /// (launch audit BLOCKER #4).
+    private static var liveCores: [() -> EditorCore?] = []
 
-    static func registerLiveSession(_ session: DocumentSession) {
-        liveSessions.removeAll { $0() == nil }
-        liveSessions.append { [weak session] in session }
+    static func registerLiveCore(_ core: EditorCore) {
+        liveCores.removeAll { $0() == nil }
+        liveCores.append { [weak core] in core }
     }
 
-    /// Synchronously-awaitable flush of every live session.
-    static func flushAllSessions() async {
-        for accessor in liveSessions {
-            guard let session = accessor() else { continue }
-            try? await session.saveNow()
+    /// Synchronously-awaitable flush of every live document.
+    static func flushAllCores() async {
+        for accessor in liveCores {
+            guard let core = accessor() else { continue }
+            await core.flush()
         }
-        liveSessions.removeAll { $0() == nil }
+        liveCores.removeAll { $0() == nil }
     }
 
     /// Main-actor-synchronous snapshot for the termination path: the
-    /// delegate grabs the sessions HERE (on main, where the registry
+    /// delegate grabs the cores HERE (on main, where the registry
     /// lives) and flushes them on a detached executor — a plain
     /// MainActor Task may never run in the terminateLater runloop mode,
     /// which is exactly how the first flush implementation lost data.
-    static func liveSessionSnapshot() -> [DocumentSession] {
-        liveSessions.compactMap { $0() }
+    /// `EditorCore` is an actor (Sendable), so the snapshot crosses to the
+    /// detached flush safely.
+    static func liveCoreSnapshot() -> [EditorCore] {
+        liveCores.compactMap { $0() }
     }
 }
