@@ -53,6 +53,13 @@ final class ReaderModel {
     /// Untitled file (design rule).
     private(set) var fileURL: URL?
 
+    /// True while this document is an uncommitted scratch/untitled buffer that
+    /// has not been saved to a user-chosen home. STATE, not a filename prefix —
+    /// a real file named "Untitled…" is committed and must not be auto-renamed
+    /// (ARCH-2). Set at `start` from whether the file lives in the scratch
+    /// folder; recomputed after any relocate (H1 rename, Save-As).
+    private(set) var isUncommitted: Bool = false
+
     /// The parsed document, read by the editor screen; it changes in lockstep
     /// with `rendered`, so it stays observed rather than ignored.
     private(set) var document: QuoinDocument = .empty
@@ -170,6 +177,7 @@ final class ReaderModel {
     func start(fileURL: URL?, initialText: String) {
         guard session == nil else { return }
         self.fileURL = fileURL
+        self.isUncommitted = fileURL.map(ScratchStore.isScratch) ?? false
         renderer = makeRenderer()
 
         let session: DocumentSession
@@ -274,28 +282,47 @@ final class ReaderModel {
         Task { await session.resolveConflictTakingDisk(diskSource) }
     }
 
-    func stop() {
-        snapshotTask?.cancel()
-        snapshotTask = nil
-        backgroundRenderTask?.cancel()
-        backgroundRenderTask = nil
-        asyncRerenderTask?.cancel()
-        asyncRerenderTask = nil
-        // Also tear down the remaining background tasks the model owns so none
-        // outlive teardown (they were harmless with `[weak self]`, but leaving
-        // them running past `stop()` is a leak): a debounced H1 rename and the
-        // auto-dismiss timer for a transient action-failure banner.
-        renameTask?.cancel()
-        renameTask = nil
-        actionFailureTask?.cancel()
-        actionFailureTask = nil
-        let session = session
-        let pendingEdits = editPipelineTask
-        Task {
-            await pendingEdits?.value
-            try? await session?.saveNow()
-            await session?.stopWatching()
-        }
+    /// Cancel every background task the model owns WITHOUT tearing down the
+    /// session — the async teardown is a separate awaitable step so a caller
+    /// can sequence a move/delete strictly after it. Kept synchronous for
+    /// onDisappear paths that only need background-task cancellation.
+    /// (They were harmless with `[weak self]`, but leaving them running past
+    /// teardown is a leak: the off-main renders, a debounced H1 rename, and
+    /// the auto-dismiss timer for a transient action-failure banner.)
+    func cancelBackgroundWork() {
+        snapshotTask?.cancel(); snapshotTask = nil
+        backgroundRenderTask?.cancel(); backgroundRenderTask = nil
+        asyncRerenderTask?.cancel(); asyncRerenderTask = nil
+        renameTask?.cancel(); renameTask = nil
+        actionFailureTask?.cancel(); actionFailureTask = nil
+    }
+
+    /// Awaitable teardown that SAVES pending work (normal close of a kept
+    /// doc). Drains the edit FIFO first so no keystroke is lost, then hands
+    /// the session its final save + unwatch through `teardown(save:)`.
+    func stop() async {
+        cancelBackgroundWork()
+        await editPipelineTask?.value
+        await session?.teardown(save: true)
+    }
+
+    /// Awaitable teardown that DISCARDS (an empty scratch doc being thrown
+    /// away). Never writes — so a subsequent removeItem can't be resurrected
+    /// by a final save landing after the delete.
+    func discard() async {
+        cancelBackgroundWork()
+        await editPipelineTask?.value
+        await session?.teardown(save: false)
+    }
+
+    /// Emptiness AFTER the edit pipeline drains — the authoritative value a
+    /// close/discard decision must use. `isEffectivelyEmpty` alone reads
+    /// `document`, which lags until `restoreCaret` runs inside the pipeline
+    /// (LIFE-2): a fast type-then-close would read pre-edit-empty and discard
+    /// a doc that actually has text.
+    func currentlyEmpty() async -> Bool {
+        await editPipelineTask?.value
+        return isEffectivelyEmpty
     }
 
     /// Drain any queued edits and force an immediate save WITHOUT tearing the
@@ -1358,8 +1385,11 @@ final class ReaderModel {
     // MARK: - First H1 renames Untitled files (debounced, silent suffix)
 
     private func scheduleH1Rename(for doc: QuoinDocument) {
-        guard let url = fileURL,
-              url.deletingPathExtension().lastPathComponent.hasPrefix("Untitled"),
+        // Gate on the authoritative uncommitted STATE, not the filename prefix
+        // (ARCH-2): a committed document a user deliberately named "Untitled
+        // thoughts.md" must never be auto-renamed by its first H1.
+        guard isUncommitted,
+              let url = fileURL,
               let first = doc.outline.first, first.level == 1
         else { return }
         let title = sanitizedFilename(first.title)
@@ -1383,6 +1413,10 @@ final class ReaderModel {
         guard let renamed = try? Library.rename(url, to: title) else { return }
         await session.relocate(to: renamed)
         fileURL = renamed
+        // Recompute committed-ness against the NEW home: an H1 rename keeps a
+        // scratch doc inside the scratch folder (still uncommitted), while a
+        // relocate out to a user-chosen home commits it.
+        isUncommitted = ScratchStore.isScratch(renamed)
         onFileRenamed?(renamed)
     }
 

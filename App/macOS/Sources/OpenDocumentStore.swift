@@ -93,7 +93,13 @@ final class OpenDocumentStore {
         guard let entry = entries[key] else { return }
         entry.refs -= 1
         if entry.refs <= 0 {
-            entry.model.stop()
+            // Minimal bridge for THIS task: `stop()` is now async (awaitable
+            // teardown). Detach it so the synchronous release contract is
+            // preserved; Task 4 formalizes release's own async signature and
+            // the discard-vs-save decision. Capture the model before dropping
+            // the entry so teardown still runs to completion.
+            let model = entry.model
+            Task { await model.stop() }
             entries[key] = nil
         }
     }
