@@ -60,15 +60,18 @@ public actor EditorCore {
             version: 0)
     }
 
-    /// Adopts an already-constructed `DocumentSession` (test-only seam so a
-    /// session wired to a specific fixture file can be driven through the core
-    /// without re-decoding). Internal + `@testable`-only; the app opens through
-    /// the value initializers above.
-    init(adoptingForTest session: DocumentSession) {
+    /// Adopts an already-constructed `DocumentSession` so the core drives the
+    /// SAME session an owner already built — the ONE-session-per-file guarantee
+    /// (ledger #12). During the strangler-fig migration the shell's ReaderModel
+    /// still holds a `session` reference AND wraps it in a core; both must be
+    /// the identical instance, so the shell builds the session (open/detached/
+    /// blank) and hands it here rather than letting the core open a second one.
+    /// The seeded mirror is a fresh, clean open; a `publish()` after `start()`
+    /// replaces it with the session's real surface, and because the shell awaits
+    /// `start()` before reading `stateStream()`, that real state is what the
+    /// first yielded mirror carries.
+    public init(adopting session: DocumentSession) {
         self.session = session
-        // Seed the cached mirror as a fresh, clean open. A publish() after
-        // start() replaces it with the session's real surface; this only has to
-        // be self-consistent before that.
         self.currentState = State(
             document: MarkdownConverter.parse(""),
             contentRevision: 0,
@@ -79,6 +82,13 @@ public actor EditorCore {
             conflictDiskSource: nil,
             isDetached: false,
             version: 0)
+    }
+
+    /// Adopts an already-constructed `DocumentSession` (test-only seam so a
+    /// session wired to a specific fixture file can be driven through the core
+    /// without re-decoding).
+    init(adoptingForTest session: DocumentSession) {
+        self.init(adopting: session)
     }
 
     /// Cancel the snapshot pump if the core is dropped without `stop()` being

@@ -101,6 +101,13 @@ final class ReaderModel {
     @ObservationIgnored var feedback: EditorFeedback = SystemEditorFeedback()
 
     @ObservationIgnored private var session: DocumentSession?
+    /// The platform-free engine that owns document/undo/conflict state for this
+    /// window (EditorCore extraction, Stage 1). It ADOPTS the same
+    /// `DocumentSession` above — there is exactly ONE session per file (ledger
+    /// #12) — and this model now mirrors its `stateStream()` instead of
+    /// subscribing to the session's snapshots directly. `session` stays for now;
+    /// later stages route the remaining direct uses through the core and drop it.
+    @ObservationIgnored private var core: EditorCore?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
     @ObservationIgnored private var renderer = AttributedRenderer()
     /// The active reveal's held last-good preview (mermaid/math). SESSION
@@ -199,33 +206,30 @@ final class ReaderModel {
             session = DocumentSession(source: initialText, fileURL: fileURL)
         }
         self.session = session
+        // ONE session per file (ledger #12): the core ADOPTS the session this
+        // model just built rather than opening its own. `session` and `core`
+        // therefore wrap the identical `DocumentSession` — no second autosaver.
+        let core = EditorCore(adopting: session)
+        self.core = core
 
         // Termination flush registry: ⌘Q must drain every live session's
         // autosave before the process dies (launch audit BLOCKER #4).
         Self.registerLiveSession(session)
 
         snapshotTask = Task { [weak self] in
-            // Each session callback takes its OWN `[weak self]`: it is a
-            // @Sendable closure that lives on the session actor, so it can't
-            // reach back to the enclosing task's captured `self` (that would
-            // be a cross-context capture). Both hop to the main actor to
-            // mutate this model.
-            await session.setConflictHandler { [weak self] diskSource in
-                Task { @MainActor in
-                    self?.conflictDiskSource = diskSource
-                }
-            }
-            await session.setSaveFailureHandler { [weak self] message in
-                Task { @MainActor in
-                    self?.reportFailure(message, sticky: true)
-                }
-            }
-            await session.startWatching()
-            let snapshots = await session.revisionedSnapshots()
-            for await snapshot in snapshots {
-                // This task inherits the model's main-actor isolation, so
-                // `ingest` is a same-actor call — no `await` hop needed.
-                self?.ingest(snapshot.document, contentRevision: snapshot.contentRevision)
+            // The core owns the session's conflict handler + file watching now
+            // and bridges them into `State`; we mirror that state here. (Save-
+            // failure surfacing is a documented later concern in EditorCore —
+            // it registers a no-op handler and State has no field for it yet.)
+            await core.start()
+            for await state in await core.stateStream() {
+                guard let self else { break }
+                // This task inherits the model's main-actor isolation, so these
+                // are same-actor writes — no `await` hop needed.
+                self.fileURL = state.fileURL ?? self.fileURL
+                self.conflictDiskSource = state.conflictDiskSource
+                self.ingest(state.document, contentRevision: state.contentRevision)
+                self.refreshUndoStateFrom(state.undoState)
             }
         }
     }
@@ -1456,6 +1460,14 @@ final class ReaderModel {
         let state = await session.undoState
         undoActionName = state.undoActionName
         redoActionName = state.redoActionName
+    }
+
+    /// Mirror the Edit menu's Undo/Redo labels straight from an `EditorCore`
+    /// `State` — the synchronous counterpart to `refreshUndoState()`, fed by the
+    /// `stateStream()` mirror so no extra actor hop is needed.
+    private func refreshUndoStateFrom(_ undoState: DocumentSession.UndoState) {
+        undoActionName = undoState.undoActionName
+        redoActionName = undoState.redoActionName
     }
 
     /// Undo/redo serialized with the edit pipeline (launch ledger, data
