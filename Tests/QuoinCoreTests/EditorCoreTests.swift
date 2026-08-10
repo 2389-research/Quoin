@@ -20,4 +20,19 @@ final class EditorCoreTests: XCTestCase {
         let first = await iterator.next()
         XCTAssertEqual(first?.document.source, "a")
     }
+
+    /// Deferred from Task 1: an edit applied through the pipeline advances the
+    /// published State (a fresh version + the new source) so mirrors see it.
+    func testEditAdvancesStateStream() async throws {
+        let core = EditorCore(source: "a", fileURL: nil)
+        await core.start()
+        let before = await core.getSnapshot()
+        _ = try await core.apply(edit: SourceEdit(range: ByteRange(offset: 1, length: 0),
+                                                  replacement: "b"), baseRevision: nil,
+                                 actionName: nil, publishSnapshot: false)
+        let after = await core.getSnapshot()
+        XCTAssertEqual(after.document.source, "ab")
+        XCTAssertGreaterThan(after.version, before.version,
+                             "apply() must publish so State mirrors advance")
+    }
 }

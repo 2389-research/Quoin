@@ -60,6 +60,34 @@ public actor EditorCore {
             version: 0)
     }
 
+    /// Adopts an already-constructed `DocumentSession` (test-only seam so a
+    /// session wired to a specific fixture file can be driven through the core
+    /// without re-decoding). Internal + `@testable`-only; the app opens through
+    /// the value initializers above.
+    init(adoptingForTest session: DocumentSession) {
+        self.session = session
+        // Seed the cached mirror as a fresh, clean open. A publish() after
+        // start() replaces it with the session's real surface; this only has to
+        // be self-consistent before that.
+        self.currentState = State(
+            document: MarkdownConverter.parse(""),
+            contentRevision: 0,
+            undoState: DocumentSession.UndoState(undoActionName: nil, redoActionName: nil),
+            fileURL: nil,
+            hasUnsavedChanges: false,
+            hasUnresolvedConflict: false,
+            conflictDiskSource: nil,
+            isDetached: false,
+            version: 0)
+    }
+
+    /// Cancel the snapshot pump if the core is dropped without `stop()` being
+    /// called (Task-1 review: the pump `Task` otherwise leaks). A nonisolated
+    /// deinit may read an actor-isolated stored property because no other
+    /// reference can exist at deinit time. `stop()` remains the primary
+    /// cancellation path; this is the backstop.
+    deinit { pump?.cancel() }
+
     /// Convenience for opening from disk (mirrors `DocumentSession.open`);
     /// returns nil when the file is unreadable.
     public static func open(fileURL: URL) -> EditorCore? {
@@ -105,6 +133,159 @@ public actor EditorCore {
                 Task { await self?.removeContinuation(id) }
             }
         }
+    }
+
+    // MARK: - Lifecycle
+
+    /// Tear the session down, saving first. Cancels the snapshot pump so a
+    /// started-then-dropped core never leaks the `Task` (Task-1 review). After
+    /// this the core is inert; `teardown` is awaitable, satisfying the Plan-1
+    /// discard/flush mutual-exclusion invariant.
+    public func stop(save: Bool) async {
+        pump?.cancel()
+        pump = nil
+        await session.teardown(save: save)
+    }
+
+    /// Drop the document without ever writing it — `teardown(save: false)`.
+    /// Never resurrects a file the user deleted out from under us.
+    public func discard() async { await stop(save: false) }
+
+    /// Force a synchronous save now, then republish so mirrors see the cleared
+    /// dirty flag. Save failures surface through the session's failure handler.
+    public func flush() async {
+        try? await session.saveNow()
+        await publish()
+    }
+
+    /// Whitespace-only emptiness, pipeline-inclusive: because callers await
+    /// `apply`, and every mutation funnels through the `DocumentSession` FIFO,
+    /// a read here reflects all applied edits (this is what the "Untitled
+    /// document doesn't accumulate" GC relies on).
+    public func currentlyEmpty() async -> Bool {
+        (await session.document).source
+            .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    // MARK: - Edit pipeline
+
+    /// The keystroke hot path. Defaults `publishSnapshot: false` so the shell's
+    /// synchronous caret/render path is preserved (it renders from the returned
+    /// `QuoinDocument`, and its `ingest` echo-skip drops the duplicate). We
+    /// still `publish()` so `State` mirrors advance for observers. Rethrows
+    /// `SessionError.staleEditBase` on base mismatch.
+    @discardableResult
+    public func apply(edit: SourceEdit, baseRevision: Int?, actionName: UndoActionName?,
+                      publishSnapshot: Bool = false) async throws -> QuoinDocument {
+        let doc = try await session.applyEdit(
+            edit, baseRevision: baseRevision,
+            publishSnapshot: publishSnapshot, actionName: actionName)
+        await publish()
+        return doc
+    }
+
+    @discardableResult
+    public func undo() async -> QuoinDocument? {
+        let doc = try? await session.undo()
+        await publish()
+        return doc
+    }
+
+    @discardableResult
+    public func redo() async -> QuoinDocument? {
+        let doc = try? await session.redo()
+        await publish()
+        return doc
+    }
+
+    // MARK: - Conflict resolution
+
+    /// Keep the in-memory version, discarding the disk change. Clears the
+    /// cached conflict source (Task-1 review: it was set on conflict but never
+    /// cleared → stale after resolution) and republishes.
+    public func resolveConflictKeepingMine() async throws {
+        try await session.resolveConflictKeepingMine()
+        conflictDiskSource = nil
+        await publish()
+    }
+
+    /// Take the on-disk version. Clears the cached conflict source and
+    /// republishes.
+    public func resolveConflictTakingDisk(_ disk: String) async {
+        await session.resolveConflictTakingDisk(disk)
+        conflictDiskSource = nil
+        await publish()
+    }
+
+    // MARK: - Programmatic operations
+
+    /// Format ▸ Tidy Blank Lines.
+    public func tidyBlankLines() async {
+        _ = try? await session.applyTidyBlankLines()
+        await publish()
+    }
+
+    /// Toggle a task checkbox by its marker range.
+    public func toggleTask(markerRange: ByteRange) async throws {
+        try await session.toggleTask(markerRange: markerRange)
+        await publish()
+    }
+
+    /// Accept/reject one suggestion mark. Returns nil when the range no longer
+    /// parses as a whole mark (the caller re-renders with fresh ranges).
+    @discardableResult
+    public func applyResolution(
+        markRange: ByteRange, action: SuggestionResolver.Action,
+        expectedSlice: String? = nil
+    ) async throws -> QuoinDocument? {
+        let doc = try await session.applyResolution(
+            markRange: markRange, action: action, expectedSlice: expectedSlice)
+        await publish()
+        return doc
+    }
+
+    /// Accept All / Reject All — one atomic edit, one undo.
+    @discardableResult
+    public func resolveAllSuggestions(action: SuggestionResolver.Action) async throws -> QuoinDocument? {
+        let doc = try await session.applyBulkResolution(action: action)
+        await publish()
+        return doc
+    }
+
+    // MARK: - Front matter (Properties panel)
+
+    /// Set or create one front-matter field (string value).
+    @discardableResult
+    public func setFrontMatterField(key: String, value: String) async throws -> QuoinDocument? {
+        let doc = try await session.applyFrontMatterEdit(key: key, value: value)
+        await publish()
+        return doc
+    }
+
+    /// Set one front-matter field to a typed raw value (bool/number/date/flow).
+    @discardableResult
+    public func setTypedFrontMatterField(key: String, rawValue: String) async throws -> QuoinDocument? {
+        let doc = try await session.applyTypedFrontMatterEdit(key: key, rawValue: rawValue)
+        await publish()
+        return doc
+    }
+
+    /// Remove one front-matter field.
+    @discardableResult
+    public func removeFrontMatterField(key: String) async throws -> QuoinDocument? {
+        let doc = try await session.removeFrontMatterField(key: key)
+        await publish()
+        return doc
+    }
+
+    // MARK: - Test seams
+
+    /// `@testable`-only: adopt new source wholesale through the session's
+    /// external-apply path (bumps `contentRevision`, clears undo/redo), then
+    /// republish. Used to simulate an out-of-band revision bump.
+    func reloadForTest(source: String) async {
+        await session.apply(source: source)
+        await publish()
     }
 
     // MARK: - Private
