@@ -533,12 +533,16 @@ struct MainWindow: View {
     private func persistSession() {
         // A window whose ONLY tab is an untouched untitled document has nothing
         // worth restoring — persisting it would reopen a blank note forever
-        // (Task 10 auto-creates one on first launch). Same emptiness test the
-        // on-close GC applies (see close()): a scratch doc, whitespace-empty.
+        // (Task 10 auto-creates one on first launch). Emptiness is read from the
+        // LIVE MODEL (ARCH-4), not the on-disk file: autosave is 400ms-debounced,
+        // so a disk read here lags — a session snapshot taken mid-debounce would
+        // see a stale-empty file and DROP a doc the user just typed into. The
+        // model's `isEffectivelyEmpty` reflects the last-applied edit, which is
+        // exactly what a session snapshot should capture, and it agrees with the
+        // close-path emptiness check (both consult the model, never disk).
         let onlyTabIsEmptyScratch = openTabs.count == 1
             && ScratchStore.isScratch(openTabs[0].url)
-            && ((try? String(contentsOf: openTabs[0].url, encoding: .utf8))?
-                .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false)
+            && (store.model(for: openTabs[0].url)?.isEffectivelyEmpty ?? false)
         guard ScratchHousekeeping.shouldPersistSession(
             tabCount: openTabs.count, onlyTabIsEmptyScratch: onlyTabIsEmptyScratch)
         else { return }
