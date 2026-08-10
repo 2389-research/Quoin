@@ -321,12 +321,12 @@ final class ReaderModel {
     /// doc). Drains the edit FIFO first so no keystroke is lost, then delegates
     /// the final save + unwatch to the core's `stop(save:)`.
     ///
-    /// The `editPipelineTask` drain stays HERE (not in the core) until Task 6:
-    /// edits are still applied by the shell straight to the session, so the
-    /// core's `stop` — which only cancels its pump and calls
-    /// `session.teardown` — has no knowledge of an in-flight shell keystroke.
-    /// Draining before delegating preserves ordering; once edits move into the
-    /// core (Task 6) this drain becomes the core's responsibility.
+    /// The `editPipelineTask` drain stays HERE permanently, by design: the
+    /// shell owns the `editPipelineTask` FIFO that wraps `core.apply`, so
+    /// in-flight keystrokes live shell-side, not in the core. The core's
+    /// `stop` only cancels its pump and calls `session.teardown` — it has no
+    /// knowledge of a queued shell keystroke. Draining before delegating
+    /// awaits every in-flight edit and preserves ordering.
     func stop() async {
         cancelBackgroundWork()
         await editPipelineTask?.value
@@ -347,9 +347,10 @@ final class ReaderModel {
     /// close/discard decision must use. `isEffectivelyEmpty` alone reads
     /// `document`, which lags until `restoreCaret` runs inside the pipeline
     /// (LIFE-2): a fast type-then-close would read pre-edit-empty and discard
-    /// a doc that actually has text. Drains the shell FIFO here (Task 6 will
-    /// fold it into the core) before asking the core for the emptiness read;
-    /// a nil core means no adopted document, so treat as empty.
+    /// a doc that actually has text. Drains the shell FIFO here — the shell
+    /// owns the `editPipelineTask` FIFO that wraps `core.apply`, so this drain
+    /// stays shell-side by design — before asking the core for the emptiness
+    /// read; a nil core means no adopted document, so treat as empty.
     func currentlyEmpty() async -> Bool {
         await editPipelineTask?.value
         return await core?.currentlyEmpty() ?? true
@@ -363,9 +364,11 @@ final class ReaderModel {
     /// unconditionally after its detached/conflict guards (only `saveNowIfSafe`
     /// gates on dirty), so a redundant flush just re-writes identical bytes.
     func flush() async {
-        // Drain the shell edit FIFO first (Task 6 will move this into the
-        // core) so the core's `flush` — which calls `session.saveNow` — writes
-        // the post-keystroke bytes, not the pre-edit file (#12).
+        // Drain the shell edit FIFO first — the shell owns the
+        // `editPipelineTask` FIFO that wraps `core.apply`, so this drain stays
+        // shell-side by design — so the core's `flush` — which calls
+        // `session.saveNow` — writes the post-keystroke bytes, not the pre-edit
+        // file (#12).
         await editPipelineTask?.value
         await core?.flush()
     }
@@ -1782,15 +1785,6 @@ final class ReaderModel {
     static func registerLiveCore(_ core: EditorCore) {
         liveCores.removeAll { $0() == nil }
         liveCores.append { [weak core] in core }
-    }
-
-    /// Synchronously-awaitable flush of every live document.
-    static func flushAllCores() async {
-        for accessor in liveCores {
-            guard let core = accessor() else { continue }
-            await core.flush()
-        }
-        liveCores.removeAll { $0() == nil }
     }
 
     /// Main-actor-synchronous snapshot for the termination path: the

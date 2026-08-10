@@ -105,17 +105,6 @@ public actor EditorCore {
     /// cancellation path; this is the backstop.
     deinit { pump?.cancel() }
 
-    /// Convenience for opening from disk (mirrors `DocumentSession.open`);
-    /// returns nil when the file is unreadable.
-    public static func open(fileURL: URL) -> EditorCore? {
-        guard (try? DocumentSession.open(fileURL: fileURL)) != nil else { return nil }
-        // Re-open through the value initializer so the seeded mirror matches the
-        // decoded source/encoding. (The session's decode already succeeded.)
-        guard let data = try? FileCoordination.read(fileURL),
-              let decoded = DocumentSession.decode(data) else { return nil }
-        return EditorCore(source: decoded.source, fileURL: fileURL, encoding: decoded.encoding)
-    }
-
     /// Begin bridging conflict/save-failure and the session snapshot stream
     /// into `State`, and publish an initial mirror. Idempotent.
     public func start() async {
@@ -292,7 +281,7 @@ public actor EditorCore {
     /// a failed edit exactly as it does for every other resolution.
     @discardableResult
     public func tidyBlankLines() async throws -> QuoinDocument? {
-        let doc = try await session.applyTidyBlankLines()
+        let doc = try await session.applyTidyBlankLines(publishSnapshot: false)
         await publish()
         return doc
     }
@@ -311,7 +300,8 @@ public actor EditorCore {
         expectedSlice: String? = nil
     ) async throws -> QuoinDocument? {
         let doc = try await session.applyResolution(
-            markRange: markRange, action: action, expectedSlice: expectedSlice)
+            markRange: markRange, action: action, expectedSlice: expectedSlice,
+            publishSnapshot: false)
         await publish()
         return doc
     }
@@ -319,7 +309,7 @@ public actor EditorCore {
     /// Accept All / Reject All — one atomic edit, one undo.
     @discardableResult
     public func resolveAllSuggestions(action: SuggestionResolver.Action) async throws -> QuoinDocument? {
-        let doc = try await session.applyBulkResolution(action: action)
+        let doc = try await session.applyBulkResolution(action: action, publishSnapshot: false)
         await publish()
         return doc
     }
@@ -346,7 +336,7 @@ public actor EditorCore {
     /// Set or create one front-matter field (string value).
     @discardableResult
     public func setFrontMatterField(key: String, value: String) async throws -> QuoinDocument? {
-        let doc = try await session.applyFrontMatterEdit(key: key, value: value)
+        let doc = try await session.applyFrontMatterEdit(key: key, value: value, publishSnapshot: false)
         await publish()
         return doc
     }
@@ -354,7 +344,7 @@ public actor EditorCore {
     /// Set one front-matter field to a typed raw value (bool/number/date/flow).
     @discardableResult
     public func setTypedFrontMatterField(key: String, rawValue: String) async throws -> QuoinDocument? {
-        let doc = try await session.applyTypedFrontMatterEdit(key: key, rawValue: rawValue)
+        let doc = try await session.applyTypedFrontMatterEdit(key: key, rawValue: rawValue, publishSnapshot: false)
         await publish()
         return doc
     }
@@ -362,7 +352,7 @@ public actor EditorCore {
     /// Remove one front-matter field.
     @discardableResult
     public func removeFrontMatterField(key: String) async throws -> QuoinDocument? {
-        let doc = try await session.removeFrontMatterField(key: key)
+        let doc = try await session.removeFrontMatterField(key: key, publishSnapshot: false)
         await publish()
         return doc
     }
