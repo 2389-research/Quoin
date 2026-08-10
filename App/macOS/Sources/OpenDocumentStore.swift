@@ -85,23 +85,30 @@ final class OpenDocumentStore {
         return model
     }
 
-    /// Drop a reference; the last release stops the model (flush + unwatch) and
-    /// forgets it. A no-op when the file isn't held (defensive against a double
-    /// release racing a rename).
-    func release(_ url: URL) {
+    /// Drop a reference. On the LAST reference, tear the model down
+    /// (awaitably) — discarding (no save) or stopping (save) per `discard` —
+    /// and forget it. Returns whether this released the last reference, so the
+    /// caller can gate a backing-file delete on last-ref (never delete a file a
+    /// live session still owns). The entry is removed BEFORE the await so a
+    /// racing acquire() of a reused URL builds a fresh model, never the dying one.
+    ///
+    /// Removing the entry synchronously (before any suspension) then awaiting
+    /// teardown inline also closes the carry-over race the Task-3 bridge left
+    /// open: the old detached `Task { await model.stop() }` deferred
+    /// background-task cancellation by a main-actor hop, so a dying model's
+    /// armed `renameTask` could still fire `performH1Rename` and relocate the
+    /// file under a reacquired model. Now the entry is gone before the first
+    /// `await`, and `stop()`/`discard()` both call `cancelBackgroundWork()`
+    /// FIRST — cancelling `renameTask` at the very start of teardown.
+    @discardableResult
+    func release(_ url: URL, discard: Bool = false) async -> Bool {
         let key = Self.key(for: url)
-        guard let entry = entries[key] else { return }
+        guard let entry = entries[key] else { return false }
         entry.refs -= 1
-        if entry.refs <= 0 {
-            // Minimal bridge for THIS task: `stop()` is now async (awaitable
-            // teardown). Detach it so the synchronous release contract is
-            // preserved; Task 4 formalizes release's own async signature and
-            // the discard-vs-save decision. Capture the model before dropping
-            // the entry so teardown still runs to completion.
-            let model = entry.model
-            Task { await model.stop() }
-            entries[key] = nil
-        }
+        guard entry.refs <= 0 else { return false }
+        entries[key] = nil
+        if discard { await entry.model.discard() } else { await entry.model.stop() }
+        return true
     }
 
     /// A first-H1 rename moved the file on disk: move the entry to its new

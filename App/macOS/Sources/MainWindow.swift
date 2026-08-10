@@ -360,7 +360,7 @@ struct MainWindow: View {
                 let activeIndex = openTabs.firstIndex { $0.id == activeTabID }
                 let removedIndices = Set(openTabs.indices.filter { doomed(openTabs[$0]) })
                 openTabs.removeAll(where: doomed)
-                dropped.forEach { store.release($0.url) }
+                Task { for tab in dropped { await store.release(tab.url) } }
                 if activeTabID != nil, activeTab == nil {
                     activeTabID = activeIndex
                         .flatMap { index in
@@ -469,7 +469,8 @@ struct MainWindow: View {
         // path. Autosave safety on quit is handled separately by the live-
         // session flush registry.
         .onDisappear {
-            openTabs.forEach { store.release($0.url) }
+            let tabs = openTabs
+            Task { for tab in tabs { await store.release(tab.url) } }
             // Tear down the published activity with the window (#36).
             currentActivity?.invalidate()
             currentActivity = nil
@@ -900,8 +901,11 @@ struct MainWindow: View {
         let isEmptyScratch = ScratchStore.isScratch(tab.url)
             && (store.model(for: tab.url)?.isEffectivelyEmpty ?? false)
         // Let go of this window's hold on the file; the store stops the session
-        // only when the LAST tab (across all windows) releases it.
-        store.release(tab.url)
+        // only when the LAST tab (across all windows) releases it. MINIMAL for
+        // Task 4: release is now async, so detach it (behavior-preserving — the
+        // old sync release already detached teardown). Task 5/6 formalizes the
+        // discard-vs-save decision and gates the removeItem on the last-ref bool.
+        Task { await store.release(tab.url) }
         // A never-typed-into scratch document shouldn't linger and reopen every
         // launch: discard it. A scratch doc with content is left in place —
         // closing it keeps your unsaved work, which reopens next launch.
