@@ -243,10 +243,14 @@ public actor EditorCore {
 
     // MARK: - Programmatic operations
 
-    /// Format ▸ Tidy Blank Lines.
-    public func tidyBlankLines() async {
-        _ = try? await session.applyTidyBlankLines()
+    /// Format ▸ Tidy Blank Lines. Returns the new document (nil when nothing
+    /// changed) and rethrows so the shell can restore the caret / recover from
+    /// a failed edit exactly as it does for every other resolution.
+    @discardableResult
+    public func tidyBlankLines() async throws -> QuoinDocument? {
+        let doc = try await session.applyTidyBlankLines()
         await publish()
+        return doc
     }
 
     /// Toggle a task checkbox by its marker range.

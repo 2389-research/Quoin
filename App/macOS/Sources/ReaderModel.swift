@@ -1011,10 +1011,11 @@ final class ReaderModel {
     /// Accept All / Reject All: one atomic edit, one undo (design §3.5).
     /// Acts on suggestions only — comments/highlights are annotations.
     func resolveAllSuggestions(action: SuggestionResolver.Action) {
+        guard let core else { return }
         // Nothing to resolve is a quiet no-op, not a failure. No pulse:
         // a batch changes the whole document, there is no one "where".
-        applySessionResolution(refusalMessage: nil, flashOffset: nil) { session in
-            try await session.applyBulkResolution(action: action, publishSnapshot: false)
+        applySessionResolution(refusalMessage: nil, flashOffset: nil) { _ in
+            try await core.resolveAllSuggestions(action: action)
         }
     }
 
@@ -1024,8 +1025,9 @@ final class ReaderModel {
     /// time, so a keystroke that landed first can't leave its offsets stale
     /// (CLAUDE.md compute-where-applied rule). A no-op when nothing changes.
     func tidyBlankLines() {
-        applySessionResolution(refusalMessage: nil, flashOffset: nil) { session in
-            try await session.applyTidyBlankLines(publishSnapshot: false)
+        guard let core else { return }
+        applySessionResolution(refusalMessage: nil, flashOffset: nil) { _ in
+            try await core.tidyBlankLines()
         }
     }
 
@@ -1190,12 +1192,12 @@ final class ReaderModel {
     /// writer refusal (complex value, drifted structure) is a banner,
     /// never a silent no-op.
     func setFrontMatterField(key: String, value: String) {
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: "Couldn't set “\(key)” — that property isn't a simple value.",
             flashOffset: nil
-        ) { session in
-            try await session.applyFrontMatterEdit(
-                key: key, value: value, publishSnapshot: false)
+        ) { _ in
+            try await core.setFrontMatterField(key: key, value: value)
         }
     }
 
@@ -1203,23 +1205,24 @@ final class ReaderModel {
     /// scalar or flow list, #79) written verbatim — the panel's typed
     /// editors. Same in-actor guarantees as `setFrontMatterField`.
     func setTypedFrontMatterField(key: String, rawValue: String) {
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: "Couldn't set “\(key)” — the value lost its type. Try Edit as Text.",
             flashOffset: nil
-        ) { session in
-            try await session.applyTypedFrontMatterEdit(
-                key: key, rawValue: rawValue, publishSnapshot: false)
+        ) { _ in
+            try await core.setTypedFrontMatterField(key: key, rawValue: rawValue)
         }
     }
 
     /// Removes one front-matter field (removing the last one removes the
     /// whole block). Same in-actor guarantees as `setFrontMatterField`.
     func removeFrontMatterField(key: String) {
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: "Couldn't remove “\(key)” — the front matter changed underneath. Try again.",
             flashOffset: nil
-        ) { session in
-            try await session.removeFrontMatterField(key: key, publishSnapshot: false)
+        ) { _ in
+            try await core.removeFrontMatterField(key: key)
         }
     }
 
@@ -1265,13 +1268,13 @@ final class ReaderModel {
         // The bytes the card was rendered from — the session refuses if a
         // DIFFERENT equal-length mark now occupies that range (review LOW).
         let expected = document.source.substring(in: markRange)
+        guard let core else { return }
         applySessionResolution(
             refusalMessage: "That suggestion changed since it was rendered — try again.",
             flashOffset: markRange.offset
-        ) { session in
-            try await session.applyResolution(
-                markRange: markRange, action: action,
-                expectedSlice: expected, publishSnapshot: false)
+        ) { _ in
+            try await core.applyResolution(
+                markRange: markRange, action: action, expectedSlice: expected)
         }
     }
 
@@ -1707,10 +1710,10 @@ final class ReaderModel {
     // MARK: - Checkbox & anchors
 
     func toggleTask(markerOffset: Int) {
-        guard let session else { return }
+        guard let core else { return }
         Task {
             do {
-                try await session.toggleTask(markerRange: ByteRange(offset: markerOffset, length: 3))
+                try await core.toggleTask(markerRange: ByteRange(offset: markerOffset, length: 3))
             } catch SessionError.taskNotTogglable {
                 // The file shifted under the click; the session republished the
                 // fresh state (see DocumentSession.toggleTask). Tell the user
