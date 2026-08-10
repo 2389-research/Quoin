@@ -1410,16 +1410,21 @@ final class ReaderModel {
         } catch {
             return
         }
-        // A concurrent teardown or Save-As may have cancelled renameTask
-        // DURING the saveNow suspension (LIFE-6). Bail BEFORE the rename
-        // moveItem so this rename and the racing relocate/Save-As can't both
-        // target the same source file.
+        // A cancel may have landed DURING the saveNow suspension — from the
+        // debounce re-arm (`renameTask?.cancel()` in scheduleH1Rename), a
+        // teardown, or a Save-As (LIFE-6). Bail BEFORE the rename moveItem so
+        // this rename and any racing relocate/Save-As can't both target the
+        // same source file. This is the ONLY safe place to honor cancellation:
+        // once Library.rename runs, the move is irreversible.
         guard !Task.isCancelled else { return }
         guard let renamed = try? Library.rename(url, to: title) else { return }
         await session.relocate(to: renamed)
-        // A cancel may also have landed during the relocate suspension; don't
-        // publish a rename the teardown/Save-As has already superseded.
-        guard !Task.isCancelled else { return }
+        // Past this point the file has ALREADY moved on disk and the session
+        // has relocated — the reconciliation below is UNCONDITIONAL even if a
+        // re-arm/teardown cancelled us during the relocate suspension. Skipping
+        // it would strand model.fileURL (and the OpenDocumentStore key) at the
+        // now-nonexistent original path, and a re-armed task#2 would then fail
+        // its own rename off that stale URL. The model MUST match disk truth.
         fileURL = renamed
         // Recompute committed-ness against the NEW home: an H1 rename keeps a
         // scratch doc inside the scratch folder (still uncommitted), while a
