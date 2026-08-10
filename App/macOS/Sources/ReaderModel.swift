@@ -57,6 +57,16 @@ final class ReaderModel {
     /// with `rendered`, so it stays observed rather than ignored.
     private(set) var document: QuoinDocument = .empty
 
+    /// Whether the document is effectively empty (whitespace-only). This is the
+    /// IN-MEMORY source of truth — used to decide whether a closed scratch doc
+    /// should be discarded. The on-disk file lags (autosave is 400ms-debounced),
+    /// so a disk-based check on a fast close reads stale-empty while the model
+    /// still holds unsaved text; stop()'s async final save then resurrects that
+    /// text onto a reused "Untitled.md" filename (the "new doc has old text" bug).
+    var isEffectivelyEmpty: Bool {
+        document.source.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     /// Caret moved within the active block (view-side restyle already ran).
     /// Keeps this model's caret copy fresh so a model-initiated re-render
     /// mid-edit (async image decode) styles the reveal at the caret's real

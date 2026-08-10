@@ -889,16 +889,23 @@ struct MainWindow: View {
     private func close(_ tab: DocumentTab) {
         let closedIndex = openTabs.firstIndex { $0.id == tab.id }
         openTabs.removeAll { $0.id == tab.id }
+        // Decide discard from the MODEL's in-memory content (source of truth),
+        // captured BEFORE release drops the model. The old code read the on-disk
+        // file, which lags the 400ms-debounced autosave: a fast close saw a
+        // stale-empty file and discarded a doc that still held unsaved text,
+        // after which stop()'s async final save resurrected that text onto a
+        // reused "Untitled.md" (the "new document has old text" bug). Default
+        // to KEEP (`?? false`) when the model can't be found — never delete a
+        // scratch file whose emptiness we can't confirm.
+        let isEmptyScratch = ScratchStore.isScratch(tab.url)
+            && (store.model(for: tab.url)?.isEffectivelyEmpty ?? false)
         // Let go of this window's hold on the file; the store stops the session
         // only when the LAST tab (across all windows) releases it.
         store.release(tab.url)
         // A never-typed-into scratch document shouldn't linger and reopen every
-        // launch: discard an EMPTY untitled file on close (there's nothing to
-        // keep). A scratch doc with content is left in place — closing it keeps
-        // your unsaved work, which reopens next launch (principles.md).
-        if ScratchStore.isScratch(tab.url),
-           (try? String(contentsOf: tab.url, encoding: .utf8))?
-               .trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? false {
+        // launch: discard it. A scratch doc with content is left in place —
+        // closing it keeps your unsaved work, which reopens next launch.
+        if isEmptyScratch {
             try? FileManager.default.removeItem(at: tab.url)
         }
         // Browser-standard positional stability (#77): focus the tab now in
