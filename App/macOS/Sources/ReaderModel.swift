@@ -109,6 +109,11 @@ final class ReaderModel {
     /// later stages route the remaining direct uses through the core and drop it.
     @ObservationIgnored private var core: EditorCore?
     @ObservationIgnored private var snapshotTask: Task<Void, Never>?
+    /// The last save-failure message mirrored from `EditorCore.State`, so the
+    /// stream loop raises the sticky banner only when the failure CHANGES
+    /// (State republishes on every edit; without this we'd re-fire the banner
+    /// on each keystroke).
+    @ObservationIgnored private var mirroredSaveError: String?
     @ObservationIgnored private var renderer = AttributedRenderer()
     /// The active reveal's held last-good preview (mermaid/math). SESSION
     /// state owned here — the renderer takes it as an explicit inout and
@@ -217,10 +222,9 @@ final class ReaderModel {
         Self.registerLiveSession(session)
 
         snapshotTask = Task { [weak self] in
-            // The core owns the session's conflict handler + file watching now
-            // and bridges them into `State`; we mirror that state here. (Save-
-            // failure surfacing is a documented later concern in EditorCore —
-            // it registers a no-op handler and State has no field for it yet.)
+            // The core owns the session's conflict + save-failure handlers and
+            // file watching now, and bridges them into `State`; we mirror that
+            // state here.
             await core.start()
             for await state in await core.stateStream() {
                 guard let self else { break }
@@ -228,6 +232,15 @@ final class ReaderModel {
                 // are same-actor writes — no `await` hop needed.
                 self.fileURL = state.fileURL ?? self.fileURL
                 self.conflictDiskSource = state.conflictDiskSource
+                // A silent save failure is data loss on a timer: raise the
+                // sticky banner, but only when the failure CHANGES (State
+                // republishes on every edit).
+                if state.lastSaveError != self.mirroredSaveError {
+                    self.mirroredSaveError = state.lastSaveError
+                    if let message = state.lastSaveError {
+                        self.reportFailure(message, sticky: true)
+                    }
+                }
                 self.ingest(state.document, contentRevision: state.contentRevision)
                 self.refreshUndoStateFrom(state.undoState)
             }

@@ -25,6 +25,10 @@ public actor EditorCore {
         /// The on-disk source offered by a pending conflict, else nil. Sourced
         /// from the session's conflict handler, not a session property.
         public var conflictDiskSource: String?
+        /// The user-facing message from the most recent save failure, else nil.
+        /// Sourced from the session's save-failure handler (a silent autosave
+        /// failure is data loss on a timer). A later successful edit clears it.
+        public var lastSaveError: String?
         public var isDetached: Bool
         /// Monotonic; bumps on every published `State` so mirrors never miss
         /// one.
@@ -34,6 +38,7 @@ public actor EditorCore {
     private let session: DocumentSession
     private var version = 0
     private var conflictDiskSource: String?
+    private var lastSaveError: String?
     private var continuations: [UUID: AsyncStream<State>.Continuation] = [:]
     /// The cached, current mirror. Seeded in `init` from the passed source so
     /// `getSnapshot()` is correct BEFORE `start()`/any publish, then recomputed
@@ -56,6 +61,7 @@ public actor EditorCore {
             hasUnsavedChanges: false,
             hasUnresolvedConflict: false,
             conflictDiskSource: nil,
+            lastSaveError: nil,
             isDetached: false,
             version: 0)
     }
@@ -80,6 +86,7 @@ public actor EditorCore {
             hasUnsavedChanges: false,
             hasUnresolvedConflict: false,
             conflictDiskSource: nil,
+            lastSaveError: nil,
             isDetached: false,
             version: 0)
     }
@@ -116,10 +123,12 @@ public actor EditorCore {
         await session.setConflictHandler { [weak self] disk in
             Task { await self?.setConflict(disk) }
         }
-        // Save-failure surfacing is a later concern (it can flow through a
-        // dedicated State field once lifecycle methods land). A no-op keeps the
-        // handler registered without dropping data on the floor today.
-        await session.setSaveFailureHandler { _ in }
+        // A silent save failure in an app with no Save button is data loss on
+        // a timer: bridge the session's failure message into State so the
+        // mirror can raise a sticky banner. Mirrors the conflict handler above.
+        await session.setSaveFailureHandler { [weak self] message in
+            Task { await self?.setSaveFailure(message) }
+        }
         await session.startWatching()
         let stream = await session.revisionedSnapshots()
         pump = Task { [weak self] in
@@ -187,6 +196,11 @@ public actor EditorCore {
     @discardableResult
     public func apply(edit: SourceEdit, baseRevision: Int?, actionName: UndoActionName?,
                       publishSnapshot: Bool = false) async throws -> QuoinDocument {
+        // Clear rule: a new edit supersedes a stale save failure. If THIS
+        // edit's autosave also fails, the session's handler re-populates it on
+        // the next publish. This matches the old sticky banner (a later
+        // successful save/edit clears it) while keeping the state simple.
+        lastSaveError = nil
         let doc = try await session.applyEdit(
             edit, baseRevision: baseRevision,
             publishSnapshot: publishSnapshot, actionName: actionName)
@@ -309,6 +323,11 @@ public actor EditorCore {
         await publish()
     }
 
+    private func setSaveFailure(_ message: String) async {
+        lastSaveError = message
+        await publish()
+    }
+
     /// Recompute `currentState` from the session, bump `version`, and yield to
     /// every registered continuation. All cross-actor reads are awaited here.
     private func publish() async {
@@ -321,6 +340,7 @@ public actor EditorCore {
             hasUnsavedChanges: await session.hasUnsavedChanges,
             hasUnresolvedConflict: await session.hasUnresolvedConflict,
             conflictDiskSource: conflictDiskSource,
+            lastSaveError: lastSaveError,
             isDetached: await session.isDetached,
             version: version)
         for continuation in continuations.values {
