@@ -329,7 +329,9 @@ final class ReaderModel {
     /// session down — used before a copy/duplicate so the on-disk bytes match
     /// what the user sees (the autosave is 400ms-debounced, so a fast Duplicate
     /// right after typing would otherwise copy the pre-flush file, #12). Safe to
-    /// call on a URL with no unsaved edits: `saveNow` no-ops when not dirty.
+    /// call on a URL with no unsaved edits: `saveNow()` still writes
+    /// unconditionally after its detached/conflict guards (only `saveNowIfSafe`
+    /// gates on dirty), so a redundant flush just re-writes identical bytes.
     func flush() async {
         let session = session
         let pendingEdits = editPipelineTask

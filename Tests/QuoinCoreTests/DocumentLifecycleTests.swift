@@ -21,9 +21,10 @@ final class DocumentLifecycleTests: XCTestCase {
     }
 
     func testEmptyScratchNotLastRefIsNeverDeleted() {
-        // Another live reference is still editing it: must not delete or discard.
+        // Another live reference is still editing it: must not delete or discard,
+        // and must NOT save either — the remaining owner does that (keepNoSave).
         let s = S(isScratch: true, isEmpty: true, isLastReference: false)
-        XCTAssertEqual(DocumentLifecycle.onClose(s), .keepAndSave)
+        XCTAssertEqual(DocumentLifecycle.onClose(s), .keepNoSave)
         XCTAssertFalse(DocumentLifecycle.shouldDeleteBackingFile(s))
     }
 

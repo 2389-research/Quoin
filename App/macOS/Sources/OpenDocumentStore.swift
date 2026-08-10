@@ -94,7 +94,7 @@ final class OpenDocumentStore {
     ///
     /// Removing the entry synchronously (before any suspension) then awaiting
     /// teardown inline also closes the carry-over race the Task-3 bridge left
-    /// open: the old detached `Task { await model.stop() }` deferred
+    /// open: the old inheriting `Task { await model.stop() }` deferred
     /// background-task cancellation by a main-actor hop, so a dying model's
     /// armed `renameTask` could still fire `performH1Rename` and relocate the
     /// file under a reacquired model. Now the entry is gone before the first

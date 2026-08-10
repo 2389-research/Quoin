@@ -28,7 +28,10 @@ public enum DocumentLifecycle {
     }
 
     public static func onClose(_ s: CloseState) -> CloseAction {
-        guard s.isLastReference else { return .keepAndSave }
+        // A non-last reference must NOT save — another owner still holds the
+        // session and will save it (saving from a releasing non-owner would
+        // race that owner's pending write). Keep the file, no save.
+        guard s.isLastReference else { return .keepNoSave }
         if s.isScratch && s.isEmpty { return .discardWithoutSaving }
         return .keepAndSave
     }

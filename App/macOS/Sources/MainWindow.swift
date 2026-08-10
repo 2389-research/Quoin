@@ -360,7 +360,12 @@ struct MainWindow: View {
                 let activeIndex = openTabs.firstIndex { $0.id == activeTabID }
                 let removedIndices = Set(openTabs.indices.filter { doomed(openTabs[$0]) })
                 openTabs.removeAll(where: doomed)
-                Task { for tab in dropped { await store.release(tab.url) } }
+                // discard:true — a trashed document must NEVER be written back.
+                // `isDetached` (kqueue vanish) detection is async, so a default
+                // save-on-release could re-write a dirty doc at its original
+                // library path before detachment is seen (resurrected-after-trash,
+                // LIFE-7). Discard is unconditional and synchronous-safe here.
+                Task { for tab in dropped { await store.release(tab.url, discard: true) } }
                 if activeTabID != nil, activeTab == nil {
                     activeTabID = activeIndex
                         .flatMap { index in
@@ -827,20 +832,29 @@ struct MainWindow: View {
         panel.message = "Save this document."
         panel.prompt = "Save"
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        let source = tab.url
+        // Capture the LIVE current path BEFORE teardown: an H1 rename armed by an
+        // earlier edit may already have moved the scratch file, so the store
+        // entry is keyed at the model's current `fileURL`, not the tab's original
+        // URL. Use THIS source for both release and move (LIFE-6).
+        let source = store.model(for: tab.url)?.fileURL ?? tab.url
         // Drop the tab now; we reopen at the destination after the move. We do
         // NOT route through close() — its empty-scratch GC would delete the
         // source out from under the move (a whitespace-only doc would be
         // delete-then-fail, LIFE-4).
         openTabs.removeAll { $0.id == tab.id }
         Task {
-            // Flush unsaved keystrokes into the scratch file, then AWAIT a
-            // non-discarding release: teardown saves the current content, stops
-            // the watcher (so the move isn't seen as a delete), and leaves no
-            // pending write. Awaiting teardown BEFORE the move means no detached
-            // stop() can rewrite the source at its old path after we've moved it
-            // (that was the duplicate-at-old-path bug, LIFE-3).
-            await store.flush(source)
+            // AWAIT a non-discarding release — that alone drains, saves, AND
+            // cancels a racing rename. `release(discard:false)` → `stop()`
+            // (a) calls `cancelBackgroundWork()` SYNCHRONOUSLY as its first
+            // statement, so an armed H1 `renameTask` is cancelled BEFORE any
+            // suspension (its post-saveNow guard then aborts — no move out from
+            // under us); (b) drains the edit pipeline; (c) `teardown(save:true)`
+            // saves the current content. We do NOT call `flush()` first: flush
+            // does NOT cancel background work, so a rename could fire during its
+            // await and relocate the scratch file mid-save (the LIFE-6 race).
+            // Awaiting teardown BEFORE the move also means no inheriting stop()
+            // Task can rewrite the source at its old path after we've moved it
+            // (the duplicate-at-old-path bug, LIFE-3).
             _ = await store.release(source, discard: false)
             do {
                 if FileManager.default.fileExists(atPath: destination.path) {
@@ -907,8 +921,8 @@ struct MainWindow: View {
         let closedIndex = openTabs.firstIndex { $0.id == tab.id }
         openTabs.removeAll { $0.id == tab.id }
         // Capture the model BEFORE release drops it, then route the whole
-        // teardown decision through the lifecycle state machine (Task 1) on a
-        // detached Task. The old code read the on-disk file, which lags the
+        // teardown decision through the lifecycle state machine (Task 1) on an
+        // inheriting Task. The old code read the on-disk file, which lags the
         // 400ms-debounced autosave: a fast close saw a stale-empty file and
         // discarded a doc that still held unsaved text, after which stop()'s
         // async final save resurrected that text onto a reused "Untitled.md"
