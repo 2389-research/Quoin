@@ -823,19 +823,31 @@ struct MainWindow: View {
         panel.message = "Save this document."
         panel.prompt = "Save"
         guard panel.runModal() == .OK, let destination = panel.url else { return }
+        let source = tab.url
+        // Drop the tab now; we reopen at the destination after the move. We do
+        // NOT route through close() — its empty-scratch GC would delete the
+        // source out from under the move (a whitespace-only doc would be
+        // delete-then-fail, LIFE-4).
+        openTabs.removeAll { $0.id == tab.id }
         Task {
-            // Flush unsaved keystrokes into the scratch file, release the live
-            // session (stops the watcher so the move isn't seen as a delete),
-            // move the file to its new home, then reopen it there.
-            await store.flush(tab.url)
-            close(tab)
+            // Flush unsaved keystrokes into the scratch file, then AWAIT a
+            // non-discarding release: teardown saves the current content, stops
+            // the watcher (so the move isn't seen as a delete), and leaves no
+            // pending write. Awaiting teardown BEFORE the move means no detached
+            // stop() can rewrite the source at its old path after we've moved it
+            // (that was the duplicate-at-old-path bug, LIFE-3).
+            await store.flush(source)
+            _ = await store.release(source, discard: false)
             do {
                 if FileManager.default.fileExists(atPath: destination.path) {
                     try FileManager.default.removeItem(at: destination)
                 }
-                try FileManager.default.moveItem(at: tab.url, to: destination)
+                try FileManager.default.moveItem(at: source, to: destination)
             } catch {
                 NSSound.beep()
+                // The source still exists and is intact (teardown saved it);
+                // reopen it so no work is lost.
+                open(source)
                 return
             }
             open(destination)
