@@ -416,6 +416,36 @@ Three decisions must be honored when their phase arrives:
 `revision` is `Int` throughout (matching the existing `DocumentSession.contentRevision`),
 not the `UInt64` this doc's prose sketched — no conversion seam.
 
+## 13c. Phase 1 landed — carry-forward before flipping `QuoinEditorRecycler` default-on
+
+Phase 1 (read-only per-block view recycler) is complete on `main`, behind the
+default-OFF `QuoinEditorRecycler` flag; the projection reader is unchanged
+(plan `docs/superpowers/plans/2026-08-11-phase1-block-recycler.md`). `QuoinEditorKit`
+now has `BlockRenderCell` (text + decoration parity, cell-local), `DecorationDraw`
+(ported chrome; `verticalBleed=5`/`leftGutter=14`), `BlockRowMetrics.rowHeight`
+(text + bleed + measured separator; outer edges omit bleed → sum-parity ~0pt),
+async re-query (`onContentSettled`→`noteHeightOfRows`, wired to the real
+`AsyncImageStore`), `BlockRecyclerView` (view-based `NSTableView`, bounded
+recycling, `contentInsets=5pt`), per-cell AX + table rotors, and
+`BlockRecyclerReaderView` behind the `ReaderScreen` flag branch.
+
+**Must-fix BEFORE flipping the flag default-on (Phase 2/3):**
+1. **Separator-memo stale cache.** `BlockRowMetrics.separatorContribution` memoizes
+   on `(separator string, width)` in a process-global static that is never
+   invalidated — a `textScale` change leaves stale seam heights. Add theme/textScale
+   to the key OR clear the cache when the renderer is recreated. (Bounded, flag-on
+   only; parked at the Phase-1 final review.)
+2. **wordWrap** is threaded but only toggles the horizontal scroller; per-cell
+   no-wrap layout is not implemented (a cell lays out at a fixed column).
+3. **Visual parity eyeball** (the user, zoomed, on `Quoin UX Test.md`): code
+   canvases, callout boxes + nested cards, quote gutter bars, per-row table rules,
+   heading spacing, inter-block gaps vs the projection reader; repeat outline-click
+   re-scrolls; large-doc scrolling stays smooth.
+
+The recycler now shares the model's actual configured renderer (baseURL,
+onContentReady, imageResolution, loadsRemoteImages; textScale/codeTheme via theme),
+so relative images and reader config already match the projection reader.
+
 ## 14. Definition of done (v1 / Phase 3 default-on)
 
 Prose editing (headings, paragraphs, lists, block-quotes) works natively: Return
