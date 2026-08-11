@@ -80,6 +80,30 @@ public final class BlockRecyclerView: NSView {
     // asserts (< 60 live for 400 blocks).
     private let liveCells = NSHashTable<BlockRenderCell>.weakObjects()
 
+    // Phase 2, Task 5: the ONE block currently promoted to an editable island
+    // (nil in pure read mode). `viewFor` returns a `BlockEditorCell` for exactly
+    // this block's row and a `BlockRenderCell` for every other. Setting it
+    // reloads the affected rows through `reloadData(forRowIndexes:)` — the
+    // read↔edit transition MUST go through the table's reload (NOT a hand-swap
+    // of the row view, which corrupts `settledHeights`/`rowByBlockID`). The
+    // `IslandController` (this task) drives it.
+    public var editingBlockID: BlockID? {
+        get { _editingBlockID }
+        set {
+            guard newValue != _editingBlockID else { return }
+            let old = _editingBlockID
+            _editingBlockID = newValue
+            reloadRows(forBlocks: [old, newValue])
+            if newValue == nil { liveEditorCell = nil }
+        }
+    }
+    private var _editingBlockID: BlockID?
+    // The live editor cell for the current editing row, held weakly (the table
+    // owns it in its reuse pool). Used to source the editing row's height from
+    // the live island layout and to reach `islandTextView` for first-responder
+    // handoff + flush read-back.
+    private weak var liveEditorCell: BlockEditorCell?
+
     /// Report the top-most visible block (drives the outline sync).
     public var onTopBlockChange: ((BlockID) -> Void)?
     private var lastReportedTop: BlockID?
@@ -106,6 +130,10 @@ public final class BlockRecyclerView: NSView {
     }
 
     private static let cellIdentifier = NSUserInterfaceItemIdentifier("QuoinBlockRenderCell")
+    // Phase 2, Task 5: the SECOND reuse identifier — the editable island cell.
+    // A distinct pool keeps the read cells' recycling instrument (`liveCells`)
+    // clean and lets `viewFor` dequeue the right leaf per row.
+    private static let blockEditorCellIdentifier = NSUserInterfaceItemIdentifier("QuoinBlockEditorCell")
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("QuoinBlockColumn")
 
     public init(renderer: AttributedRenderer, theme: Theme) {
@@ -186,6 +214,9 @@ public final class BlockRecyclerView: NSView {
     /// Reload the list for `document`, laying every cell's text out at
     /// `contentWidth`.
     public func setDocument(_ document: QuoinDocument, contentWidth: CGFloat) {
+        // A fresh document dissolves any active island: clear editing WITHOUT the
+        // didSet's partial reload (the full `reloadData` below covers it).
+        clearEditingWithoutReload()
         self.document = document
         self.contentWidth = contentWidth
         settledHeights.removeAll()
@@ -212,6 +243,61 @@ public final class BlockRecyclerView: NSView {
     /// Count of live `BlockRenderCell` instances — bounded by recycling, never
     /// one-per-block (the recycling contract the brief's test asserts).
     public var visibleCellCount: Int { liveCells.allObjects.count }
+
+    // MARK: - Editing island (Phase 2, Task 5)
+
+    /// Row index for `blockID` in the current document, or nil.
+    func rowForBlockID(_ blockID: BlockID) -> Int? { rowByBlockID[blockID] }
+
+    /// The live `BlockEditorCell` currently hosting the island (nil when not
+    /// editing or the row is not yet realized). The `IslandController` reaches
+    /// through this for first-responder handoff and flush read-back.
+    var currentEditorCell: BlockEditorCell? { liveEditorCell }
+
+    /// Force-realize and return the editable island cell for the current editing
+    /// row, so the controller can make it first responder and place the caret
+    /// synchronously (not on a later display pass).
+    func editorCellForEditingRow() -> BlockEditorCell? {
+        guard let id = _editingBlockID, let row = rowByBlockID[id],
+              row < tableView.numberOfRows else { return nil }
+        return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? BlockEditorCell
+    }
+
+    /// Reload the current editing row (the read↔edit transition goes through
+    /// `reloadData(forRowIndexes:)`, never a hand-swap of the row view).
+    func reloadEditingRow() {
+        guard let id = _editingBlockID else { return }
+        reloadRows(forBlocks: [id])
+    }
+
+    private func clearEditingWithoutReload() {
+        _editingBlockID = nil
+        liveEditorCell = nil
+    }
+
+    /// Reload the rows for the given blocks (dedup + drop missing/out-of-range),
+    /// so `viewFor` re-vends the correct leaf (read vs edit) for each.
+    private func reloadRows(forBlocks blocks: [BlockID?]) {
+        var rows = IndexSet()
+        for case let id? in blocks {
+            // The editing row is sized from the LIVE island layout, so drop any
+            // stale settled (read-path) height for it.
+            settledHeights[id] = nil
+            if let row = rowByBlockID[id], row < tableView.numberOfRows {
+                rows.insert(row)
+            }
+        }
+        guard !rows.isEmpty else { return }
+        tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+    }
+
+    // The island cell's live edits re-notify its own row height (the editing row
+    // is excluded from `settledHeights`; its height is the live text layout).
+    private func editingCellDidChangeText(_ cell: BlockEditorCell) {
+        guard let id = cell.blockID, let row = rowByBlockID[id],
+              row < tableView.numberOfRows else { return }
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+    }
 
     // MARK: - Click seam (Phase 2, Task 2)
 
@@ -250,6 +336,19 @@ public final class BlockRecyclerView: NSView {
     private func rowHeight(atRow row: Int) -> CGFloat {
         guard row >= 0, row < document.blocks.count else { return 1 }
         let block = document.blocks[row]
+        // The editing row is EXCLUDED from `settledHeights`/heightRenderer sizing:
+        // its height is the LIVE island text layout, re-notified via
+        // `noteHeightOfRows` on the cell's `onTextDidChange`. Fall back to the
+        // read metric until the island cell is realized so the row never
+        // collapses to zero.
+        if block.id == _editingBlockID {
+            if let cell = liveEditorCell, cell.blockID == block.id {
+                return cell.fittingHeightForConfiguredWidth + 2 * DecorationDraw.verticalBleed
+            }
+            return BlockRowMetrics.rowHeight(
+                for: block, at: row, in: document,
+                renderer: heightRenderer, theme: theme, width: contentWidth)
+        }
         if let settled = settledHeights[block.id] { return settled }
         // Non-stealing height (hazard B): `heightRenderer` is `.textReference`,
         // so a pending image is a placeholder here and never touches the decode
@@ -377,6 +476,14 @@ public final class BlockRecyclerView: NSView {
     /// cell won the decode registration and the settle → noteHeightOfRows wiring
     /// ran).
     var didRecordSettledHeightForTest: ((BlockID) -> Void)?
+    /// The row currently promoted to an editable island, or nil (Task 5).
+    var editingRowForTest: Int? { _editingBlockID.flatMap { rowByBlockID[$0] } }
+    /// True when `row`'s realized view is a `BlockEditorCell` (the island).
+    /// Forces the view so the assertion reflects what `viewFor` actually vends.
+    func isEditingRow(_ row: Int) -> Bool {
+        guard row >= 0, row < tableView.numberOfRows else { return false }
+        return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) is BlockEditorCell
+    }
 }
 
 extension BlockRecyclerView: NSTableViewDataSource {
@@ -394,6 +501,12 @@ extension BlockRecyclerView: NSTableViewDelegate {
         _ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int
     ) -> NSView? {
         guard row >= 0, row < document.blocks.count else { return nil }
+        let block = document.blocks[row]
+        // Phase 2, Task 5: the ONE editing row vends an editable island cell;
+        // every other row vends the read-only render cell.
+        if block.id == _editingBlockID {
+            return editorView(for: block)
+        }
         let cell: BlockRenderCell
         if let reused = tableView.makeView(
             withIdentifier: Self.cellIdentifier, owner: self) as? BlockRenderCell {
@@ -403,7 +516,6 @@ extension BlockRecyclerView: NSTableViewDelegate {
             cell.identifier = Self.cellIdentifier
             liveCells.add(cell)
         }
-        let block = document.blocks[row]
         // The settle callback reports the block that settled (the cell may have
         // recycled onto another block by then); route it to that block's row.
         cell.onContentSettled = { [weak self] settledBlockID in
@@ -415,6 +527,28 @@ extension BlockRecyclerView: NSTableViewDelegate {
         cell.configure(
             block: block, document: document,
             renderer: renderer, theme: theme, width: contentWidth)
+        return cell
+    }
+
+    /// Vend (dequeue/create) the editable island cell for `block`, seeded with
+    /// its RAW source. Wires `onTextDidChange` back to the recycler so the
+    /// editing row's height tracks the live text layout.
+    private func editorView(for block: Block) -> BlockEditorCell {
+        let cell: BlockEditorCell
+        if let reused = tableView.makeView(
+            withIdentifier: Self.blockEditorCellIdentifier, owner: self) as? BlockEditorCell {
+            cell = reused
+        } else {
+            cell = BlockEditorCell()
+            cell.identifier = Self.blockEditorCellIdentifier
+        }
+        let slice = document.source.substring(in: block.range) ?? ""
+        cell.configure(slice: slice, blockID: block.id, width: contentWidth)
+        cell.onTextDidChange = { [weak self, weak cell] in
+            guard let self, let cell else { return }
+            self.editingCellDidChangeText(cell)
+        }
+        liveEditorCell = cell
         return cell
     }
 }
