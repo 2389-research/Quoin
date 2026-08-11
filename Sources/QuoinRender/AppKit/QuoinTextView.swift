@@ -85,19 +85,9 @@ enum CaretGapGeometry {
 
 final class QuoinTextView: NSTextView {
 
-    /// While a block is being edited, ⌘A selects ITS editable range, not
-    /// the whole document. This must be an override — ⌘A is a MENU key
-    /// equivalent that sends `selectAll:` straight to the view, never
-    /// through the delegate's doCommandBy hook (live report, twice).
-    var selectAllScope: (() -> NSRange?)?
-
-    override func selectAll(_ sender: Any?) {
-        if let scope = selectAllScope?() {
-            setSelectedRange(scope)
-            return
-        }
-        super.selectAll(sender)
-    }
+    // ⌘A selects the WHOLE document (user directive 2026-08-11) — the default
+    // NSTextView behavior, so no override. It previously scoped to the active
+    // block's editable range; that was removed at the user's request.
 
     /// ⇧Return in a prose block inserts an explicit hard line break. macOS binds
     /// `insertLineBreak:` to ⌃Return, not ⇧Return — StandardKeyBinding.dict has

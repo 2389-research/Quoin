@@ -391,10 +391,6 @@ public struct MarkdownReaderView: NSViewRepresentable {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
                                   height: CGFloat.greatestFiniteMagnitude)
         textView.delegate = context.coordinator
-        // ⌘A scope: the active block's editable range while editing.
-        textView.selectAllScope = { [weak coordinator = context.coordinator] in
-            coordinator?.parent.rendered.activeEditableRange
-        }
         // ⇧Return → hard break, but only in a prose block (macOS routes it to
         // insertNewline: by default; QuoinTextView.keyDown re-routes it here).
         textView.shiftReturnMakesHardBreak = { [weak coordinator = context.coordinator] in

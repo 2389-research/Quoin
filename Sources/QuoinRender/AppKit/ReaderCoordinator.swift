@@ -2006,15 +2006,9 @@ extension MarkdownReaderView {
             if commandSelector == #selector(NSResponder.deleteForward(_:)) {
                 return handleGapDeletion(forward: true, in: textView)
             }
-            // ⌘A while EDITING selects the active block's editable range,
-            // not the whole document (live redline 2026-07-15) — the block
-            // is the editing scope, and whole-doc selection from inside a
-            // code block invited accidental whole-doc deletes.
-            if commandSelector == #selector(NSTextView.selectAll(_:)),
-               let active = parent.rendered.activeEditableRange {
-                textView.setSelectedRange(active)
-                return true
-            }
+            // ⌘A selects the WHOLE document (user directive 2026-08-11) — the
+            // prior block-scoped behavior was removed at the user's request, so
+            // selectAll: falls through to NSTextView's default whole-doc select.
             // Home/End while EDITING move the caret to the line ends (user
             // redline, #60); reading mode keeps the system scroll behavior.
             if parent.rendered.activeEditableRange != nil {
