@@ -1,15 +1,23 @@
 ---
-title: Editable-Islands editor architecture (replacing the read-only projection)
+title: Editable-Islands editor architecture (per-block views; replacing the read-only projection)
 created: 2026-08-11
-status: DESIGN — approved to spec; per-phase implementation plans follow
+status: DESIGN — approved to spec (PAL-debated); per-phase implementation plans follow a Phase-0.5 perf gate
 supersedes: the read-only "projection editor" model (shouldChangeTextIn → false)
 related:
-  - docs/reference/architecture.md (§ editing model — to be rewritten per phase)
+  - docs/reference/architecture.md (§ editing model — rewritten per phase)
   - docs/reference/invariants.md (viewport/caret invariants — several retired)
   - CARET-1 series (2026-08-10) — the last symptomatic fixes before this rearchitecture
+history:
+  - Original draft used a single NSTextView with inactive blocks as 1-char
+    NSTextAttachments. A PAL red-team flagged that model as the highest risk
+    (custom-fragment layout thrash, memory, strobey selection, tall-block scroll
+    jumps). After debate we FLIPPED the substrate to per-block views; the
+    edit-orchestration layer is substrate-agnostic and unchanged. The attachment
+    model is retained only as a documented fallback if per-block views miss the
+    Phase-0.5 perf gate.
 ---
 
-# Editable-Islands editor architecture
+# Editable-Islands editor architecture (per-block views)
 
 ## 1. Why (the root cause we are removing)
 
@@ -24,308 +32,341 @@ Two structural consequences have made basic editing chronically fragile:
 
 1. **Markdown has no empty-paragraph node.** A blank line where the caret must
    sit has no legal home in the AST, so the code *synthesizes* one by absorbing
-   whitespace into a neighboring block's editable slice (`editableSlice`,
-   `caretMapping`, `compressInteriorBlankLines`, `clampTrailingNewlinePhantom`,
-   `occupiableSeparator`). After a re-parse the caret snaps to the nearest node
-   that *does* exist — which is why pressing Return at the end of a heading that
-   has body text below it lands the caret on the wrong line and typing appends to
-   the heading (`Welcomedddddd`), and why "⌘A then Delete" does nothing
-   (multi-block delete was never expressible).
+   whitespace into a neighboring block's editable slice. After a re-parse the
+   caret snaps to the nearest node that *does* exist — which is why pressing
+   Return at the end of a heading that has body text below it lands the caret on
+   the wrong line and typing appends to the heading (`Welcomedddddd`), and why
+   "⌘A then Delete" does nothing (multi-block delete was never expressible).
 
 2. **The real edit+caret path is untested.** It lives in an `@MainActor`
    view-model (`ReaderModel`) plus the `NSTextView` delegate plus an async
-   "echo" round-trip — and there is no test that drives that real path. Fixes
-   written against the *pure helper functions* pass while the app stays broken
-   (shipped green-but-broken repeatedly).
+   "echo" round-trip — and no test drives that real path. Fixes written against
+   the *pure helper functions* pass while the app stays broken (shipped
+   green-but-broken repeatedly).
 
-**The fix is architectural, not another patch.** In the editable-islands model,
-inactive content is not *text the caret must avoid* but *attachments the caret
-cannot enter*. There is no nameless region between nodes; the caret only ever
-lives inside one real, editable block. The synthetic-blank-line machinery, the
-absorbed slices, and the four-space caret re-derivation are **deleted, not
-fixed**.
+**The fix is architectural.** The active block becomes real editable text the OS
+owns; every other block is a non-editable rendered view the caret cannot enter.
+There is no nameless region between nodes; the caret only ever lives inside one
+real, editable block. The synthetic-blank-line machinery, the absorbed slices,
+and the four-space caret re-derivation are **deleted, not fixed**.
+
+The deeper lesson from the design debate: the hard part was never the text-view
+mechanism — it is the **edit-orchestration layer** (stable anchors, reconciliation
+to Markdown, split/merge grammar, undo). That layer is independent of how pixels
+are drawn, which turns the drawing substrate into a *measurable* engineering
+choice rather than a bet-the-architecture guess (hence the Phase-0.5 gate).
 
 ## 2. Goals / non-goals
 
 **Goals**
-- Native OS-owned typing, caret, selection, and IME inside the block being
-  edited. Editing correctness comes from the platform, not hand-rolled mapping.
-- Preserve the three hard product constraints: **byte-lossless** round-trip
-  (untouched regions serialize identically), **WYSIWYG** rendering of non-active
-  content, **zero JavaScript** at runtime.
-- Reuse the existing block-WYSIWYG renderer and the entire QuoinCore engine
-  unchanged.
-- A **headless end-to-end test harness** that drives the real editor — the
-  standing gate that makes green-but-broken impossible.
-- Migrate as an **incremental strangler**: every phase leaves the app
-  buildable/usable (behind a feature flag until proven).
+- Native OS-owned typing, caret, selection, and IME inside the block being edited.
+- Preserve the three hard constraints: **byte-lossless** round-trip, **WYSIWYG**
+  rendering of non-active content, **zero JavaScript**.
+- Reuse the existing block-WYSIWYG renderer and the entire QuoinCore engine.
+- A **headless end-to-end test harness** driving the real editor — the standing
+  gate that makes green-but-broken impossible.
+- Migrate as an **incremental strangler**; every phase is buildable/usable
+  (flag-gated until proven), behind a **Phase-0.5 perf gate**.
 
-**Non-goals (v1)**
-- Structured in-place editing of complex blocks. v1 is **prose-first**: headings,
-  paragraphs, lists, and block-quotes get full native island editing; code
-  blocks, tables, math, and diagrams are edited as their **raw
-  Markdown/source text** in the island (multi-line, no in-cell widgets). Fancy
-  structured editing (WYSIWYG table cells, grid Tab navigation beyond simple
-  field hops, language-aware code behavior) is deferred.
-- Collaborative editing, multi-caret. Out of scope.
+**Non-goals / consciously accepted losses (v1)**
+- **Prose-first scope.** Headings, paragraphs, lists, and block-quotes get full
+  native island editing. Code blocks, tables, math, and diagrams are edited as
+  their **raw Markdown/source text** in the island (multi-line, no in-cell
+  widgets). Structured editing (WYSIWYG table cells, grid navigation, language-
+  aware code) is deferred.
+- **Block selection, not native cross-block text selection** (user-ratified). Like
+  Notion/Craft/Obsidian: ⌘A selects all blocks, Shift-click/Shift-arrow extends
+  by block, Delete removes them, copy assembles the covered bytes. Within a block,
+  normal native text selection. A partial select-and-copy spanning two paragraphs
+  is approximated (select-to-block-end) or deferred.
+- **Document-level Find, not native `NSFind` across one container** — a find
+  manager scans the bytes, maps matches to blocks, paints highlight overlays on
+  inactive rows, and maps to a local range in the active island.
+- Collaborative editing and multi-caret are out of scope.
 
-## 3. Architecture — storage model
+## 3. Architecture — substrate (per-block views)
 
-**One `NSTextView` backed by the default `NSTextContentStorage` /
-`NSTextLayoutManager`**, whose content stream mixes exactly two element kinds:
+**One `NSScrollView` hosting a virtualized recycling list** — a view-based
+`NSTableView` (variable row heights; lowest engineering risk) or `NSCollectionView`
+(more flexible future layouts). Each block is one row:
 
-- **Inactive block → a single-character `NSTextAttachment`** (`U+FFFC`) that
-  draws the block's existing WYSIWYG rendering via a custom
-  `NSTextLayoutFragment` subclass. It is atomic and non-editable; its bytes are
-  never materialized as text, so **byte-losslessness is free** — an untouched
-  block is literally never decoded/re-encoded.
-  ```
-  final class BlockAttachment: NSTextAttachment { let blockID: BlockID; let revision: UInt64 }
-  ```
-  Prefer a custom `NSTextLayoutFragment` (consistent selection rects/baselines)
-  over an `NSTextAttachmentViewProvider`. The fragment calls the KEEP renderer
-  (`AttributedRenderer.render(block:…)`) and the existing decoration drawing.
+- **Inactive block → `BlockRenderCell`**: a layer-backed `NSView` that draws the
+  block via the KEEP renderer (`AttributedRenderer.render(block:…)` + existing
+  decoration drawing) and existing block accessibility. It hosts overlay layers
+  for selection band, find matches, and the current match. It is not editable;
+  its bytes are never materialized as text, so **byte-losslessness is free**.
+- **Active block → `BlockEditorCell`**: hosts exactly one `QuoinTextView`
+  (`NSTextView`, default TextKit-2 content storage/layout manager) whose text IS
+  the block's raw Markdown source. Typing, caret, selection, IME are native.
+  Smart-substitutions default off (they fight Markdown; user-settable).
 
-- **The one active block → its real Markdown source as editable text**, styled
-  with an optional lightweight source syntax highlight. This region is what the
-  OS edits natively.
+**Exactly one `BlockEditorCell` exists at a time.** Virtualization/laziness come
+free from the recycler; memory scales with visible rows + a small cache, not with
+document size.
 
-**`ProjectionIndex`** (MainActor) is the single mapping authority:
+**Cell sizing contract (must-have to avoid layout jitter):** a `BlockRenderCell`
+returns a **deterministic row height synchronously** from renderer metrics cached
+by `(blockID, revision, width, themeID)`. Heights must not change after first
+layout except on revision/theme/width change. The renderer emits a transient draw
+list for inactive blocks — it **must not retain per-block `NSAttributedString`s**;
+heavy blocks (tall diagrams/tables) are pre-rasterized into an LRU image cache.
+(This requires a small renderer metrics API: line count + intrinsic height given
+width/theme — added in Phase 0/1.)
+
+**`IslandUnit` — the editing scope, distinct from AST `BlockID`.** The active
+island owns a contiguous `byteRange` and persists across *non-structural* type
+morphing: typing `# `, `- `, or ```` ``` ```` reclassifies the AST node, but the
+island identity and caret stay put. Only a **structural delimiter commit**
+(paragraph split, list exit, fence close) re-homes the island to a new AST block.
+This closes the "the thing I'm editing stopped being the same block" hazard.
+
+**`BlockListModel`** is the mapping authority (replaces the projection index):
 ```
-enum SpanKind { case attachment(BlockID); case editable(BlockID) }
-struct ProjectionSpan { let kind: SpanKind; var storageRange: NSRange; var byteRange: Range<Int> }
-// display-ordered [ProjectionSpan]; EXACTLY ONE .editable at any time.
+struct BlockRecord { let blockID: BlockID; var byteRange: Range<Int>; let type: BlockKind; var height: CGFloat; var revision: UInt64 }
+// display-ordered [BlockRecord]; the active IslandUnit references one (or, mid-morph, a small span).
 ```
-Every inactive block occupies exactly **1 UTF-16 unit** in storage; the active
-block occupies N units equal to its decoded text length. This makes
-storage-index ↔ byte-offset mapping deterministic.
 
 ## 4. Active-island swap choreography
 
-Triggered when the user clicks a block or arrows/selects across the active
-block's edge. Swap is one atomic transaction:
+Focus change (click / arrow across a block edge / block-selection Enter) runs
+through a **`SwapState` machine** — `Idle → PendingFlush(target) → Swapping →
+Idle`, with a `BlockedIME(target)` gate — and only one swap is inflight;
+multiple intents coalesce to the last target.
 
-1. **Capture** old active id, target id, `scrollView.documentVisibleRect.origin`,
-   and desired entry affinity (arrow direction, or click x/y).
-2. **Refuse to swap while `textView.hasMarkedText`** (IME composition) — queue
-   the intent, process on `unmarkText`.
-3. **Finalize the old island**: if it has uncommitted edits, compute one byte
-   patch (old block byteRange → edited bytes), `await DocumentSession.apply` →
-   new bytes + AST revision + refreshed block catalog.
-4. **Rebuild only the neighborhood spans** from the new AST (not the whole doc);
-   bump revision.
-5. **`performEditingTransaction`** on the content storage: replace the old
-   editable range with a fresh `BlockAttachment`, replace the target block's
-   attachment char with the editable source substring; update `ProjectionIndex`
-   in lockstep.
-6. **Place the caret**: click → map to local offset via a line/column hit-test
-   the renderer exposes (safe default until then: start/end by click-x half,
-   and line N by `boundsHeight/lineHeight`); arrow entry → offset 0 (entering
-   from left) or end (entering from right); carry `goalColumn` for vertical
-   motion.
-7. **Restore scroll**: `scrollRangeToVisible` for the caret; otherwise leave
-   TextKit's scroll.
+1. **Refuse to swap while `textView.hasMarkedText`** (IME); queue the intent, run
+   it on `unmarkText`.
+2. **Finalize the old island**: cancel debounce, flush uncommitted edits as one
+   byte patch (`await DocumentSession.apply`), get new bytes + AST revision +
+   refreshed catalog.
+3. **Freeze viewport**: disable animated scrolling, hide the caret (avoid blink
+   artifacts), record `documentVisibleRect.origin` and the target row's frame.
+4. **Reconfigure rows** (no whole-document relayout): demote the old
+   `BlockEditorCell` → `BlockRenderCell`; promote the target row →
+   `BlockEditorCell` seeded with the block's current source. Update `BlockListModel`.
+5. **Place the caret**: click → map the recorded hit point to a local line/column
+   via the renderer's line metrics (safe default until exposed: nearest line by
+   `boundsHeight/lineHeight`, then column by x — never a bare left/right-half
+   guess for multi-line prose); arrow entry → offset 0 (from left) or end (from
+   right), carrying `goalColumn`.
+6. **Unfreeze** after `ensureLayout` on the target row; `scrollRangeToVisible` the
+   caret; restart blink. Scroll-anchor drift target: `< 4pt` for ≤50pt height
+   deltas, `< lineHeight` otherwise.
+
+Optional latency optimization (if reparse is slow): optimistic swap — activate the
+target immediately from its last-known source while the old island's flush is
+inflight (old island read-only during flush), finalize on return.
 
 ## 5. Edit → Markdown reconciliation
 
-- **Intra-island typing stays local to the `NSTextView`** (fast, native IME).
-  The model splice is **debounced (~150–250 ms idle)**, and forced immediately
-  on: (a) island swap, (b) structural boundary actions (split/merge/list rules),
-  (c) app-level reads (save, export, search).
-- **Splice** = take the island's edited `String`, build **one byte patch**
-  replacing the block's known `byteRange`, `DocumentSession.apply`, update the
-  active span's `byteRange`. Byte-losslessness holds because only the active
-  block's range (and explicit boundaries on structural ops) is ever patched.
+- **Intra-island typing stays local** to the `NSTextView` (native, fast IME). The
+  model splice is **debounced (~200 ms idle)** and forced immediately on: island
+  swap, structural boundary actions, or app reads (save/export/search).
+- **Splice** = the island's edited `String` → one byte patch replacing the
+  `IslandUnit.byteRange` → `DocumentSession.apply` → update the record. Only the
+  active island's range (and explicit boundaries on structural ops) is ever
+  patched; untouched blocks are never decoded/re-encoded → byte-lossless.
+- **Non-structural type morphing does NOT re-home the island** (see `IslandUnit`).
+  `DocumentSession.apply` returns a block-mapping diff so `ByteAnchor` resolution
+  prefers the `IslandUnit` mapping first, avoiding mid-typing swaps.
 - **Split (Return at a structural point)** — driven by the KEEP `ReturnSemantics`
-  rule table, but as a *native newline that reconciles to the grammar*, not a
-  synthesized absorbed slice:
-  - Heading end / paragraph split: insert the real `\n\n`, flush + reparse,
-    activate the resulting new/second block, caret at its start.
-  - List item: non-empty item → new item with the same marker/indent
-    (native insertion of `\n` + marker); empty item → outdent/exit (delete
-    marker → paragraph). These flush immediately (neighbor attachments change).
-- **Merge (Backspace at block start / Delete at block end)** — intercept when
-  selection length 0 and the caret sits at the island edge adjacent to an
-  attachment; apply the boundary byte patch per the block-type rule; reparse;
-  activate the merged block with the caret at the join.
-- **Cross-block selection delete (⌘A + Delete)** — convert the anchored selection
-  to a minimal set of contiguous byte ranges, delete in one patch, reparse, set
-  the caret to a boundary anchor at the deletion start.
+  table, as a native newline reconciled to the grammar: heading-end/paragraph →
+  real `\n\n`, flush, activate the new block, caret at start; list item → new
+  item with same marker/indent, or exit on an empty item.
+- **Merge (Backspace at island start / Delete at island end)** adjacent to another
+  block → boundary byte patch per block-type rule, reparse, activate the merged
+  block at the join.
+- **Cross-block delete (⌘A + Delete, block selection + Delete)** → assemble the
+  covered contiguous byte ranges from anchors, delete in one patch, caret to a
+  boundary anchor at the deletion start.
 
-## 6. Selection anchors (stable across re-parse)
+## 6. Selection anchors & block selection
 
 ```
-struct BlockID: Hashable      // stable across reparses via a diff-stability pass
-struct BoundaryID: Hashable { let left: BlockID?; let right: BlockID?; enum Kind { case interBlock, blockStart, blockEnd } ; let kind: Kind }
+struct BlockID: Hashable      // stable across reparse via an O(n) overlap+type diff, content-hash fallback
+struct BoundaryID: Hashable { let left: BlockID?; let right: BlockID?; enum Kind { case interBlock, blockStart, blockEnd }; let kind: Kind }
 struct ByteAnchor { enum Kind { case byte(Int); case boundary(BoundaryID) }; enum Affinity { case before, after }
                     var kind: Kind; var affinity: Affinity; var goalColumn: Int?; var revision: UInt64 }
 struct SelectionAnchorRange { var start: ByteAnchor; var end: ByteAnchor }
 ```
-- **BlockID stability**: an O(n) pass matches new blocks to old by overlapping
-  byte range + node type; fall back to a `(type + normalized-content)` hash for
-  moved/renamed nodes.
-- **Mapping**: within the active island, `ByteAnchor.byte` → local byte offset →
-  UTF-16 via a per-island `UTF8IndexMap` (cumulative offset arrays, regenerated
-  on island text change) → storage `NSRange`. Inactive positions resolve to
-  "before/after the attachment char" by affinity. Screen rects are standard
-  TextKit for storage positions — no custom mapping.
+- **Within the active island**: `ByteAnchor.byte` → local byte offset → UTF-16 via
+  the island's `UTF8IndexMap` → `NSTextView` selection. Native.
+- **Across blocks**: a **block-selection model** (a contiguous set of `BlockID`s)
+  rendered by selection overlays on `BlockRenderCell`s. ⌘A selects all; Shift-arrow
+  / Shift-click extends by block; Up/Down at an island edge re-homes into the
+  neighbor (carrying `goalColumn`); Shift-Up/Down at an edge starts block
+  selection. Copy/cut assemble the covered bytes; Delete/typing replace the
+  selection via a structural patch.
 
 ## 7. Coordinate spaces after the change
 
 Collapses to **two** for edits: **active-island local UTF-16 ↔ document byte
-offset** (via the island `UTF8IndexMap` and the active span's base). Residual,
-trivial mappings: byte offsets at inactive positions ↔ "before/after attachment
-char"; storage position ↔ screen rect (native TextKit). `ByteAnchor` remains for
-robustness across reparses/swaps.
+offset** (via the island `UTF8IndexMap` and the `IslandUnit` base). Residual:
+inactive positions ↔ block boundaries; storage position ↔ screen rect (native
+TextKit within the one active view). `ByteAnchor` carries robustness across
+reparses/swaps.
 
 ## 8. The test harness (non-negotiable infrastructure)
 
 A **new framework target `QuoinEditorKit`** holds the edit machinery
-(`EditOrchestrator` (MainActor), `ProjectionIndex`, `BlockCatalog`, the
-`DocumentSession` protocol seam) so tests can import it. Tests run in a **test
-host app** (preferred over an offscreen window for CI stability) that
-instantiates the *real* `NSTextView`/`NSScrollView`/delegate/orchestrator.
+(`IslandController`/`EditOrchestrator` (MainActor), `BlockListModel`,
+`IslandUnit`, the `DocumentSession` protocol seam) so tests import it. Tests run
+in a **test host app** (CI-stable) that builds the *real* recycler +
+`BlockEditorCell`/`BlockRenderCell` + orchestrator.
 
 **Quiescence barrier**: `DocumentSession` increments a `UInt64` revision per
-applied patch; the revision is stamped as an attribute on the projected storage
-and mirrored on `orchestrator.currentRevision`. After each edit call the test
-waits until `currentRevision == expected`, then `textLayoutManager.ensureLayout(
-for: documentRange)`, then reads the caret rect.
+patch, mirrored on `orchestrator.currentRevision` and stamped on projected
+content. After each edit call the test waits for `currentRevision == expected`,
+then `ensureLayout`, then reads the caret rect.
 
-**Drive edits through `NSTextInputClient`**: `insertText`, `insertNewline`,
-`deleteBackward`, `moveRight/Left/Up/Down`, so the real delegate/structural paths
-run. **Assert per scenario**: exact document bytes; AST shape around the edit
-(node types/counts); active block id before/after; `selectedRange` maps back to
-the expected `ByteAnchor`; **insertion-rect height ≥ a baseline threshold**
-(the standing 2pt-dot regression gate); no residual marked text.
+**Drive edits** by sending `NSTextInputClient` messages to the active row's
+`NSTextView` (`insertText`, `insertNewline`, `deleteBackward`, `moveRight/Left/
+Up/Down`) and document-level selection ops through the orchestrator (anchors).
+**Assert per scenario**: exact document bytes; AST shape around the edit; active
+`IslandUnit`/`BlockID` before/after; `selectedRange` maps back to the expected
+`ByteAnchor`; **insertion-rect height ≥ a baseline threshold** (the standing
+2pt-dot gate); no residual marked text.
 
 **Core scenarios (write first):** Return at end of interior heading (the prior
 failure); Return at end of last block (control); Backspace merging a paragraph
-into the prior heading; list-item split; list exit on empty item; ⌘A + Delete;
-IME composition in the island (no flush/swap until composition ends).
+into the prior heading; list-item split; list exit on empty item; type-morph a
+paragraph into a heading mid-edit (island identity holds); ⌘A + Delete; IME
+composition in the island (no flush/swap until composition ends).
 
 ## 9. Rip / Keep / Rebuild inventory
 
-**REBUILD (the three seams the model replaces):**
+**REBUILD (the seams the model replaces):**
 - `Sources/QuoinRender/AppKit/ReaderCoordinator.swift` (~3,462 LOC) — the
   keystroke-intercepting delegate + caret re-derivation + edit-echo ledger.
-  Portable sub-parts to re-wire (not rebuild): search highlighting, focus
+  Re-wire (not rebuild) the portable sub-parts: search highlighting, focus
   dimming, scroll anchoring, link/footnote plumbing, context-menu/annotation
   gestures, preview-panel choreography.
 - `Sources/QuoinRender/AppKit/QuoinTextView.swift` (~990 LOC) — keep paste/image
   overrides, tracking areas, `menu(for:)`, decoration-drawing host; rip
-  `CaretGapGeometry` + synthetic-caret drawing + viewport caret-pinning.
-- `Sources/QuoinRender/AppKit/MarkdownReaderView.swift` (~908 LOC) — the
-  `NSViewRepresentable` bridge + generation-counter caret-restore; keep the
-  format-command/annotation/search/scroll-target command surface.
-- `App/macOS/Sources/ReaderModel.swift` — REBUILD the edit+caret path
-  (`activateBlock`+`CaretHint` switch, `restoreCaret`, `applyEdit`,
-  activation-flip, rerender/echo); KEEP the block-command/table/structure/
-  front-matter/suggestion/annotation operations (they apply `SourceEdit`s and are
-  edit-model-agnostic).
-- `ReaderScreen.swift` (~1,609 LOC) — wires `activateBlock`/caret/`onEditIntent`
-  into SwiftUI; has REBUILD touch-points to audit.
+  `CaretGapGeometry` + synthetic-caret drawing + viewport caret-pinning. In the
+  new model `QuoinTextView` is a *normal* editable text view inside one row.
+- `Sources/QuoinRender/AppKit/MarkdownReaderView.swift` (~908 LOC) — replaced by
+  the recycler-hosting view; keep the format-command/annotation/search/
+  scroll-target command surface.
+- `App/macOS/Sources/ReaderModel.swift` — REBUILD the edit+caret path; KEEP the
+  block-command/table/structure/front-matter/suggestion/annotation operations
+  (they apply `SourceEdit`s, edit-model-agnostic).
+- `ReaderScreen.swift` (~1,609 LOC) — REBUILD touch-points to audit.
 
 **RIP (projection-only, deleted as replacements prove out):**
 - In `AttributedRenderer.swift`: `editableSlice`, `caretMapping`,
   `compressInteriorBlankLines`, `clampTrailingNewlinePhantom`,
   `revealNeedsClampedSeparator`, `clampedSeparator`, `occupiableSeparator`,
   `renderEditableSource*`/`assembleRevealedFragment`/`RevealedFragment`,
-  `revealStylerConfig`, `activeBlockEditUpdate`/`activationFlipUpdate`, and the
-  `separator(…revealedSlice:)` variant. The `RenderedDocument` reveal fields
-  (`activeBlockID/Kind/activeEditableRange/revealStyler`).
-- `MarkdownSourceStyler.swift` (~557 LOC) — the caret-scoped span reveal (some
-  active-block syntax highlighting may be re-adopted, but the collapse-others
-  behavior is projection-specific).
-- `CaretHint` (defined in MarkdownReaderView; produced/consumed across the three
-  seams) — the four-space tag disappears.
+  `revealStylerConfig`, `activeBlockEditUpdate`/`activationFlipUpdate`, the
+  `separator(…revealedSlice:)` variant, and the `RenderedDocument` reveal fields.
+- `MarkdownSourceStyler.swift` — the caret-scoped span reveal (active-block
+  syntax highlighting may be re-adopted; the collapse-others behavior is RIP).
+- `CaretHint` (the four-space tag) — gone.
 
 **KEEP (reused unchanged):**
 - `AttributedRenderer` block-WYSIWYG pipeline — every `render<Block>` + inline
   rendering + `blockSeparator`/`separatorLength`. **This becomes the
-  attachment-fragment drawing.**
+  `BlockRenderCell` drawing.**
 - All of `QuoinCore`: parsing, AST, `EditorCore`/`DocumentSession` (`SourceEdit`
-  in / `QuoinDocument` out — the reconcile seam), `EditMapping` (UTF-8↔UTF-16
-  conversion), `EditIntent` (smart-pair/typeover logic; re-point its caller),
-  `ReturnSemantics` (rule table), exporters, Mermaid/Vinculum reexports,
-  structure/table/front-matter editing.
+  in / `QuoinDocument` out — the reconcile seam), `EditMapping`, `EditIntent`
+  (smart-pair logic; re-point its caller), `ReturnSemantics`, exporters,
+  Mermaid/Vinculum reexports, structure/table/front-matter editing.
 - App shell/support: `Theme`, `BlockDecoration/Presentation/Accessibility`,
   `TableLayout`, `StructureRotor`, `AsyncImageStore`, `ScrollAnchorMath`,
   preview-panel, `FlipTransitionController`, sidebar/library, QuickLook,
   Spotlight, Intents.
 
 **Hardest couplings (sequencing risk):**
-1. `editableSlice` is shared by the full render AND the per-keystroke patch AND
-   locked byte-identical by `ProjectorEquivalenceTests` — it can't be removed
-   from one path without breaking the equivalence across all three. Untangle in
-   Phase 2/3 as a unit.
-2. The edit-echo generation-counter handshake spans three files and is
-   load-bearing for *not dropping fast input today* — it must be **replaced**
-   (native typing), not merely deleted, before it's removed.
-3. `separator(…revealedSlice:)` branches reveal-vs-reading in one function
-   touching every block boundary.
-4. `CaretHint`'s `.rendered` vs `.source` spaces leak through the public
-   `onActivateBlock` signature — the `NSViewRepresentable` API changes.
+1. `editableSlice` is shared by full render + per-keystroke patch and locked
+   byte-identical by `ProjectorEquivalenceTests`; remove as a unit in Phase 2/3.
+2. The edit-echo generation-counter handshake spans three files and is load-
+   bearing for not dropping fast input; it is **replaced** (native typing), not
+   merely deleted.
+3. `separator(…revealedSlice:)` branches reveal-vs-reading in one function.
+4. `CaretHint`'s two spaces leak through `onActivateBlock` — the view API changes.
 5. `ReturnSemantics` (KEEP) vs every consumer (REBUILD): same rule table, new
-   mechanism (native newline reconciled at boundaries, not a synthesized slice).
+   mechanism (native newline reconciled at boundaries).
 
 ## 10. Phased migration (strangler; each phase buildable, flag-gated)
 
+**Perf targets (bake-off + ongoing), floor = M1 Air AND 2019 Intel i7 (both run
+macOS 14):**
+- Continuous-scroll p95 frame time ≤ **12 ms** (Apple Silicon), ≤ **14 ms** (Intel).
+- Swap latency (mouseUp → correct-height caret) p95 ≤ **45 ms**, hard cap 80 ms.
+- Peak RSS ≤ **+200 MB** over a plain-text viewer of the same content.
+- Selection-drag refresh p95 ≤ **16 ms**; find-next step p95 ≤ **35 ms**.
+- Scroll-anchor drift on swap < 4pt (≤50pt height delta) / < lineHeight otherwise.
+
 - **Phase 0 — Foundations & harness.** Create `QuoinEditorKit`; define `BlockID`
-  (stable), `ByteAnchor`/`BoundaryID`, `ProjectionIndex`, a `DocumentSession`
-  revision counter; build the headless test-host harness + quiescence barrier.
+  (stable), `ByteAnchor`/`BoundaryID`, `IslandUnit`, `BlockListModel`, a
+  `DocumentSession` revision counter, and the renderer metrics API (line count /
+  intrinsic height). Build the headless test-host harness + quiescence barrier.
   No visible change. Risk: low.
-- **Phase 1 — Inactive blocks as attachments** (still fully read-only). Blocks
-  render as `BlockAttachment` + custom `NSTextLayoutFragment` using the KEEP
-  renderer; fix layout/hit-testing/scroll/accessibility (AXStaticText per block
-  with an "Edit" action). Delete inactive-content blank-line clamp hacks. Flag.
-  Risk: medium (layout correctness).
-- **Phase 2 — One editable island.** Promote one attachment to editable source;
-  swap choreography (no structural ops yet); debounced reconciliation; native
-  typing/caret/IME. Harness assertions live: intra-block typing, swap in/out,
-  caret stability, insertion-rect-height gate. Delete legacy caret re-derivation
-  + echo handshake. Flag. Risk: medium-high (first real edits).
-- **Phase 3 — Structural ops (closes the reported bugs).** Split/merge for
-  headings, paragraphs, lists, block-quotes off `ReturnSemantics`; cross-block
-  delete via `ByteAnchor` ranges. Delete `editableSlice`/blank-line synthesis.
-  Full structural harness suite. Ship as **default** when green. Risk: high
-  (behavioral breadth) — the riskiest phase.
+- **Phase 0.5 — Perf-validation spike (HARD GATE, throwaway code).** Build a
+  disposable "10k-block storm" corpus (70% short prose, 20% lists, 10% heavy
+  400–1200pt blocks) on the **per-block-views recycler**; drive scroll, block-
+  selection drag across 500 rows, find-jump, and repeated activate/deactivate
+  swaps; measure against the targets above on M1 Air + Intel i7. **Pass → proceed.
+  Fail → evaluate the attachment substrate (or a hybrid: prose rows + view-backed
+  heavy blocks) before committing.** No phase plan is written until this gate
+  passes.
+- **Phase 1 — View recycler, read-only.** Replace the reader with the recycler of
+  `BlockRenderCell`s, incl. selection/find overlays and per-block accessibility
+  ("Edit" action). Delete inactive-content blank-line clamp hacks. Flag. Risk:
+  medium (layout/AX).
+- **Phase 2 — One editable island.** Introduce `BlockEditorCell` (`NSTextView`),
+  `IslandController`, `SwapState`; debounced reconciliation; native typing/caret/
+  IME; no structural ops yet. Harness assertions live (typing, swap, caret-height
+  gate). Delete legacy caret re-derivation + echo handshake. Flag. Risk:
+  medium-high (first real edits).
+- **Phase 3 — Structural ops + block selection (closes the reported bugs).**
+  Split/merge for headings/paragraphs/lists/quotes off `ReturnSemantics`;
+  block-selection model; cross-block delete/copy; ⌘A = select-all-blocks. Delete
+  `editableSlice`/blank-line synthesis. Ship as **default** when green. Risk: high
+  — the riskiest phase.
 - **Phase 4 — Complex blocks + polish.** Raw-text multi-line islands for
-  code/quote/table (Tab between table fields); undo/redo across swaps;
-  find-and-replace across attachments; accessibility polish. Retire the
+  code/quote/table (Tab field-hop in tables); undo/redo across swaps;
+  document-level find/replace; accessibility polish; telemetry. Retire the
   projection test suites; delete remaining projection caret code.
 
-Each phase gets its **own implementation plan** (written when we reach it), so
-plans stay bite-sized and we learn between phases.
+Each phase gets its **own implementation plan** (written when reached).
 
 ## 11. The hard parts and how the design handles them
 
 - **IME / marked text**: never flush, reparse, or swap while `hasMarkedText`;
-  queue the intent, run it on `unmarkText`. Composition lives entirely inside the
-  island range.
-- **Lists / tables / code (multi-line islands)**: v1 edits them as raw source
-  text; list Return/Backspace follow Markdown list rules with immediate flush;
-  code blocks are literal multi-line islands (local edits until a fence line);
-  tables are raw pipe text with simple Tab field-hopping.
-- **Undo/redo across swaps**: allow the `NSTextView`'s local undo for intra-island
-  typing; on flush, record the byte patch as one coalesced document-level
-  `NSUndoManager` group (bracket the island rebuild with `allowsUndo=false` to
-  avoid double application); structural ops are single grouped actions whose undo
-  reapplies the inverse patch and swaps back. Tested.
-- **Find-and-replace across islands**: search the bytes model; matches in the
-  active island map to a local range; matches in attachments select the
-  attachment char (with an "edit here" affordance) and apply as a byte patch.
-- **VoiceOver / accessibility**: attachments expose `AXStaticText` with a concise
-  serialization ("Heading level 2: Welcome", "List, 3 items", "Code block
-  (Swift), 10 lines") and an "Edit" action that triggers the swap; the active
-  island is a standard `AXTextArea`.
+  queue the intent, run on `unmarkText`. Composition stays inside the island.
+- **Type morphing mid-edit** (`# `, `- `, fences): the `IslandUnit` holds identity;
+  only structural-delimiter commits re-home. (See §3/§5.)
+- **Undo/redo (concrete):** the **document-level `NSUndoManager` is the single
+  source of truth** for committed edits (byte patches). Intra-island unflushed
+  typing uses the `NSTextView`'s local undo; on flush, open a document undo group,
+  apply the patch, register the inverse, reconcile the island text within the
+  swap transaction with `textView.allowsUndo=false` bracketing, close the group —
+  **accepting that intra-island undo granularity collapses to document granularity
+  on flush**. Structural ops are a single group (patch + swap + `ByteAnchor`
+  selection); undo reapplies the inverse, re-homes the island, restores selection.
+  A pressed Undo with unflushed edits short-circuits to local typing undo. Tested:
+  typing-undo before/after flush, undo a split, undo across a swap.
+- **Copy/paste across blocks**: block selection → pasteboard `public.utf8-plain-
+  text` (covered bytes) + optional RTF/custom UTI. Paste in an island = native
+  (Markdown-escape policy); block-level paste = byte insertion at a boundary +
+  reparse + activate.
+- **Find/replace**: document-level manager over the bytes; active-island matches
+  map to local ranges; inactive matches paint overlays with an "edit here"
+  affordance and apply as byte patches.
+- **Spell-check / Services**: live only inside the active island in v1 (matches
+  block-editor norms); per-block async spell overlays later.
+- **VoiceOver / accessibility**: the recycler is an `NSAccessibilityGroup`; each
+  `BlockRenderCell` is `AXStaticText` with a concise serialization ("Heading level
+  2: Welcome", "List, 3 items", "Code block (Swift), 10 lines") and an "Edit"
+  action; the active row exposes `AXTextArea`; a rotor jumps by headings/lists.
 
 ## 12. Testing strategy
 
 - **New (the gate):** the `QuoinEditorKit` headless harness (§8) — every phase
-  from 2 on is gated by it.
-- **KEEP as safety net through the rearchitecture:** block-WYSIWYG render
-  fidelity suites (`AttributedRendererSnapshotTests`, `RendererConformanceTests`,
+  from 2 on is gated by it; Phase 0.5's perf spike gates the substrate.
+- **KEEP as safety net:** block-WYSIWYG render fidelity suites
+  (`AttributedRendererSnapshotTests`, `RendererConformanceTests`,
   `BlockPresentationTests`, `TableLayoutTests`, diagram/math, accessibility
   tagging) and all QuoinCore parsing/session/exporter/structure suites — these
   don't change and prove the KEEP layer stays intact.
@@ -333,28 +374,27 @@ plans stay bite-sized and we learn between phases.
   (`CaretMappingTests`, `ExcessWhitespaceSliceTests`, `GapDeletionTests`,
   `ProjectorEquivalenceTests`, `KeystrokeReplayTests`, `EditEchoSerializationTests`,
   `ActivationFlipPatchTests`, `RevealFidelityTests`, `CaretGapGeometryTests`,
-  `EditPathReturnTests`, etc.). The rule-level intent survives in
+  `EditPathReturnTests`, …). The rule-level intent survives in
   `ReturnSemanticsTests`/`EditIntentTests` (KEEP).
 
 ## 13. Open questions / safest defaults
 
-- **Click-to-caret precision inside an attachment**: safe default is start/end by
-  click-x half until the renderer exposes line metrics; add a small renderer
-  service (line count + approx line heights) to place the caret at the clicked
-  line.
-- **BlockID stability layer**: if not already present, implement the O(n)
-  overlap+type match with a content-hash fallback (Phase 0).
-- **Reconciliation debounce window**: default 200 ms; revisit if it feels laggy
-  or races structural ops (structural ops always flush synchronously regardless).
-- **Compound islands** (a table row spanning logic, quote continuations): v1
-  keeps island == exactly one block; revisit in Phase 4 only if needed.
+- **Renderer line metrics** for click-to-caret precision: add the metrics API in
+  Phase 0/1; until then, nearest-line-by-height + column-by-x.
+- **Recycler choice**: default view-based `NSTableView` (variable row heights,
+  lowest risk); `NSCollectionView` if future layouts need it. Avoid SwiftUI
+  `LazyVStack` for the editor core (less measurement/perf control).
+- **Reconciliation debounce**: default 200 ms (structural ops always flush now).
+- **Compound islands** (table row logic, quote continuations): v1 keeps
+  island == exactly one block; revisit in Phase 4 only if needed.
 
 ## 14. Definition of done (v1 / Phase 3 default-on)
 
 Prose editing (headings, paragraphs, lists, block-quotes) works natively: Return
 splits correctly in interior and last-block positions; Backspace merges across
 boundaries; ⌘A + Delete clears the document; the caret is always a real bar of
-correct height; typing never lands in the wrong block; byte-lossless round-trip
-holds for untouched regions; IME composes correctly; and the headless harness
-covers every one of these as a standing regression gate. Complex blocks are
-editable as raw source. The projection machinery listed under RIP is deleted.
+correct height; typing never lands in the wrong block; a paragraph morphs to a
+heading/list mid-edit without losing the caret; byte-lossless round-trip holds for
+untouched regions; IME composes correctly; and the headless harness covers every
+one of these as a standing regression gate. Complex blocks are editable as raw
+source. The projection machinery listed under RIP is deleted.
