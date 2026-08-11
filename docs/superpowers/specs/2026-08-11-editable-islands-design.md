@@ -388,6 +388,34 @@ Each phase gets its **own implementation plan** (written when reached).
 - **Compound islands** (table row logic, quote continuations): v1 keeps
   island == exactly one block; revisit in Phase 4 only if needed.
 
+## 13b. Phase 0 landed — carry-forward for Phase 1/2
+
+Phase 0 (foundations + harness) is complete on `main`
+(`docs/superpowers/plans/2026-08-11-phase0-editor-foundations.md`): `QuoinEditorKit`
+target, `UTF8IndexMap`, `ByteAnchor`/`BoundaryID`, `IslandUnit`+`BlockListModel`,
+`AttributedRenderer.measuredHeight`/`lineTops`, and the headless `EditorTestHarness`
+(real `NSTextView` via `NSTextInputClient` + quiescence + insertion-bar gate).
+Three decisions must be honored when their phase arrives:
+
+1. **Cell height ≠ text height (Phase 1).** `measuredHeight` is text-layout height
+   only. `BlockRenderCell` MUST add decoration chrome/insets drawn outside text
+   bounds (code canvas, callout, diagram frame) on top of it, and MUST re-measure
+   async-decoding blocks (diagram/math/image) when `hasPendingContent` flips —
+   otherwise deterministic row height is wrong for those kinds.
+2. **`move()` and the applied-revision barrier (Phase 2).** The harness bumps
+   `appliedRevision` on navigation too; a pure nav changes no bytes and won't tick
+   the orchestrator's real applied-revision. Decide nav-ticks-or-not BEFORE wiring
+   the harness barrier to the orchestrator, or the two diverge.
+3. **Anchor resolution at boundaries (Phase 2/3).** `BlockListModel.record(at:)`
+   uses half-open ranges, so inter-block separator offsets and exact block-end
+   offsets resolve to nil/next block — that gap is exactly what `BoundaryID`
+   resolution must fill. And the harness gate only bites when `caretRect` is read
+   against the CORRECT active-cell char range (mind the rendered-vs-source offset
+   spaces per CLAUDE.md's caret-hint warnings).
+
+`revision` is `Int` throughout (matching the existing `DocumentSession.contentRevision`),
+not the `UInt64` this doc's prose sketched — no conversion seam.
+
 ## 14. Definition of done (v1 / Phase 3 default-on)
 
 Prose editing (headings, paragraphs, lists, block-quotes) works natively: Return
