@@ -502,6 +502,15 @@ public struct AttributedRenderer: Sendable {
         after kind: BlockKind, before nextKind: BlockKind, revealedSlice: String?
     ) -> NSAttributedString {
         if let revealedSlice, Self.revealNeedsClampedSeparator(revealedSlice) {
+            // CARET-1 interior case: when the revealed slice ends in an
+            // occupiable blank line ("\n\n"), the caret lands at the slice end —
+            // which, with a following block, sits on THIS separator's first
+            // line (there is no extra-line-fragment as in the last-block case).
+            // That line must be body height so the caret is a bar, not a 2pt
+            // dot. Byte-derived (slice suffix), caret-independent.
+            if revealedSlice.hasSuffix("\n\n") {
+                return occupiableSeparator(after: kind, before: nextKind)
+            }
             return clampedSeparator(after: kind, before: nextKind)
         }
         return blockSeparator(after: kind, before: nextKind)
@@ -934,8 +943,14 @@ public struct AttributedRenderer: Sendable {
                 if case .paragraph = block.kind { isProseParagraph = true } else { isProseParagraph = false }
                 transplantParagraphStyles(from: read, onto: styled, source: slice,
                                           collapsesInteriorParagraphGap: isProseParagraph)
+                // A mid-document block whose slice ends "\n\n" has its caret's
+                // occupiable line carried by the FOLLOWING separator (see
+                // `separator` / `occupiableSeparator`); compress this slice's own
+                // trailing blank so the two don't double up (CARET-1 interior).
+                let isLastBlock = document.blocks.last?.id == block.id
+                let occupiableSeparatorFollows = !isLastBlock && slice.hasSuffix("\n\n")
                 compressInteriorBlankLines(in: styled)
-                clampTrailingNewlinePhantom(in: styled)
+                clampTrailingNewlinePhantom(in: styled, occupiableSeparatorFollows: occupiableSeparatorFollows)
                 return assembleRevealedFragment(source: styled, block: block, heldPreview: &heldPreview)
             default:
                 break
@@ -1066,7 +1081,17 @@ public struct AttributedRenderer: Sendable {
     /// character's attributes, so clamping just that character collapses
     /// the phantom without touching the last content line. Harmless when a
     /// separator follows (the separator clamp handles that case).
-    private func clampTrailingNewlinePhantom(in styled: NSMutableAttributedString) {
+    ///
+    /// `occupiableSeparatorFollows` is true for a MID-DOCUMENT block whose slice
+    /// ends in an occupiable "\n\n": there the caret lands past the slice, on
+    /// the FOLLOWING separator's first line (which `occupiableSeparator` styles
+    /// to body height) — so this slice's own trailing blank must compress to a
+    /// 2pt sliver, or the two body lines would double-space and heave on the
+    /// first keystroke. The LAST block has no separator, so its trailing "\n\n"
+    /// keeps body height (the caret sits on TextKit's extra-line-fragment).
+    private func clampTrailingNewlinePhantom(
+        in styled: NSMutableAttributedString, occupiableSeparatorFollows: Bool = false
+    ) {
         let text = styled.string as NSString
         guard text.length > 0,
               text.character(at: text.length - 1) == UInt16(UnicodeScalar("\n").value)
@@ -1079,7 +1104,7 @@ public struct AttributedRenderer: Sendable {
         let endsWithDoubleNewline = text.length >= 2
             && text.character(at: text.length - 2) == UInt16(UnicodeScalar("\n").value)
         mutateParagraphStyles(in: styled, range: NSRange(location: text.length - 1, length: 1)) { style, _ in
-            if endsWithDoubleNewline {
+            if endsWithDoubleNewline && !occupiableSeparatorFollows {
                 style.lineHeightMultiple = theme.bodyLineHeightMultiple
                 style.minimumLineHeight = 0
                 style.maximumLineHeight = 0   // let lineHeightMultiple drive body height
@@ -1274,6 +1299,27 @@ public struct AttributedRenderer: Sendable {
             style.paragraphSpacing = 0
             style.paragraphSpacingBefore = 0
             style.lineHeightMultiple = 1
+        }
+        return separator
+    }
+
+    /// The block separator after a revealed slice that ends in an occupiable
+    /// "\n\n": its FIRST newline is the line the caret lands on (the slice ends
+    /// before it, and with a following block there is no extra-line-fragment as
+    /// in the last-block case). Style that first line to BODY height so the
+    /// caret is a normal bar, not a 2pt dot (CARET-1 interior fix). Its
+    /// REMAINING newlines keep the reading projection's spacing. Byte-derived
+    /// (slice suffix) — caret-independent.
+    func occupiableSeparator(after kind: BlockKind, before nextKind: BlockKind) -> NSAttributedString {
+        let separator = NSMutableAttributedString(
+            attributedString: blockSeparator(after: kind, before: nextKind))
+        guard separator.length > 0 else { return separator }
+        mutateParagraphStyles(in: separator, range: NSRange(location: 0, length: 1)) { style, _ in
+            style.lineHeightMultiple = theme.bodyLineHeightMultiple
+            style.minimumLineHeight = 0
+            style.maximumLineHeight = 0   // let lineHeightMultiple drive body height
+            style.paragraphSpacing = 0
+            style.paragraphSpacingBefore = 0
         }
         return separator
     }
