@@ -62,11 +62,20 @@ public struct BlockListModel: Sendable {
                         byteRange: $0.range.offset ..< ($0.range.offset + $0.range.length))
         }
     }
-    /// Resolves the block whose half-open range CONTAINS `byteOffset`. Boundary
-    /// offsets fall out of that rule naturally (a block-end offset equals the
-    /// next block's start, which contains it) EXCEPT the document-end offset,
-    /// which is contained by nothing (it's one-past the last block's upper
-    /// bound); that case is special-cased to resolve to the LAST block.
+    /// Resolves the block whose half-open CONTENT range contains `byteOffset`.
+    /// Only content ranges are considered: adjacent top-level blocks are
+    /// separated by a `\n\n` gap that belongs to neither block, so an offset
+    /// landing in that gap (e.g. offset 9 in `"# Heading\n\nA paragraph."`,
+    /// the byte right after the heading's content and before the blank line)
+    /// resolves to `nil`, same as any other offset outside every block's
+    /// content — this is a deliberate design choice (nil-by-design), not an
+    /// oversight: callers use `record(at:)`/`mintIsland(at:)` for caret and
+    /// click re-anchoring, where the offset is always known to sit inside a
+    /// block's content, so "which block owns this blank line" never needs an
+    /// answer. The one carve-out is the document-end offset, which equals the
+    /// LAST block's `upperBound` (one byte past all content, contained by
+    /// nothing under a half-open range); that's special-cased to resolve to
+    /// the last block so a trailing caret has somewhere to land.
     public func record(at byteOffset: Int) -> BlockRecord? {
         if let rec = records.first(where: { $0.byteRange.contains(byteOffset) }) {
             return rec

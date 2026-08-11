@@ -20,6 +20,14 @@ final class IslandMintTests: XCTestCase {
         XCTAssertEqual(r, 3..<10)
     }
 
+    func testZeroLengthRoundTrip() {
+        let b = ByteRange(3..<3)
+        XCTAssertEqual(b.offset, 3)
+        XCTAssertEqual(b.length, 0)
+        let r = Range<Int>(ByteRange(offset: 3, length: 0))
+        XCTAssertEqual(r, 3..<3)
+    }
+
     // MARK: - mintIsland(at:baseRevision:) carries baseRevision
 
     func testMintAtInteriorOffsetCarriesBaseRevision() {
@@ -31,16 +39,20 @@ final class IslandMintTests: XCTestCase {
         XCTAssertEqual(island?.baseRevision, 42)
     }
 
-    func testMintAtBlockBoundaryResolvesToContainingBlock() {
+    func testRecordAndMintAtInterBlockGapReturnNil() {
+        // "# Heading\n\nA paragraph." — block 0 (heading) ends where its own
+        // content ends; block 1 (paragraph) starts after the "\n\n" separator.
+        // A genuine gap requires that separator to be more than zero bytes
+        // wide; if it ever collapses to zero this test would be vacuous, so
+        // assert the gap actually exists before relying on it.
         let doc = MarkdownConverter.parse("# Heading\n\nA paragraph.")
         var model = BlockListModel(document: doc)
-        // The boundary between block 0 and block 1 is block1's lower bound;
-        // it must resolve to block 1 (the block whose range CONTAINS it).
-        let boundary = doc.blocks[1].range.offset
-        let island = model.mintIsland(at: boundary, baseRevision: 7)
-        XCTAssertNotNil(island)
-        XCTAssertEqual(island?.originBlockID, doc.blocks[1].id)
-        XCTAssertEqual(island?.baseRevision, 7)
+        let gapOffset = doc.blocks[0].range.offset + doc.blocks[0].range.length
+        let nextBlockStart = doc.blocks[1].range.offset
+        XCTAssertLessThan(gapOffset, nextBlockStart, "fixture must have a real inter-block gap for this test to be meaningful")
+        // The gap offset belongs to neither block's content: nil-by-design.
+        XCTAssertNil(model.record(at: gapOffset))
+        XCTAssertNil(model.mintIsland(at: gapOffset, baseRevision: 7))
     }
 
     func testMintAtDocumentEndResolvesToLastBlock() {
