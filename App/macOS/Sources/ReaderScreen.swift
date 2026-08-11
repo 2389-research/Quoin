@@ -3,6 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import QuoinCore
 import QuoinRender
+import QuoinEditorKit
 
 /// One document window, laid out per the design handoff: editor center
 /// (max 680pt column), outline panel as a trailing inspector (⌥⌘0),
@@ -43,6 +44,10 @@ struct ReaderScreen: View {
     /// Wrap long lines to the column, or let them run with a horizontal
     /// scroller (#R2). Applies to rendered + revealed source alike.
     @AppStorage("QuoinWordWrap") private var wordWrap = true
+    /// Phase 1, Task 8: swap the projection reader for the block recycler
+    /// (read-only). Default OFF; `-QuoinEditorRecycler YES` (same shared
+    /// UserDefaults store) flips it for free.
+    @AppStorage("QuoinEditorRecycler") private var useRecycler = false
 
     @State private var formatCommand: FormatCommand?
     @State private var formatGeneration = 0
@@ -202,6 +207,16 @@ struct ReaderScreen: View {
                 actionFailureBanner(failure)
             }
             ZStack(alignment: .topTrailing) {
+            if useRecycler {
+            BlockRecyclerReaderView(
+                document: model.document,
+                rendered: model.rendered,
+                theme: theme,
+                scrollTarget: scrollTarget,
+                onTopBlockChange: { top in topBlockID = top },
+                searchQuery: isFindVisible ? searchQuery : nil
+            )
+            } else {
             MarkdownReaderView(
                 rendered: model.rendered,
                 theme: theme,
@@ -328,6 +343,7 @@ struct ReaderScreen: View {
                     }
                 }
                 return handled
+            }
             }
             // Format pill (handoff: B/I/U, radius 14, hairline border,
             // floats over the content at the top of the editor).

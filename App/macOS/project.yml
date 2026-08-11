@@ -52,6 +52,8 @@ targets:
         product: QuoinCore
       - package: QuoinPackages
         product: QuoinRender
+      - package: QuoinPackages
+        product: QuoinEditorKit
       - package: Sparkle
         product: Sparkle
       # Quick Look thumbnail + preview app-extensions (issue #8). Embedded in
