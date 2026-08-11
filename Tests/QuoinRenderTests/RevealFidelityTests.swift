@@ -479,6 +479,74 @@ final class RevealFidelityTests: XCTestCase {
                        "Return blank line must equal the height after the first character (no heave)")
     }
 
+    /// CARET-1 / CRLF stability. `clampTrailingNewlinePhantom` decides "this
+    /// slice ends in an occupiable blank line → give it BODY height" by
+    /// checking for TWO literal `\n` (0x0A) at the slice tail. A CRLF-authored
+    /// file reaches the renderer VERBATIM — nothing normalizes `\r\n` → `\n` on
+    /// the load/parse path (`DocumentSession.decode` only picks an encoding;
+    /// `MarkdownConverter.parse` stores `source` byte-for-byte, and the reveal
+    /// styler is 1:1 with the file). So a `\r\n\r\n` tail has `\r` (0x0D), NOT
+    /// `\n`, at length-2, and the double-newline detection is FALSE.
+    ///
+    /// This is CASE (b), the accepted LF-only limitation, and it is the SAFE
+    /// direction: the CRLF blank line stays the ~2pt phantom (maximumLineHeight
+    /// == 2), which is strictly SHORTER than a body line. A CRLF file therefore
+    /// can NEVER silently gain an unintended body-height last line that pushes
+    /// content down. The property locked here is byte-stability + no-push, not
+    /// visual parity with the LF case (that parity would require normalizing
+    /// CRLF upstream, a production change out of scope for this test task).
+    func testCRLFTrailingBlankLineStaysClampedAndNeverPushesContent() throws {
+        let renderer = AttributedRenderer()
+
+        func terminalParagraphStyle(forSource source: String, caret: Int) throws
+            -> (style: NSParagraphStyle, sliceTail: (secondLast: unichar, last: unichar))
+        {
+            let document = MarkdownConverter.parse(source)
+            var cache: [BlockID: NSAttributedString] = [:]
+            let block = document.blocks[0].id   // heading is the last block
+            let rendered = renderer.render(
+                document, activeBlockID: block, activeCaret: caret, cache: &cache)
+            let editable = try XCTUnwrap(rendered.activeEditableRange)
+            let full = rendered.attributed.string as NSString
+            XCTAssertGreaterThanOrEqual(editable.length, 2, "slice tail present")
+            let end = editable.location + editable.length
+            let tail = (secondLast: full.character(at: end - 2), last: full.character(at: end - 1))
+            let style = try XCTUnwrap(
+                rendered.attributed.attribute(.paragraphStyle, at: end - 1, effectiveRange: nil)
+                    as? NSParagraphStyle)
+            return (style, tail)
+        }
+
+        let lf = UInt16(UnicodeScalar("\n").value)
+        let cr = UInt16(UnicodeScalar("\r").value)
+
+        // LF baseline: "\n\n" tail → the body-height branch (max == 0, driven by
+        // the body line-height multiple). This is what CARET-1 wants for typing.
+        let lfCase = try terminalParagraphStyle(forSource: "# heading\n\n", caret: 11)
+        XCTAssertEqual(lfCase.sliceTail.secondLast, lf, "LF premise: tail is \\n\\n")
+        XCTAssertEqual(lfCase.sliceTail.last, lf)
+        XCTAssertEqual(lfCase.style.maximumLineHeight, 0,
+                       "LF \\n\\n is the occupiable-blank (body-height) branch")
+        XCTAssertEqual(lfCase.style.lineHeightMultiple, renderer.theme.bodyLineHeightMultiple,
+                       "LF \\n\\n blank line is driven to body height")
+
+        // CRLF: "\r\n\r\n" tail → char at length-2 is \r, so the double-newline
+        // detection is FALSE and the last line stays the ~2pt phantom (max == 2).
+        // "# heading\r\n\r\n" is 13 UTF-16 units; caret at EOF is 13.
+        let crlfCase = try terminalParagraphStyle(forSource: "# heading\r\n\r\n", caret: 13)
+        XCTAssertEqual(crlfCase.sliceTail.secondLast, cr,
+                       "CRLF premise: char before the final \\n is \\r (0x0D), not \\n")
+        XCTAssertEqual(crlfCase.sliceTail.last, lf)
+        XCTAssertEqual(crlfCase.style.maximumLineHeight, 2,
+                       "CRLF \\r\\n\\r\\n stays the clamped ~2pt phantom (LF-only limitation)")
+
+        // No-push guarantee: the CRLF terminal line is clamped strictly SHORTER
+        // than the LF body line, so a CRLF file cannot gain an unintended
+        // body-height last line that heaves content down.
+        XCTAssertLessThan(crlfCase.style.maximumLineHeight, renderer.theme.bodySize,
+                          "phantom must stay well under a body line — no content push")
+    }
+
     private func measureHeight(_ attributed: NSAttributedString, width: CGFloat = 600) -> CGFloat {
         let storage = NSTextStorage(attributedString: attributed)
         let contentStorage = NSTextContentStorage()

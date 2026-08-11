@@ -140,7 +140,10 @@ final class ProjectorEquivalenceTests: XCTestCase {
                 var edits: [String] = [
                     slice.replacingCharacters(in: insertAt..<insertAt, with: "x"),
                     slice + "\n",   // the clamp-flip case: patch must bail OR match
-                    slice + "\n\n", // NEW: a mid-document Return
+                    slice + "\n\n", // a mid-document Return
+                    slice + "\n\nx", // CARET-1: Return-then-type — the caret-free
+                                     // clamp on the new blank line must decide
+                                     // identically on the patch and full paths.
                 ]
                 if slice.count > 4 {
                     let deleteAt = slice.index(slice.startIndex, offsetBy: 3)
