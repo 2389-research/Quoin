@@ -84,6 +84,13 @@ public final class BlockRecyclerView: NSView {
     public var onTopBlockChange: ((BlockID) -> Void)?
     private var lastReportedTop: BlockID?
 
+    /// Single-click seam (Phase 2, Task 2): fired when the user clicks a row,
+    /// reporting the clicked block and the click's CELL-LOCAL point (origin at
+    /// the cell's top-left, flipped like the cell). Phase 2 only REPORTS the
+    /// click here — swapping the row's cell to an editable island is Task 5,
+    /// which consumes this callback. Selection highlight stays `.none`.
+    public var onBlockClicked: ((BlockID, CGPoint) -> Void)?
+
     /// Wrap long lines to the column, or (false) let them run under a horizontal
     /// scroller — the reader-wide `QuoinWordWrap` preference, forwarded so the
     /// flag-on recycler honours it instead of silently always wrapping. Phase 1
@@ -199,6 +206,36 @@ public final class BlockRecyclerView: NSView {
     /// one-per-block (the recycling contract the brief's test asserts).
     public var visibleCellCount: Int { liveCells.allObjects.count }
 
+    // MARK: - Click seam (Phase 2, Task 2)
+
+    /// Resolve a WINDOW-space point to the block under it plus the point in that
+    /// row's CELL-LOCAL coordinates (origin at the cell top-left, flipped). Pure
+    /// resolver: no side effects, no cell swap — the click reporter and the test
+    /// hook both go through it, so what a click reports is exactly what the test
+    /// asserts. Returns nil when the point misses every row.
+    public func blockAndPoint(forWindowPoint windowPoint: CGPoint) -> (BlockID, CGPoint)? {
+        let tablePoint = tableView.convert(windowPoint, from: nil)
+        let row = tableView.row(at: tablePoint)
+        guard row >= 0, row < document.blocks.count else { return nil }
+        let rowRect = tableView.rect(ofRow: row)
+        // Cell-local: subtract the row's origin (table + cell are both flipped,
+        // so y grows downward from the cell top).
+        let local = CGPoint(x: tablePoint.x - rowRect.minX,
+                            y: tablePoint.y - rowRect.minY)
+        return (document.blocks[row].id, local)
+    }
+
+    public override func mouseDown(with event: NSEvent) {
+        // Report the click, but do NOT consume it or change selection — the
+        // table keeps `selectionHighlightStyle = .none` and Task 5 is what
+        // decides to activate an island. Fall through to super so default
+        // hit-testing (links inside cells, etc.) is unaffected.
+        if let hit = blockAndPoint(forWindowPoint: event.locationInWindow) {
+            onBlockClicked?(hit.0, hit.1)
+        }
+        super.mouseDown(with: event)
+    }
+
     // MARK: - Height
 
     private func rowHeight(atRow row: Int) -> CGFloat {
@@ -309,6 +346,13 @@ public final class BlockRecyclerView: NSView {
     /// the SAME heading (via a `scrollGeneration` bump) re-fires the scroll.
     var scrollToCallCountForTest = 0
     func rowHeightForTest(_ row: Int) -> CGFloat { rowHeight(atRow: row) }
+    /// Map a point given in the table's (flipped) coordinate space to the
+    /// window's, so a test can address a row by `y` deterministically and feed
+    /// the result straight into `blockAndPoint(forWindowPoint:)` — an exact
+    /// round trip through the same scroll/flip transform a real click takes.
+    func windowPointForTableY(_ tablePoint: CGPoint) -> CGPoint {
+        tableView.convert(tablePoint, to: nil)
+    }
     /// Force the table to instantiate + configure the view for `row` (drives
     /// `viewFor`, so the cell registers its async decode) without waiting on a
     /// display pass. Returns the configured cell.
