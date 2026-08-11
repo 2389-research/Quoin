@@ -2336,7 +2336,30 @@ extension MarkdownReaderView {
                 guard relCaret >= contentEnd, relCaret < ns.length else { return nil }
                 return (relCaret ..< relCaret + 1, relCaret)
             }
-            guard relCaret > contentEnd, relCaret <= ns.length else { return nil }
+            // Backward. The caret sits IN the trailing run (relCaret >
+            // contentEnd): remove the newline just before it, rising one line
+            // toward the paragraph — the ordinary "undo one Return" case.
+            guard relCaret >= contentEnd, relCaret <= ns.length, relCaret > 0 else { return nil }
+            if relCaret == contentEnd {
+                // CARET-1 symptom 3: the caret is EXACTLY at the content
+                // boundary, yet an absorbed blank line still hangs below. A
+                // plain Backspace here would delete the last content glyph (the
+                // "g" of "# heading"); instead MERGE — remove the FIRST trailing
+                // newline — so the delete first consumes the occupiable blank
+                // line, mirroring the Return that opened it.
+                //
+                // Claim the boundary delete ONLY when MORE than the canonical
+                // "\n\n" separator remains (trailing >= 2, i.e. an occupiable
+                // blank line the caret could legitimately be on). With a single
+                // (or zero) trailing newline the caret at the boundary is an
+                // ordinary end-of-content Backspace that must still edit
+                // content — never hijack it. (Step-2 finding: with Task 1's
+                // caretMapping fix the live caret lands IN the run at
+                // relCaret > contentEnd, so this branch is defense-in-depth for
+                // any path that restores the caret to the content boundary.)
+                guard trailing >= 2 else { return nil }
+                return (contentEnd ..< contentEnd + 1, contentEnd)
+            }
             return (relCaret - 1 ..< relCaret, relCaret - 1)
         }
 
