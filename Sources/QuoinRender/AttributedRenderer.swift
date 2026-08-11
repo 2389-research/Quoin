@@ -934,8 +934,8 @@ public struct AttributedRenderer: Sendable {
                 if case .paragraph = block.kind { isProseParagraph = true } else { isProseParagraph = false }
                 transplantParagraphStyles(from: read, onto: styled, source: slice,
                                           collapsesInteriorParagraphGap: isProseParagraph)
-                compressInteriorBlankLines(in: styled, caretOffset: caretOffset)
-                clampTrailingNewlinePhantom(in: styled, caretOffset: caretOffset)
+                compressInteriorBlankLines(in: styled)
+                clampTrailingNewlinePhantom(in: styled)
                 return assembleRevealedFragment(source: styled, block: block, heldPreview: &heldPreview)
             default:
                 break
@@ -1066,19 +1066,30 @@ public struct AttributedRenderer: Sendable {
     /// character's attributes, so clamping just that character collapses
     /// the phantom without touching the last content line. Harmless when a
     /// separator follows (the separator clamp handles that case).
-    private func clampTrailingNewlinePhantom(
-        in styled: NSMutableAttributedString, caretOffset: Int?
-    ) {
+    private func clampTrailingNewlinePhantom(in styled: NSMutableAttributedString) {
         let text = styled.string as NSString
         guard text.length > 0,
               text.character(at: text.length - 1) == UInt16(UnicodeScalar("\n").value)
         else { return }
-        if let caretOffset, caretOffset >= text.length { return }
+        // Byte-derived, NOT caret-derived (viewport invariant). A slice ending
+        // in TWO newlines is an occupiable blank line the caret can land on:
+        // give it BODY height so typing the first character causes no heave.
+        // A single trailing newline (end-of-doc / one terminator) stays a
+        // ~2pt phantom the reading skeleton never shows.
+        let endsWithDoubleNewline = text.length >= 2
+            && text.character(at: text.length - 2) == UInt16(UnicodeScalar("\n").value)
         mutateParagraphStyles(in: styled, range: NSRange(location: text.length - 1, length: 1)) { style, _ in
-            style.maximumLineHeight = 2
-            style.minimumLineHeight = 0
-            style.lineHeightMultiple = 1
-            style.paragraphSpacing = 0
+            if endsWithDoubleNewline {
+                style.lineHeightMultiple = theme.bodyLineHeightMultiple
+                style.minimumLineHeight = 0
+                style.maximumLineHeight = 0   // let lineHeightMultiple drive body height
+                style.paragraphSpacing = 0
+            } else {
+                style.maximumLineHeight = 2
+                style.minimumLineHeight = 0
+                style.lineHeightMultiple = 1
+                style.paragraphSpacing = 0
+            }
         }
     }
 
@@ -1087,11 +1098,11 @@ public struct AttributedRenderer: Sendable {
     /// where the reading projection shows a ~12pt paragraph gap — revealing
     /// a loose list grew it by a line per item (measured +194pt; the
     /// reported viewport churn). Compress each interior blank line to the
-    /// paragraph-gap height — unless the caret is ON it, where it opens to
-    /// full height for editing.
-    private func compressInteriorBlankLines(
-        in styled: NSMutableAttributedString, caretOffset: Int?
-    ) {
+    /// paragraph-gap height. CARET-1: this height is byte-derived, NOT
+    /// caret-derived — an interior blank line renders the same whether or
+    /// not the caret is on it (viewport invariant: projection height must be
+    /// a pure function of document state, never caret position).
+    private func compressInteriorBlankLines(in styled: NSMutableAttributedString) {
         let text = styled.string as NSString
         var location = 0
         var previousNonBlankSpacing: CGFloat = 0
@@ -1108,7 +1119,6 @@ public struct AttributedRenderer: Sendable {
                 }
                 continue
             }
-            if let caretOffset, caretOffset >= line.location, caretOffset <= NSMaxRange(line) { continue }
             // The blank row's height: when the PREVIOUS line's transplanted
             // style already carries the inter-item gap (loose lists), the
             // blank source line is the SAME gap in source form — collapsing

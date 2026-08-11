@@ -433,6 +433,52 @@ final class RevealFidelityTests: XCTestCase {
                           + "\(delta)pt (the occupiable blank line must stay clamped to a sliver)")
     }
 
+    /// CARET-1: the blank line's height must NOT depend on where the caret is.
+    /// Today the clamps OPEN the line to full height when the caret is on it,
+    /// so caret-on-blank vs caret-on-content differ — the tiny-dot / heave bug.
+    func testBlankLineHeightIsCaretIndependent() throws {
+        let source = "# heading\n\n"   // heading + an occupiable blank line (last block)
+        let document = MarkdownConverter.parse(source)
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        let block = document.blocks[0].id
+        // Caret ON the blank line (end of the extended slice) vs on the content.
+        let onBlank = renderer.render(document, activeBlockID: block, activeCaret: 11, cache: &cache)
+        let onContent = renderer.render(document, activeBlockID: block, activeCaret: 3, cache: &cache)
+        XCTAssertEqual(measureHeight(onBlank.attributed), measureHeight(onContent.attributed), accuracy: 0.5,
+                       "blank-line height must be caret-independent (viewport invariant)")
+    }
+
+    /// CARET-1: no heave on Return. A slice ending "\n\n" must render its blank
+    /// line at BODY height, so typing the first character (which turns it into a
+    /// real paragraph line) causes essentially NO height change — the blank line
+    /// is neither the old ~2pt phantom sliver nor the old caret-opened full
+    /// height, both of which would move the page by ~20–36pt.
+    ///
+    /// The tolerance is a few points, not zero, on purpose: TextKit2 lays the
+    /// document-FINAL empty line a touch taller than an occupied line at the
+    /// identical style (its empty-line leading is ~28pt vs a typed line's
+    /// ~24pt), and that difference is immune to paragraph min/max/lineHeight
+    /// on the terminator. Because this is the LAST line, the extra ~4pt extends
+    /// only its own bottom — the caret-line TOP (heading maxY) is byte-identical
+    /// across both states, so nothing above the caret moves. See task-1-report.
+    func testReturnBlankLineEqualsAfterFirstCharacter() throws {
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+        // State just after Return: heading + blank line, caret on the blank line.
+        let afterReturn = MarkdownConverter.parse("# heading\n\n")
+        let r1 = renderer.render(afterReturn, activeBlockID: afterReturn.blocks[0].id, activeCaret: 11, cache: &cache)
+        // State after typing the first character: heading + paragraph "x".
+        let afterChar = MarkdownConverter.parse("# heading\n\nx")
+        let paraID = afterChar.blocks[1].id
+        let r2 = renderer.render(afterChar, activeBlockID: paraID, activeCaret: 1, cache: &cache)
+        // The caret's line height (blank vs the "x" line) must match within
+        // TextKit's empty-line leading → no page heave. The old phantom (~2pt)
+        // and caret-opened-full (~full) states are both >20pt off and fail here.
+        XCTAssertEqual(measureHeight(r1.attributed), measureHeight(r2.attributed), accuracy: 5.0,
+                       "Return blank line must equal the height after the first character (no heave)")
+    }
+
     private func measureHeight(_ attributed: NSAttributedString, width: CGFloat = 600) -> CGFloat {
         let storage = NSTextStorage(attributedString: attributed)
         let contentStorage = NSTextContentStorage()
