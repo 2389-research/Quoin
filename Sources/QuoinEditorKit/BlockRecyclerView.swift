@@ -84,6 +84,20 @@ public final class BlockRecyclerView: NSView {
     public var onTopBlockChange: ((BlockID) -> Void)?
     private var lastReportedTop: BlockID?
 
+    /// Wrap long lines to the column, or (false) let them run under a horizontal
+    /// scroller — the reader-wide `QuoinWordWrap` preference, forwarded so the
+    /// flag-on recycler honours it instead of silently always wrapping. Phase 1
+    /// is read-only and lays every cell at the fixed content column, so today
+    /// this only toggles the container's horizontal scroller; per-cell no-wrap
+    /// layout is a Phase-2 item (tracked with the editing surface). Defaults to
+    /// wrap, the projection reader's default.
+    public var wordWrap: Bool = true {
+        didSet {
+            guard wordWrap != oldValue else { return }
+            scrollView.hasHorizontalScroller = !wordWrap
+        }
+    }
+
     private static let cellIdentifier = NSUserInterfaceItemIdentifier("QuoinBlockRenderCell")
     private static let columnIdentifier = NSUserInterfaceItemIdentifier("QuoinBlockColumn")
 
@@ -173,6 +187,7 @@ public final class BlockRecyclerView: NSView {
     /// Outline-click target: bring `blockID`'s row into view.
     public func scroll(to blockID: BlockID) {
         guard let row = rowByBlockID[blockID], row < tableView.numberOfRows else { return }
+        scrollToCallCountForTest += 1
         tableView.scrollRowToVisible(row)
         // `scrollRowToVisible` posts the clip view's bounds change, but report
         // directly too so the top-block sync is deterministic in tests and does
@@ -285,6 +300,14 @@ public final class BlockRecyclerView: NSView {
             currentLocation: currentLocation, direction: direction, filter: filter)
     }
     var scrollInsetsForTest: NSEdgeInsets { scrollView.contentInsets }
+    /// The renderer the recycler renders content through — exposed so tests can
+    /// assert config parity (baseURL etc.) with the model's renderer.
+    var configuredRendererForTest: AttributedRenderer { renderer }
+    /// True when the container exposes a horizontal scroller (no-wrap mode).
+    var hasHorizontalScrollerForTest: Bool { scrollView.hasHorizontalScroller }
+    /// Count of executed `scroll(to:)` calls — proves a repeat outline click on
+    /// the SAME heading (via a `scrollGeneration` bump) re-fires the scroll.
+    var scrollToCallCountForTest = 0
     func rowHeightForTest(_ row: Int) -> CGFloat { rowHeight(atRow: row) }
     /// Force the table to instantiate + configure the view for `row` (drives
     /// `viewFor`, so the cell registers its async decode) without waiting on a

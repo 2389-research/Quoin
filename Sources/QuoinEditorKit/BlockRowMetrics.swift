@@ -73,16 +73,67 @@ public enum BlockRowMetrics {
         return text + topBleed + bottomBleed + separator
     }
 
+    /// Memo key for `separatorContribution`. The seam gap is a pure function of
+    /// the separator's CONTENT and the layout width: the measurement below feeds
+    /// the separator between two fixed anchor paragraphs, so two seams that emit
+    /// the same separator string measure identically. We key on the separator's
+    /// content (derived from the renderer, never re-classified here — so this can
+    /// never diverge from the renderer's card/prose rule) rather than the raw
+    /// `(after, before)` kind-pair: the pair over-specialises (two prose blocks
+    /// with different inlines are DIFFERENT kinds but the SAME "\n" separator), so
+    /// keying on kinds would miss on every prose seam and never actually cache.
+    private struct SeparatorKey: Hashable {
+        let separator: String
+        let width: CGFloat
+    }
+
+    /// Cache of measured separator contributions, keyed by `(separatorContent,
+    /// width)`. `NSTableView` queries `heightOfRow` for every row eagerly and on
+    /// every reload, so without this each query pays three TextKit layouts (two
+    /// anchor measures + one paired measure). Main-actor isolated (the enum is
+    /// `@MainActor`), so no synchronization is needed.
+    private static var separatorCache: [SeparatorKey: CGFloat] = [:]
+
+    /// Test hook: number of times `separatorContribution` actually measured
+    /// (a cache MISS). A repeat call with the same key must not increment it.
+    static var separatorComputeCountForTest = 0
+
+    /// Test hook: drop the memo so a test starts from a known-empty cache.
+    static func resetSeparatorCacheForTest() {
+        separatorCache.removeAll()
+        separatorComputeCountForTest = 0
+    }
+
     /// The EXTRA inter-block air the monolith placed at an `after`→`before` seam
     /// beyond the `2 * verticalBleed` two abutting cells already provide.
     /// Measured — not guessed — as the height the renderer's own separator adds
     /// between two neutral body paragraphs, minus the `2 * verticalBleed` the
     /// neighbouring cells contribute. Clamped at zero (a seam never subtracts).
+    ///
+    /// Memoized (see `SeparatorKey`): the value is width- and separator-content
+    /// deterministic, so the eager per-row `heightOfRow` queries share one
+    /// measurement instead of re-laying-out three paragraphs per row. The cheap
+    /// part (building the separator string) still runs per call; only the three
+    /// TextKit layouts are cached.
     static func separatorContribution(
         after: BlockKind, before: BlockKind,
         renderer: AttributedRenderer, width: CGFloat
     ) -> CGFloat {
         let separator = renderer.separator(after: after, before: before, revealedSlice: nil)
+        let key = SeparatorKey(separator: separator.string, width: width)
+        if let cached = separatorCache[key] { return cached }
+        separatorComputeCountForTest += 1
+        let contribution = measureSeparatorContribution(separator, renderer: renderer, width: width)
+        separatorCache[key] = contribution
+        return contribution
+    }
+
+    /// The uncached measurement behind `separatorContribution` (extracted so the
+    /// memo wrapper stays a thin cache lookup).
+    private static func measureSeparatorContribution(
+        _ separator: NSAttributedString,
+        renderer: AttributedRenderer, width: CGFloat
+    ) -> CGFloat {
         // Isolate the separator's true in-context contribution with the exact
         // pairwise measure the render loop realises: an authentic body paragraph
         // (rendered by the SAME renderer, so its terminating paragraph metrics

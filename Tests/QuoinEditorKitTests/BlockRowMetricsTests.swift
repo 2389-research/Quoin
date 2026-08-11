@@ -47,6 +47,48 @@ final class BlockRowMetricsTests: XCTestCase {
         XCTAssertEqual(sum, docHeight, accuracy: max(8, docHeight * 0.05))
     }
 
+    /// `separatorContribution` is memoized by `(after, before, width)`: the eager
+    /// per-row `heightOfRow` queries must share ONE measurement per key, not pay
+    /// three TextKit layouts per row. The cached value must be byte-identical to
+    /// the uncached one (a cache must not change the number).
+    func testSeparatorContributionMemoizedAndIdentical() {
+        BlockRowMetrics.resetSeparatorCacheForTest()
+        let r = AttributedRenderer()
+        // Real block kinds (they carry associated values) to key the seam on.
+        let doc = MarkdownConverter.parse("One.\n\nTwo.\n\n```\ncode\n```\n\n# H")
+        let paraA = doc.blocks[0].kind          // "One."
+        let paraB = doc.blocks[1].kind          // "Two." — different inlines, same prose separator
+        let code = doc.blocks[2].kind           // a CARD — larger inter-block gap
+
+        let first = BlockRowMetrics.separatorContribution(
+            after: paraA, before: paraB, renderer: r, width: 600)
+        XCTAssertEqual(BlockRowMetrics.separatorComputeCountForTest, 1, "first query measures")
+
+        // Same seam repeated many times: served from cache, value unchanged.
+        for _ in 0..<50 {
+            let again = BlockRowMetrics.separatorContribution(
+                after: paraA, before: paraB, renderer: r, width: 600)
+            XCTAssertEqual(again, first, "cached value must equal the measured value")
+        }
+        XCTAssertEqual(BlockRowMetrics.separatorComputeCountForTest, 1, "repeat seams must not re-measure")
+
+        // A DIFFERENT prose pair (distinct kinds, but the SAME "\n" separator)
+        // is the same cache key — the whole point of keying on content, not
+        // kinds — so it must NOT re-measure.
+        _ = BlockRowMetrics.separatorContribution(
+            after: paraB, before: paraA, renderer: r, width: 600)
+        XCTAssertEqual(BlockRowMetrics.separatorComputeCountForTest, 1,
+                       "a distinct prose pair shares the prose separator key — no re-measure")
+
+        // A card seam emits a LARGER separator (distinct content) → new key, and
+        // a different width is a distinct key too.
+        _ = BlockRowMetrics.separatorContribution(
+            after: paraA, before: code, renderer: r, width: 600)
+        _ = BlockRowMetrics.separatorContribution(
+            after: paraA, before: paraB, renderer: r, width: 320)
+        XCTAssertEqual(BlockRowMetrics.separatorComputeCountForTest, 3, "distinct keys each measure once")
+    }
+
     // TextKit-2 measure copied from RevealFidelityTests.measureHeight (maxY of
     // the last laid-out fragment = total laid-out height of the whole string).
     private func measureAttributedHeight(_ attributed: NSAttributedString, width: CGFloat) -> CGFloat {

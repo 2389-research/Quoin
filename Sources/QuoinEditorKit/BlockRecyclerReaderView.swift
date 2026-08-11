@@ -24,24 +24,45 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
     private let document: QuoinDocument
     private let rendered: RenderedDocument
     private let theme: Theme
+    /// The reader's CONFIGURED renderer, threaded from `ReaderModel` so the
+    /// recycler projects with byte-identical config to the projection reader:
+    /// `baseURL` (relative-path images resolve), `onContentReady` (async image
+    /// decodes re-render), and `imageResolution`/`loadsRemoteImages`. `textScale`
+    /// and `codeTheme` ride in on `theme` (== `renderer.theme`). A bare
+    /// `AttributedRenderer(theme:)` dropped all of these — most visibly, relative
+    /// images never resolved.
+    private let renderer: AttributedRenderer
     private let scrollTarget: BlockID?
+    /// Bumped by the outline on every click, even a repeat click on the SAME
+    /// heading (which leaves `scrollTarget` unchanged). Threaded so that repeat
+    /// re-fires the scroll, matching `MarkdownReaderView`'s contract.
+    private let scrollGeneration: Int
     private let onTopBlockChange: ((BlockID) -> Void)?
     private let searchQuery: String?
+    /// Reader-wide `QuoinWordWrap` preference, forwarded for parity with the
+    /// projection reader (which honours it). See `BlockRecyclerView.wordWrap`.
+    private let wordWrap: Bool
 
     public init(
         document: QuoinDocument,
         rendered: RenderedDocument,
         theme: Theme,
+        renderer: AttributedRenderer,
         scrollTarget: BlockID?,
+        scrollGeneration: Int = 0,
         onTopBlockChange: ((BlockID) -> Void)?,
-        searchQuery: String?
+        searchQuery: String?,
+        wordWrap: Bool = true
     ) {
         self.document = document
         self.rendered = rendered
         self.theme = theme
+        self.renderer = renderer
         self.scrollTarget = scrollTarget
+        self.scrollGeneration = scrollGeneration
         self.onTopBlockChange = onTopBlockChange
         self.searchQuery = searchQuery
+        self.wordWrap = wordWrap
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
@@ -52,6 +73,7 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
 
     public func updateNSView(_ view: BlockRecyclerView, context: Context) {
         view.onTopBlockChange = onTopBlockChange
+        view.wordWrap = wordWrap
         apply(to: view, coordinator: context.coordinator, initial: false)
     }
 
@@ -60,8 +82,12 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
 
     /// Build the hosted `BlockRecyclerView` and seed it with the document.
     func makeRecycler(coordinator: Coordinator) -> BlockRecyclerView {
-        let view = BlockRecyclerView(renderer: AttributedRenderer(theme: theme), theme: theme)
+        // Use the model's CONFIGURED renderer (baseURL / onContentReady / image
+        // resolution), NOT a bare `AttributedRenderer(theme:)` — that dropped the
+        // reader's config and, most visibly, never resolved relative-path images.
+        let view = BlockRecyclerView(renderer: renderer, theme: theme)
         view.onTopBlockChange = onTopBlockChange
+        view.wordWrap = wordWrap
         apply(to: view, coordinator: coordinator, initial: true)
         return view
     }
@@ -77,10 +103,16 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
         }
-        // Only re-scroll when the target actually changes, so an unrelated
-        // re-evaluation doesn't fight the user's own scrolling.
-        if let target = scrollTarget, coordinator.lastScrollTarget != target {
+        // Re-scroll when the target changes OR the scroll generation was bumped
+        // (a repeat outline click on the SAME heading keeps `scrollTarget` but
+        // bumps the generation — per CLAUDE.md that must re-fire the scroll).
+        // Comparing targets alone would swallow the repeat click; comparing the
+        // generation alone would miss the first scroll to a never-before target.
+        if let target = scrollTarget,
+           coordinator.lastScrollTarget != target
+            || coordinator.lastScrollGeneration != scrollGeneration {
             coordinator.lastScrollTarget = target
+            coordinator.lastScrollGeneration = scrollGeneration
             view.scroll(to: target)
         }
     }
@@ -98,6 +130,7 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         var appliedRevision: Int?
         var appliedWidth: CGFloat?
         var lastScrollTarget: BlockID?
+        var lastScrollGeneration: Int?
     }
 }
 #endif

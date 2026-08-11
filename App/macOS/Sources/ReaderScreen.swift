@@ -212,9 +212,12 @@ struct ReaderScreen: View {
                 document: model.document,
                 rendered: model.rendered,
                 theme: theme,
+                renderer: model.configuredRenderer,
                 scrollTarget: scrollTarget,
+                scrollGeneration: scrollGeneration,
                 onTopBlockChange: { top in topBlockID = top },
-                searchQuery: isFindVisible ? searchQuery : nil
+                searchQuery: isFindVisible ? searchQuery : nil,
+                wordWrap: wordWrap
             )
             } else {
             MarkdownReaderView(

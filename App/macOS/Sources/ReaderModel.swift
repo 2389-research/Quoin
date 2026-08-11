@@ -250,6 +250,13 @@ final class ReaderModel {
         }
     }
 
+    /// The reader's CONFIGURED renderer (baseURL / onContentReady / theme),
+    /// exposed so the read-only block recycler (flag-on) projects through the
+    /// exact same config as the projection reader instead of a bare
+    /// `AttributedRenderer(theme:)`. Read-only and value-typed, so sharing the
+    /// instance with the recycler is safe.
+    var configuredRenderer: AttributedRenderer { renderer }
+
     /// A renderer for the CURRENT appearance — `Theme()` captures light/dark
     /// at creation, so appearance switches must re-create it (see
     /// `refreshTheme`).
