@@ -43,6 +43,46 @@ struct EditingChrome: Equatable {
     }
 }
 
+/// CARET-1: an occupiable blank line renders as a ~2pt sliver
+/// (`AttributedRenderer.compressInteriorBlankLines` and the trailing-newline
+/// handling pin `maximumLineHeight` to a small value with zero
+/// `paragraphSpacing`, so the blank line never heaves the viewport). The
+/// insertion point drawn into that sliver is a 2pt dot that reads as "no
+/// caret". This helper decides — purely, from the paragraph style available
+/// at draw time — whether to substitute a body-height caret bar for the
+/// sliver. It is DRAW-ONLY: it returns a rect to paint and never touches
+/// layout, storage, or the fragment, so it is unit-testable without a view.
+enum CaretGapGeometry {
+    /// A blank-line paragraph is "compressed" when its `maximumLineHeight`
+    /// is pinned to a small positive sliver (the renderer uses 2) with no
+    /// paragraph spacing. `maximumLineHeight == 0` means "unset — let the
+    /// line-height multiple drive full body height" (the double-newline
+    /// occupiable line), which is NOT a sliver and must be excluded.
+    static let compressedGapMaxLineHeight: CGFloat = 3
+
+    static func isCompressedGap(_ style: NSParagraphStyle) -> Bool {
+        style.maximumLineHeight > 0
+            && style.maximumLineHeight <= compressedGapMaxLineHeight
+            && style.paragraphSpacing == 0
+    }
+
+    /// The caret rect to draw. On a compressed-gap line the sliver caret is
+    /// replaced with a `bodyLineHeight`-tall bar, same x/width, vertically
+    /// centered on the sliver. Otherwise — or when `bodyLineHeight` would not
+    /// actually be taller — the input rect is returned unchanged.
+    static func caretRect(base: CGRect,
+                          paragraphStyle: NSParagraphStyle?,
+                          bodyLineHeight: CGFloat) -> CGRect {
+        guard let paragraphStyle,
+              isCompressedGap(paragraphStyle),
+              bodyLineHeight > base.height else { return base }
+        return CGRect(x: base.origin.x,
+                      y: base.midY - bodyLineHeight / 2,
+                      width: base.width,
+                      height: bodyLineHeight)
+    }
+}
+
 final class QuoinTextView: NSTextView {
 
     /// While a block is being edited, ⌘A selects ITS editable range, not
@@ -77,6 +117,67 @@ final class QuoinTextView: NSTextView {
             return
         }
         super.keyDown(with: event)
+    }
+
+    // MARK: - CARET-1: full-height caret on compressed-gap lines
+
+    /// Body line height used to size the full-height caret drawn on
+    /// compressed-gap slivers. Set from the theme when the view is configured
+    /// (`≈ body font line height × bodyLineHeightMultiple`); a non-positive
+    /// value falls back to the caret font's natural line height at draw time.
+    var bodyCaretHeight: CGFloat = 0
+
+    /// Draw-only: on a compressed blank-line sliver, paint a body-height caret
+    /// bar instead of the 2pt dot. Layout, storage, and the fragment are all
+    /// untouched — only the rect handed to `super` changes.
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        super.drawInsertionPoint(
+            in: CaretGapGeometry.caretRect(base: rect,
+                                           paragraphStyle: caretParagraphStyle(),
+                                           bodyLineHeight: resolvedBodyCaretHeight()),
+            color: color,
+            turnedOn: flag)
+    }
+
+    /// The caret blink-off invalidates only the caret's own (sliver) rect, so
+    /// the taller overlay would ghost. Expand the invalidation to the drawn
+    /// bar on a compressed gap. Gated to thin (caret-sized) rects so ordinary
+    /// redraws skip the paragraph lookup entirely.
+    override func setNeedsDisplay(_ invalidRect: NSRect, avoidAdditionalLayout flag: Bool) {
+        if invalidRect.width <= 4,
+           let style = caretParagraphStyle(),
+           CaretGapGeometry.isCompressedGap(style) {
+            let expanded = CaretGapGeometry.caretRect(
+                base: invalidRect, paragraphStyle: style,
+                bodyLineHeight: resolvedBodyCaretHeight()).union(invalidRect)
+            super.setNeedsDisplay(expanded, avoidAdditionalLayout: flag)
+            return
+        }
+        super.setNeedsDisplay(invalidRect, avoidAdditionalLayout: flag)
+    }
+
+    /// The paragraph style at the collapsed insertion point — the sole input
+    /// the gap decision needs. Nil for a ranged selection or empty storage.
+    private func caretParagraphStyle() -> NSParagraphStyle? {
+        let selection = selectedRange()
+        guard selection.length == 0, let storage = textStorage, storage.length > 0 else { return nil }
+        let index = min(selection.location, storage.length - 1)
+        return storage.attribute(.paragraphStyle, at: index, effectiveRange: nil) as? NSParagraphStyle
+    }
+
+    /// Body caret height: the theme-provided value when set, else the caret
+    /// font's natural line height (the compressed newline still carries the
+    /// body font).
+    private func resolvedBodyCaretHeight() -> CGFloat {
+        if bodyCaretHeight > 0 { return bodyCaretHeight }
+        let selection = selectedRange()
+        var font: NSFont?
+        if let storage = textStorage, storage.length > 0 {
+            let index = min(selection.location, storage.length - 1)
+            font = storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont
+        }
+        let resolved = font ?? self.font ?? NSFont.systemFont(ofSize: 14)
+        return ceil(resolved.ascender - resolved.descender + resolved.leading)
     }
 
     /// Internal for tests (the incremental-maintenance equivalence check).

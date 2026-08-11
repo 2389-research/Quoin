@@ -377,6 +377,11 @@ public struct MarkdownReaderView: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false     // no date/address detection
         textView.smartInsertDeleteEnabled = false            // no smart copy/paste spacing
         textView.textContainerInset = NSSize(width: theme.contentInset, height: theme.contentInset)
+        // CARET-1: size the full-height caret drawn on compressed-gap slivers
+        // to match a real body line (font line height × the body multiple).
+        let bodyFont = theme.bodyFont()
+        textView.bodyCaretHeight = ceil(
+            (bodyFont.ascender - bodyFont.descender + bodyFont.leading) * theme.bodyLineHeightMultiple)
         textView.autoresizingMask = [.width]
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
