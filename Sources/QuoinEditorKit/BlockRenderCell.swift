@@ -60,6 +60,11 @@ public final class BlockRenderCell: NSView {
 
     private var measuredHeight: CGFloat = 0
 
+    // The fragment the cell was last configured with, retained so the AX
+    // overrides can read its baked `headingLevel` / `blockAccessibilityLabel`
+    // runs (Task 7). nil before the first `configure`.
+    private var configuredFragment: NSAttributedString?
+
     // The theme this cell was last configured with. Decoration colors come off
     // the BlockDecoration payloads, not this value; it is held for API parity
     // with DecorationDraw.draw and future theme-dependent chrome.
@@ -133,6 +138,9 @@ public final class BlockRenderCell: NSView {
         // NSTextContentStorage projects an NSTextStorage; replacing it wholesale
         // is what makes reconfigure cheap and total (no residual runs).
         contentStorage.textStorage = NSTextStorage(attributedString: read.fragment)
+        // Retain the fragment so the AX overlay reads its baked accessibility
+        // runs (Task 7); a recycle re-points it at the new block.
+        configuredFragment = read.fragment
 
         // The text is laid out at the CONTENT-COLUMN width; the cell frame is
         // wider/taller by the reserved gutter + vertical bleed so the spanning
@@ -187,6 +195,33 @@ public final class BlockRenderCell: NSView {
                              leadingInset: DecorationDraw.leftGutter,
                              topInset: DecorationDraw.verticalBleed)
     }
+
+    // MARK: - Accessibility (Phase 1, Task 7 — read-only)
+
+    /// The cell's AX derived from its configured fragment: heading role + level
+    /// for a heading, the landmark label for a structural block, else a plain
+    /// group. nil before the first `configure`.
+    private var cellAccessibility: BlockRecyclerAccessibility.CellAccessibility? {
+        configuredFragment.map(BlockRecyclerAccessibility.cellAccessibility(for:))
+    }
+
+    public override func accessibilityRole() -> NSAccessibility.Role? {
+        cellAccessibility?.role ?? super.accessibilityRole()
+    }
+
+    public override func accessibilityLabel() -> String? {
+        // Heading cells report "Heading level N, Title"; structural blocks their
+        // landmark label; prose falls through to the drawn text (nil label).
+        cellAccessibility?.label ?? super.accessibilityLabel()
+    }
+
+    // Phase 2: the "Edit" AX action (activate this block for editing) attaches
+    // here — `accessibilityCustomActions()` returning an Edit action wired to
+    // the recycler's activation path. Read-only in Phase 1, so no action yet.
+
+    /// Test hook (BlockRecyclerAccessibilityTests): the AX the cell exposes for
+    /// its configured block, without an AX client query.
+    var accessibilityForTest: BlockRecyclerAccessibility.CellAccessibility? { cellAccessibility }
 
     /// Test hook (DecorationBleedTests): false when the cell will NOT clip the
     /// negative-inset decoration bleed / gutter bar to its bounds.

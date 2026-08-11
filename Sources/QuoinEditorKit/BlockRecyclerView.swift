@@ -231,9 +231,59 @@ public final class BlockRecyclerView: NSView {
         onTopBlockChange?(id)
     }
 
+    // MARK: - Accessibility structure rotors (Phase 1, Task 7)
+
+    // Retained here because `NSAccessibilityCustomRotor` holds its search
+    // delegate weakly. The recycler is the rotors' owner / target element.
+    private lazy var headingRotorDelegate = BlockStructureRotorDelegate(owner: self)
+    private lazy var blockRotorDelegate = BlockStructureRotorDelegate(owner: self)
+
+    /// Vends two VoiceOver custom rotors so a listener navigates the document
+    /// by structure instead of stepping every row:
+    ///   • **Headings** (`.heading`) — jump heading to heading.
+    ///   • **Blocks** — flick through the other structural blocks (code, table,
+    ///     list, callout, quote, diagram, math, …), each announced with its
+    ///     `BlockAccessibility` label.
+    /// Items are recomputed from `document.blocks` on each query (the table-level
+    /// analogue of the monolith's storage scan) and stepped via
+    /// `StructureRotor.result`. Either rotor is dropped when the document has
+    /// none of its kind.
+    public override func accessibilityCustomRotors() -> [NSAccessibilityCustomRotor] {
+        var rotors = super.accessibilityCustomRotors()
+        let items = BlockRecyclerAccessibility.rotorItems(for: document.blocks)
+        headingRotorDelegate.items = items.headings
+        blockRotorDelegate.items = items.blocks
+        if !items.headings.isEmpty {
+            rotors.append(NSAccessibilityCustomRotor(
+                rotorType: .heading, itemSearchDelegate: headingRotorDelegate))
+        }
+        if !items.blocks.isEmpty {
+            rotors.append(NSAccessibilityCustomRotor(
+                label: "Blocks", itemSearchDelegate: blockRotorDelegate))
+        }
+        return rotors
+    }
+
     // MARK: - Test hooks (internal; consumed by BlockRecyclerViewTests)
 
     var numberOfRowsForTest: Int { tableView.numberOfRows }
+    /// The table-level Headings rotor items over the current document, in order.
+    var headingRotorItemsForTest: [StructureRotor.Item] {
+        BlockRecyclerAccessibility.rotorItems(for: document.blocks).headings
+    }
+    /// The table-level Blocks rotor items over the current document, in order.
+    var blockRotorItemsForTest: [StructureRotor.Item] {
+        BlockRecyclerAccessibility.rotorItems(for: document.blocks).blocks
+    }
+    /// Step the Headings rotor exactly as VoiceOver would, through the shared
+    /// `StructureRotor.result` navigator.
+    func headingRotorStepForTest(
+        from currentLocation: Int?, direction: StructureRotor.Direction, filter: String = ""
+    ) -> StructureRotor.Item? {
+        StructureRotor.result(
+            items: headingRotorItemsForTest,
+            currentLocation: currentLocation, direction: direction, filter: filter)
+    }
     var scrollInsetsForTest: NSEdgeInsets { scrollView.contentInsets }
     func rowHeightForTest(_ row: Int) -> CGFloat { rowHeight(atRow: row) }
     /// Force the table to instantiate + configure the view for `row` (drives

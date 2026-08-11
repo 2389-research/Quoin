@@ -9,26 +9,30 @@ import Foundation
 /// unit-tested directly (`StructureRotorTests`) with no text system involved.
 /// The AppKit `StructureRotorDelegate` is a thin adapter that maps
 /// `NSAccessibilityCustomRotor` calls onto `result(...)`.
-enum StructureRotor {
+// `public` so the block recycler (QuoinEditorKit) can drive its table-level
+// heading/blocks rotors through the SAME navigator the monolithic reader uses
+// (`BlockAccessibility` and `QuoinAttribute` are public for the same
+// cross-module reason). Behavior is unchanged; only visibility widened.
+public enum StructureRotor {
 
     /// One navigable structural element, in document order.
-    struct Item: Equatable {
+    public struct Item: Equatable {
         /// Start offset of the element's rendered range — the anchor the
         /// caret / last-visited item is compared against.
-        let location: Int
+        public let location: Int
         /// Length of the rendered range — the rotor's `targetRange`.
-        let length: Int
+        public let length: Int
         /// The spoken label VoiceOver reads for this item.
-        let label: String
+        public let label: String
 
-        init(location: Int, length: Int, label: String) {
+        public init(location: Int, length: Int, label: String) {
             self.location = location
             self.length = length
             self.label = label
         }
     }
 
-    enum Direction { case next, previous }
+    public enum Direction { case next, previous }
 
     /// The item VoiceOver should move to, or nil to leave selection put.
     ///
@@ -45,7 +49,7 @@ enum StructureRotor {
     /// `>=` / `<=`) so a step never re-selects the element the caret already
     /// sits on. Returns nil when there is no such item (already at the last /
     /// first match).
-    static func result(
+    public static func result(
         items: [Item],
         currentLocation: Int?,
         direction: Direction,
