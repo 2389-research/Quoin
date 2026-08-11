@@ -221,6 +221,35 @@ external reload, async image decode) where no keystroke is mapping a caret
 against the result — the edit and activation paths keep their synchronous render.
 See the threading note in [architecture.md](architecture.md).
 
+**Blank-line height is byte-derived, never caret-derived (CARET-1).** Markdown
+has no empty-paragraph node, so the active block's `editableSlice` absorbs the
+trailing/inter-block whitespace the caret must sit on. The rendered height of
+that absorbed whitespace is a pure function of the slice's *bytes*, not the
+caret: `clampTrailingNewlinePhantom` and `compressInteriorBlankLines`
+(`AttributedRenderer`) take no `caretOffset`. A slice ending in **two**
+newlines (`\n\n`) styles its final blank line at *body* height
+(`bodyLineHeightMultiple`, `maximumLineHeight = 0`) so typing the first
+character causes **zero** height change — no heave on Return; a single trailing
+newline stays a ~2pt phantom (`maximumLineHeight = 2`). Both clamps have one
+call site feeding both the full-render and patch paths, so patch≡full holds
+(`ProjectorEquivalenceTests` covers the Return-then-type sequence). Because
+height no longer reads the caret, the caret line cannot move when the caret
+enters or leaves a blank line. Guarded by `RevealFidelityTests`
+(`testBlankLineHeightIsCaretIndependent`, `testReturnBlankLineEqualsAfterFirstCharacter`)
+and `CaretLineAnchorTests.testCaretLineStaysPutAcrossReturnThenFirstCharacter`.
+Backspace inside a block's absorbed trailing whitespace removes a newline
+*byte*, never a content glyph of the previous block (`gapDeletion`, gated on
+`trailing >= 2`; `GapDeletionTests`). Caret legibility on a compressed sliver is
+a *draw-only* body-height overlay (`CaretGapGeometry` + `QuoinTextView`), never a
+layout change. Known deferred edges: CRLF files are LF-only here (a `\r\n\r\n`
+tail stays the 2pt phantom — safe, never pushes content, `RevealFidelityTests`
+pins it); the interior-sliver overlay's runtime firing on macOS 14+ (vs
+`NSTextInsertionIndicator`) is unverified headlessly — the *primary* post-Return
+caret is body-height at the layout level regardless; and the queued fast-path
+Backspace (`shouldChangeTextIn` replay while `awaitingEditEcho`) bypasses
+`gapDeletion` — safe today because the caret maps to inside the `\n\n`, a latent
+vector only if a future change restores the caret to the content boundary.
+
 ### 5. Caret hints carry their own coordinate space
 
 **Guarantees.** A caret hint knows whether its offset is a `.rendered` offset (in
