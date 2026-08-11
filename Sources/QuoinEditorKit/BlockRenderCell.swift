@@ -43,6 +43,12 @@ public final class BlockRenderCell: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        // Spanning chrome (the code/callout/diagram bleed and the quote-rule
+        // gutter bar) deliberately draws OUTSIDE the raw text box. The cell
+        // reserves room for it (see `configure`) AND must not clip: a table-cell
+        // clips to bounds by default, which would guillotine the bleed.
+        clipsToBounds = false
+        layer?.masksToBounds = false
         contentStorage.addTextLayoutManager(layoutManager)
         layoutManager.textContainer = textContainer
     }
@@ -78,6 +84,10 @@ public final class BlockRenderCell: NSView {
         // is what makes reconfigure cheap and total (no residual runs).
         contentStorage.textStorage = NSTextStorage(attributedString: fragment)
 
+        // The text is laid out at the CONTENT-COLUMN width; the cell frame is
+        // wider/taller by the reserved gutter + vertical bleed so the spanning
+        // chrome fits inside bounds (Task 4's row-height contract folds in the
+        // same DecorationDraw constants).
         textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: contentStorage.documentRange)
 
@@ -85,7 +95,9 @@ public final class BlockRenderCell: NSView {
         // layout pass above.
         measuredHeight = renderer.measuredHeight(of: block, in: document, width: width)
 
-        setFrameSize(NSSize(width: width, height: measuredHeight))
+        setFrameSize(NSSize(
+            width: width + 2 * DecorationDraw.leftGutter,
+            height: measuredHeight + 2 * DecorationDraw.verticalBleed))
         needsDisplay = true
     }
 
@@ -97,22 +109,36 @@ public final class BlockRenderCell: NSView {
         // drawBackground(in:) — per-glyph background attributes render as ugly
         // per-line strips, so decorations are drawn ink from fragment geometry.
         DecorationDraw.draw(decorationBoxes(), in: context, theme: theme)
+        // Glyphs draw shifted into the gutter-reserved, top-padded content box
+        // — the SAME (leftGutter, verticalBleed) offset the decoration boxes
+        // already bake in, so chrome and text stay aligned.
+        context.saveGState()
+        context.translateBy(x: DecorationDraw.leftGutter, y: DecorationDraw.verticalBleed)
         layoutManager.enumerateTextLayoutFragments(
             from: contentStorage.documentRange.location
         ) { fragment in
             fragment.draw(at: fragment.layoutFragmentFrame.origin, in: context)
             return true
         }
+        context.restoreGState()
     }
 
     /// The decoration boxes for this cell's currently-configured block, in
-    /// cell-local coords. `leadingInset` is 0 until row padding lands (Task 4).
+    /// cell-local coords, shifted by the reserved gutter + vertical bleed so the
+    /// spanning chrome lands inside the (non-clipping) cell bounds.
     private func decorationBoxes() -> [DecorationDraw.Box] {
         DecorationDraw.boxes(in: layoutManager,
                              contentStorage: contentStorage,
-                             contentWidth: textContainer.size.width,
-                             leadingInset: 0)
+                             // Total drawable width: content column + left gutter,
+                             // so a full-width box spans [leftGutter, column edge].
+                             contentWidth: textContainer.size.width + DecorationDraw.leftGutter,
+                             leadingInset: DecorationDraw.leftGutter,
+                             topInset: DecorationDraw.verticalBleed)
     }
+
+    /// Test hook (DecorationBleedTests): false when the cell will NOT clip the
+    /// negative-inset decoration bleed / gutter bar to its bounds.
+    var clipsDecorationForTest: Bool { clipsToBounds }
 
     /// Test hook (DecorationParityTests): the decoration geometry the cell
     /// would draw for its configured block, without a draw pass.
