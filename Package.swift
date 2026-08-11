@@ -11,6 +11,7 @@ let package = Package(
     products: [
         .library(name: "QuoinCore", targets: ["QuoinCore"]),
         .library(name: "QuoinRender", targets: ["QuoinRender"]),
+        .library(name: "QuoinEditorKit", targets: ["QuoinEditorKit"]),
     ],
     dependencies: [
         .package(url: "https://github.com/swiftlang/swift-markdown.git", from: "0.8.0"),
@@ -48,6 +49,12 @@ let package = Package(
             // toolchain today.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        .target(
+            name: "QuoinEditorKit",
+            dependencies: ["QuoinCore", "QuoinRender"],
+            path: "Sources/QuoinEditorKit",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "QuoinCoreTests",
             dependencies: ["QuoinCore"],
@@ -66,6 +73,12 @@ let package = Package(
             exclude: ["Snapshots/render-digests.json"],
             // Matches QuoinRender's Swift 5 mode — it exercises the AppKit
             // render types whose Sendability the E2/E3 migration completes.
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "QuoinEditorKitTests",
+            dependencies: ["QuoinEditorKit", "QuoinCore", "QuoinRender"],
+            path: "Tests/QuoinEditorKitTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
     ]
