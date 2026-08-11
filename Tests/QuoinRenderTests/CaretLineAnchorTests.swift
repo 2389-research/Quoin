@@ -372,6 +372,101 @@ final class CaretLineAnchorTests: XCTestCase {
                        "round-trip widths must return content home (\(before) → \(round))")
     }
 
+    // MARK: - CARET-1 no-heave (Return → first character)
+
+    /// Lay `attributed` into a real 600×400 scroll view, scroll `anchorRange`'s
+    /// top to `anchorScreenY`, and return the screen-Y of the line containing
+    /// `caretOffset`. Everything runs while the NSScrollView is in scope, so the
+    /// scroll operation sees a live enclosing scroll view.
+    private func caretLineScreenY(
+        attributed: NSAttributedString,
+        blockRanges: [BlockID: NSRange],
+        anchorRange: NSRange,
+        anchorScreenY: CGFloat,
+        caretOffset: Int
+    ) throws -> CGFloat {
+        let contentStorage = NSTextContentStorage()
+        let layoutManager = NSTextLayoutManager()
+        contentStorage.addTextLayoutManager(layoutManager)
+        let container = NSTextContainer(size: NSSize(width: 600, height: CGFloat.greatestFiniteMagnitude))
+        container.widthTracksTextView = true
+        layoutManager.textContainer = container
+        let textView = QuoinTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 0), textContainer: container)
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 400))
+        scroll.documentView = textView
+        let storage = try XCTUnwrap(textView.textContentStorage?.textStorage)
+        storage.setAttributedString(attributed)
+        textView.textLayoutManager?.ensureLayout(for: try XCTUnwrap(textView.textContentStorage?.documentRange))
+        textView.sizeToFit()
+
+        let view = MarkdownReaderView(rendered: RenderedDocument(
+            attributed: attributed, blockRanges: blockRanges))
+        let coordinator = MarkdownReaderView.Coordinator(parent: view)
+        coordinator.textView = textView
+
+        coordinator.scrollBlockTop(anchorRange, toScreenY: anchorScreenY, in: textView)
+        return try XCTUnwrap(coordinator.lineScreenY(at: caretOffset, in: textView))
+    }
+
+    /// CARET-1 (brief Step 5): pressing Return at the end of a heading and then
+    /// typing the first character must not move the caret's line on screen.
+    /// After Return the caret sits on the new blank line just below the heading;
+    /// the first character turns that blank line into a real paragraph line. With
+    /// the blank line now rendered at a caret-INDEPENDENT body height, the heading
+    /// above keeps a byte-identical fragment across both states — so, with the
+    /// heading anchored at the same screen position, the caret line's screen-Y is
+    /// the same before and after the character. (This is the real-scroll-view
+    /// corroboration of the RevealFidelity height-equality proxies.)
+    func testCaretLineStaysPutAcrossReturnThenFirstCharacter() throws {
+        var filler = ""
+        for i in 0..<30 { filler += "Paragraph \(i) of filler prose to make the document scroll.\n\n" }
+        let srcAfterReturn = filler + "# Anchor\n\n"   // heading is the last block; caret on the trailing blank line
+        let srcAfterChar = filler + "# Anchor\n\nZ"    // first character typed → real paragraph "Z"
+
+        let renderer = AttributedRenderer()
+        var cache: [BlockID: NSAttributedString] = [:]
+
+        // State just after Return: the heading is active, caret on the blank line.
+        let afterReturn = MarkdownConverter.parse(srcAfterReturn)
+        let headingA = try XCTUnwrap(afterReturn.blocks.last {
+            if case .heading = $0.kind { return true }
+            return false
+        })
+        let rA = renderer.render(afterReturn, activeBlockID: headingA.id,
+                                 activeCaret: (srcAfterReturn as NSString).length, cache: &cache)
+        // The caret line is the trailing blank line — the document's final "\n".
+        let caretLineA = rA.attributed.length - 1
+        let yBefore = try caretLineScreenY(
+            attributed: rA.attributed, blockRanges: rA.blockRanges,
+            anchorRange: try XCTUnwrap(rA.blockRanges[headingA.id]),
+            anchorScreenY: 120, caretOffset: caretLineA)
+
+        // State after typing the first character: the "Z" paragraph is active.
+        let afterChar = MarkdownConverter.parse(srcAfterChar)
+        let headingB = try XCTUnwrap(afterChar.blocks.first {
+            if case .heading = $0.kind { return true }
+            return false
+        })
+        let paraB = try XCTUnwrap(afterChar.blocks.last {
+            afterChar.source.substring(in: $0.range) == "Z"
+        })
+        let rB = renderer.render(afterChar, activeBlockID: paraB.id,
+                                 activeCaret: (srcAfterChar as NSString).length, cache: &cache)
+        let caretLineB = (rB.attributed.string as NSString).range(of: "Z").location
+        XCTAssertNotEqual(caretLineB, NSNotFound)
+        let yAfter = try caretLineScreenY(
+            attributed: rB.attributed, blockRanges: rB.blockRanges,
+            anchorRange: try XCTUnwrap(rB.blockRanges[headingB.id]),
+            anchorScreenY: 120, caretOffset: caretLineB)
+
+        XCTAssertEqual(yAfter, yBefore, accuracy: 2,
+                       "the caret line must not move between Return and the first character "
+                       + "(was \(yBefore), now \(yAfter))")
+    }
+
 }
 #endif
 
