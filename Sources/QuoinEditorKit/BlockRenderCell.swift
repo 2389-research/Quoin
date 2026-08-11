@@ -27,6 +27,31 @@ public final class BlockRenderCell: NSView {
     /// renderer's metric (the cell-sizing contract). Zero before configure.
     public var fittingHeightForConfiguredWidth: CGFloat { measuredHeight }
 
+    /// Phase 1, Task 5: true when the last `configure` produced a fragment that
+    /// is still waiting on async content (an image/diagram/math placeholder
+    /// tagged `QuoinAttribute.pendingContent`). While this is true the cell's
+    /// `fittingHeightForConfiguredWidth` is PROVISIONAL — it is the
+    /// deterministic placeholder height, not the final content height. The
+    /// recycler (Task 6) must NOT cache a pending row's height as final; it
+    /// re-queries height when `onContentSettled` fires. `false` before the first
+    /// `configure`.
+    public private(set) var hasPendingContent: Bool = false
+
+    /// Phase 1, Task 5: fired once when a previously-pending cell's content
+    /// finishes decoding and becomes available, carrying the `BlockID` that
+    /// settled (captured at `configure` time). This is wired to the SAME
+    /// readiness signal the monolithic reader uses —
+    /// `AttributedRenderer.onContentReady`, which `AsyncImageStore` invokes off
+    /// its shared, path-keyed decode (`image(at:maxDimension:onReady:)`); the
+    /// cell never starts a parallel decode. Delivered on the main actor.
+    ///
+    /// Because the cell recycles, the decode it armed for one block can complete
+    /// after the cell has been reconfigured for another. The callback therefore
+    /// reports the block that settled, not "this cell's current block": Task 6
+    /// treats it as "the row for `BlockID` needs its height re-queried," which is
+    /// correct whether or not this cell still displays that block.
+    public var onContentSettled: ((BlockID) -> Void)?
+
     // Cell-local TextKit-2 stack used purely to draw the block fragment.
     private let contentStorage = NSTextContentStorage()
     private let layoutManager = NSTextLayoutManager()
@@ -79,10 +104,35 @@ public final class BlockRenderCell: NSView {
         blockID = block.id
         self.theme = theme
 
-        let fragment = renderer.renderReadFragment(block, document: document).fragment
+        // Observe the SAME async readiness signal the monolith uses without
+        // starting a parallel decode: `AttributedRenderer` is a value type whose
+        // `onContentReady` is what `AsyncImageStore` fires off its shared,
+        // path-keyed decode. We render this cell's block through a copy of the
+        // passed renderer that reuses ITS configuration (theme/baseURL/image
+        // resolution → identical fragment + height) but points `onContentReady`
+        // at THIS cell, so when a pending image settles the store calls us back.
+        // The copy must be the render of record: `AsyncImageStore` keeps only the
+        // first caller's `onReady` per key (a later render of an already-pending
+        // key returns nil without re-registering), so drawing through this copy
+        // is what wires the settle callback to the real decode.
+        let settledBlockID = block.id
+        let observingRenderer = AttributedRenderer(
+            theme: renderer.theme,
+            baseURL: renderer.baseURL,
+            loadsRemoteImages: renderer.loadsRemoteImages,
+            imageResolution: renderer.imageResolution,
+            onContentReady: { [weak self] in
+                // Fires off-main from the shared decode; hop to the main actor to
+                // touch the cell and deliver the row-invalidation signal.
+                Task { @MainActor in self?.onContentSettled?(settledBlockID) }
+            }
+        )
+
+        let read = observingRenderer.renderReadFragment(block, document: document)
+        hasPendingContent = read.hasPendingContent
         // NSTextContentStorage projects an NSTextStorage; replacing it wholesale
         // is what makes reconfigure cheap and total (no residual runs).
-        contentStorage.textStorage = NSTextStorage(attributedString: fragment)
+        contentStorage.textStorage = NSTextStorage(attributedString: read.fragment)
 
         // The text is laid out at the CONTENT-COLUMN width; the cell frame is
         // wider/taller by the reserved gutter + vertical bleed so the spanning
@@ -92,8 +142,10 @@ public final class BlockRenderCell: NSView {
         layoutManager.ensureLayout(for: contentStorage.documentRange)
 
         // Single source of truth for height — do NOT derive it from the local
-        // layout pass above.
-        measuredHeight = renderer.measuredHeight(of: block, in: document, width: width)
+        // layout pass above. For a pending block this is the deterministic
+        // PLACEHOLDER height; it is provisional until `onContentSettled` fires
+        // and the recycler re-queries (see `hasPendingContent`).
+        measuredHeight = observingRenderer.measuredHeight(of: block, in: document, width: width)
 
         setFrameSize(NSSize(
             width: width + 2 * DecorationDraw.leftGutter,

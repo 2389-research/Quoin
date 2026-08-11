@@ -44,6 +44,18 @@ import QuoinRender
 public enum BlockRowMetrics {
     /// Deterministic row height a recycled cell will draw at for `block` when it
     /// sits at `index` in `document`, laid out at `width`.
+    ///
+    /// Provisional heights (Phase 1, Task 5). For a block whose content decodes
+    /// asynchronously (an image/diagram/math still tagged
+    /// `QuoinAttribute.pendingContent`), `measuredHeight` here is the block's
+    /// PLACEHOLDER height — deterministic, but not yet the final content height.
+    /// This value is correct to lay the row out RIGHT NOW; it MUST NOT be cached
+    /// as the block's final height. The owning `BlockRenderCell` surfaces
+    /// `hasPendingContent` and fires `onContentSettled(blockID)` when the decode
+    /// lands; the recycler (Task 6) invalidates that row and re-queries
+    /// `rowHeight`, which then returns the settled content height. Caching a
+    /// pending height as final would freeze a placeholder-sized row under
+    /// decoded content.
     public static func rowHeight(
         for block: Block, at index: Int, in document: QuoinDocument,
         renderer: AttributedRenderer, theme: Theme, width: CGFloat
