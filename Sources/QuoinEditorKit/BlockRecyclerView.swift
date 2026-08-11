@@ -61,7 +61,7 @@ public final class BlockRecyclerView: NSView {
     private let theme: Theme
 
     private let scrollView = NSScrollView()
-    private let tableView = NSTableView()
+    private let tableView = ClickReportingTableView()
 
     private var document = QuoinDocument.empty
     private var contentWidth: CGFloat = 600
@@ -160,6 +160,13 @@ public final class BlockRecyclerView: NSView {
         tableView.addTableColumn(column)
         tableView.dataSource = self
         tableView.delegate = self
+        // Click seam (Phase 2, Task 2): the table forwards its own `mouseDown`
+        // (the view the click actually hits) so `onBlockClicked` fires for a
+        // real click. Reporting happens BEFORE the table's internal row
+        // tracking, so the callback does not depend on that loop completing.
+        tableView.onMouseDown = { [weak self] event in
+            self?.reportClick(event)
+        }
 
         scrollView.documentView = tableView
         scrollView.frame = bounds
@@ -225,15 +232,17 @@ public final class BlockRecyclerView: NSView {
         return (document.blocks[row].id, local)
     }
 
-    public override func mouseDown(with event: NSEvent) {
-        // Report the click, but do NOT consume it or change selection — the
-        // table keeps `selectionHighlightStyle = .none` and Task 5 is what
-        // decides to activate an island. Fall through to super so default
-        // hit-testing (links inside cells, etc.) is unaffected.
+    // The click report is armed on the table subclass (`ClickReportingTableView`)
+    // in `setUp`, NOT via a `mouseDown` override here: `NSTableView` handles a
+    // row click internally and never propagates the event to this ancestor
+    // container (selectionHighlightStyle=.none only hides the highlight), so an
+    // override here would be dead for real clicks. The report happens on the
+    // view the click actually hits — the same rule QuoinTextView follows.
+    private func reportClick(_ event: NSEvent) {
+        guard event.type == .leftMouseDown else { return }
         if let hit = blockAndPoint(forWindowPoint: event.locationInWindow) {
             onBlockClicked?(hit.0, hit.1)
         }
-        super.mouseDown(with: event)
     }
 
     // MARK: - Height
@@ -353,6 +362,10 @@ public final class BlockRecyclerView: NSView {
     func windowPointForTableY(_ tablePoint: CGPoint) -> CGPoint {
         tableView.convert(tablePoint, to: nil)
     }
+    /// The table-space rect of `row` (flipped). Lets a test address a row's
+    /// on-screen center after a scroll, so a real dispatched click over it
+    /// proves the scroll offset is honoured by the window→table conversion.
+    func rowRectForTest(_ row: Int) -> CGRect { tableView.rect(ofRow: row) }
     /// Force the table to instantiate + configure the view for `row` (drives
     /// `viewFor`, so the cell registers its async decode) without waiting on a
     /// display pass. Returns the configured cell.
@@ -403,6 +416,24 @@ extension BlockRecyclerView: NSTableViewDelegate {
             block: block, document: document,
             renderer: renderer, theme: theme, width: contentWidth)
         return cell
+    }
+}
+
+/// `NSTableView` subclass whose only job is to forward a `mouseDown` to the
+/// recycler. The click has to be caught HERE — on the view AppKit hit-tests and
+/// dispatches to — not on the ancestor `BlockRecyclerView`: `NSTableView`
+/// consumes a row click in its own `mouseDown` (row tracking) and never bubbles
+/// it up the view hierarchy, so an ancestor override is dead for real clicks.
+/// The closure fires BEFORE `super.mouseDown` so the report does not hinge on
+/// the internal tracking loop (which, with selection highlight off, does no
+/// visible work anyway).
+@MainActor
+private final class ClickReportingTableView: NSTableView {
+    var onMouseDown: ((NSEvent) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        onMouseDown?(event)
+        super.mouseDown(with: event)
     }
 }
 #endif
