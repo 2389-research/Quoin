@@ -35,6 +35,11 @@ public final class BlockRenderCell: NSView {
 
     private var measuredHeight: CGFloat = 0
 
+    // The theme this cell was last configured with. Decoration colors come off
+    // the BlockDecoration payloads, not this value; it is held for API parity
+    // with DecorationDraw.draw and future theme-dependent chrome.
+    private var theme = Theme()
+
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
@@ -66,6 +71,7 @@ public final class BlockRenderCell: NSView {
         width: CGFloat
     ) {
         blockID = block.id
+        self.theme = theme
 
         let fragment = renderer.renderReadFragment(block, document: document).fragment
         // NSTextContentStorage projects an NSTextStorage; replacing it wholesale
@@ -86,12 +92,32 @@ public final class BlockRenderCell: NSView {
     public override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         guard let context = NSGraphicsContext.current?.cgContext else { return }
+        // Block-level chrome (code canvas, diagram frame, chip, table rules)
+        // draws BEHIND the text, exactly as QuoinTextView paints it in
+        // drawBackground(in:) — per-glyph background attributes render as ugly
+        // per-line strips, so decorations are drawn ink from fragment geometry.
+        DecorationDraw.draw(decorationBoxes(), in: context, theme: theme)
         layoutManager.enumerateTextLayoutFragments(
             from: contentStorage.documentRange.location
         ) { fragment in
             fragment.draw(at: fragment.layoutFragmentFrame.origin, in: context)
             return true
         }
+    }
+
+    /// The decoration boxes for this cell's currently-configured block, in
+    /// cell-local coords. `leadingInset` is 0 until row padding lands (Task 4).
+    private func decorationBoxes() -> [DecorationDraw.Box] {
+        DecorationDraw.boxes(in: layoutManager,
+                             contentStorage: contentStorage,
+                             contentWidth: textContainer.size.width,
+                             leadingInset: 0)
+    }
+
+    /// Test hook (DecorationParityTests): the decoration geometry the cell
+    /// would draw for its configured block, without a draw pass.
+    func decorationBoxesForTest() -> [DecorationDraw.Box] {
+        decorationBoxes()
     }
 }
 #endif
