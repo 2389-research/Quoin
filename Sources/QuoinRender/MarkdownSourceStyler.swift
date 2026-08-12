@@ -33,6 +33,15 @@ struct MarkdownSourceStyler {
     /// code font.
     var treatsSourceAsVerbatimCode = false
 
+    /// The 5%-accent wash the MONOLITHIC projection paints behind the revealed
+    /// source to say "this block is the active one". The editable ISLAND
+    /// (QuoinEditorKit) is its own view — it is visibly the edit surface by
+    /// construction and owns its own background — so it turns the wash off
+    /// rather than stamping a per-glyph `.backgroundColor` run across every
+    /// character (CLAUDE.md: per-glyph backgrounds render as per-line strips).
+    /// Default `true` keeps the projection byte-for-byte unchanged.
+    var appliesActiveWash = true
+
     /// Reveal-styling patterns are literals — recompiling them on every
     /// keystroke measurably cost the reveal path, so compile them once.
     /// Optional so a malformed literal degrades that one styling pass rather
@@ -84,13 +93,16 @@ struct MarkdownSourceStyler {
     private func baseAttributes() -> [NSAttributedString.Key: Any] {
         let style = NSMutableParagraphStyle()
         style.lineHeightMultiple = 1.5
-        return [
+        var attributes: [NSAttributedString.Key: Any] = [
             .font: theme.bodyFont(),
             .foregroundColor: theme.ink,
-            .backgroundColor: theme.accent.withAlphaComponent(0.05),
             .paragraphStyle: style,
             QuoinAttribute.editableSource: NSNumber(value: true),
         ]
+        if appliesActiveWash {
+            attributes[.backgroundColor] = theme.accent.withAlphaComponent(0.05)
+        }
+        return attributes
     }
 
     private var delimiterAttributes: [NSAttributedString.Key: Any] {

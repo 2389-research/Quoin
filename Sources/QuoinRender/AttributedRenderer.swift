@@ -963,6 +963,88 @@ public struct AttributedRenderer: Sendable {
         return assembleRevealedFragment(source: styled, block: block, heldPreview: &heldPreview)
     }
 
+    /// The editable ISLAND's styled source (QuoinEditorKit, Phase 3).
+    ///
+    /// Same recipe as `renderEditableSource` above — ONE styler
+    /// (`MarkdownSourceStyler`, the single delimiter recognizer) plus the
+    /// per-line paragraph-style TRANSPLANT from the block's read fragment —
+    /// with the projection-only pieces removed: no editing chrome (accent
+    /// frame, `✓ done` chip, preview panel), and no separator/phantom clamps,
+    /// which are properties of the MONOLITHIC string the island does not live
+    /// in (an island's slice is one block's bytes, with no trailing newline).
+    ///
+    /// **The string is sacred.** This is attributes-only: the returned
+    /// attributed string's `.string` is `slice`, character for character, so
+    /// the island's caret mapping (`IslandCaretMapping`), Return-split,
+    /// backspace-merge, and flush/reconcile all keep their 1:1 property.
+    /// Nothing is inserted, removed, or substituted; delimiters the caret is
+    /// outside of are made invisible the way the projection does it — a
+    /// 0.1pt clear glyph, never a deletion.
+    ///
+    /// **The paragraph-style donor is re-derived from the slice itself.** The
+    /// island's own text is AUTHORITATIVE between flushes (the recycler's KEEP
+    /// path deliberately does not re-seed it), so a donor taken from the outer
+    /// document would go stale on the first keystroke and the transplanted
+    /// skeleton would drift from what the user is typing. Re-parsing one block
+    /// of Markdown per restyle is cheap and always agrees with the text on
+    /// screen; for an UNEDITED slice it is the same parse the outer document
+    /// produced, so the island measures the same height the read cell does.
+    ///
+    /// `caretUTF16` is the caret's island-local UTF-16 offset, which scopes the
+    /// inline-span reveal (handoff: "Delimiters appear **only** for the span
+    /// containing the caret"). `nil` reveals every delimiter — the right answer
+    /// before the caret has landed.
+    public func styledIslandSource(_ slice: String, caretUTF16: Int? = nil) -> NSAttributedString {
+        // One block of Markdown, parsed as its own document: the donor for the
+        // per-line style transplant AND the source of the block kind the styler
+        // config keys on.
+        let mini = MarkdownConverter.parse(slice)
+        let block = mini.blocks.count == 1 ? mini.blocks[0] : nil
+
+        let config = Self.revealStylerConfig(kind: block?.kind, slice: slice)
+        var styler = MarkdownSourceStyler(theme: theme)
+        styler.collapsesNonLiteralSpans = config.collapsesNonLiteralSpans
+        styler.treatsSourceAsVerbatimCode = config.treatsSourceAsVerbatimCode
+        // The island is its own view and paints its own background; the
+        // projection's per-glyph active wash would be a per-line strip here.
+        styler.appliesActiveWash = false
+        let styled = NSMutableAttributedString(
+            attributedString: styler.style(slice, caretOffset: caretUTF16))
+        guard styled.length > 0 else { return styled }
+
+        if let block {
+            switch block.kind {
+            case .paragraph, .heading, .list, .blockQuote, .callout, .thematicBreak, .table:
+                let read = render(block: block, depth: 0, document: mini)
+                // Interior hard-wrap gaps collapse for EVERY kind here, unlike
+                // the projection (which permits it only for a prose paragraph).
+                // The collapse is not a per-kind decision inside
+                // `transplantParagraphStyles`: it fires only when two ADJACENT
+                // source lines map into the SAME read paragraph, which is
+                // precisely the soft-break case. A list's items, a table's rows
+                // and a quote's separated paragraphs are distinct read
+                // paragraphs, so their spacing survives verbatim either way —
+                // measured, not assumed (the list/table height deltas are 0
+                // with this on). What it FIXES is the soft-wrapped blockquote
+                // `> line one\n> line two`, which is ONE read paragraph across
+                // two source lines: without the collapse the island stamped the
+                // 12pt block gap between them and came out 35.8pt (≈ two body
+                // lines) taller than the read cell.
+                transplantParagraphStyles(from: read, onto: styled, source: slice,
+                                          collapsesInteriorParagraphGap: true)
+                return styled
+            default:
+                break
+            }
+        }
+
+        // Embed kinds (code / diagram / math / html / front matter), or a slice
+        // that did not parse to exactly one block: tuned canvas metrics, exactly
+        // as the projection's fallback does.
+        applyFallbackMetrics(to: styled, kind: block?.kind)
+        return styled
+    }
+
     /// Combines the styled source with its editing-mode chrome:
     ///
     /// - SIDE-BY-SIDE PREVIEW (mermaid/math, ledger #6b): the artifact

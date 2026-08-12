@@ -910,7 +910,14 @@ public final class BlockRecyclerView: NSView {
         // collapses to zero.
         if block.id == _editingBlockID {
             if let cell = liveEditorCell, cell.blockID == block.id {
-                return cell.fittingHeightForConfiguredWidth + 2 * DecorationDraw.verticalBleed
+                // Same arithmetic as the read row (bleed + outer-edge carve-out
+                // + separator contribution), with the LIVE island layout
+                // standing in for the read metric — so promoting a row changes
+                // only what the text itself measures.
+                return BlockRowMetrics.rowHeight(
+                    forTextHeight: cell.fittingHeightForConfiguredWidth,
+                    of: block, at: row, in: document,
+                    renderer: heightRenderer, width: contentWidth)
             }
             return BlockRowMetrics.rowHeight(
                 for: block, at: row, in: document,
@@ -1196,6 +1203,15 @@ extension BlockRecyclerView: NSTableViewDelegate {
         } else {
             cell = BlockEditorCell()
             cell.identifier = Self.blockEditorCellIdentifier
+        }
+        // Phase 3: the island renders its raw source STYLED — per-line type ramp
+        // + faded, caret-scoped delimiters — through the renderer's own
+        // derivation, so the active and inactive projections of a block agree on
+        // typography and (within a documented epsilon) on height. Installed
+        // BEFORE `configure` so the first layout the row is measured at is the
+        // styled one.
+        cell.sourceStyler = { [renderer] source, caret in
+            renderer.styledIslandSource(source, caretUTF16: caret)
         }
         let slice = document.source.substring(in: block.range) ?? ""
         cell.configure(slice: slice, blockID: block.id, width: contentWidth)

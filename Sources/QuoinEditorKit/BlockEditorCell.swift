@@ -58,6 +58,29 @@ public final class BlockEditorCell: NSView {
         set { textView.onDeleteBackward = newValue }
     }
 
+    /// Phase 3 (island source styling): the function that turns the island's RAW
+    /// Markdown source into its STYLED form — per-line type ramp + faded
+    /// delimiters, so edit mode keeps the block's vertical skeleton (handoff §1,
+    /// CLAUDE.md's per-line style transplant).
+    ///
+    /// Injected rather than built here so the cell stays a leaf: the recycler
+    /// installs `renderer.styledIslandSource`, which is the SAME derivation (one
+    /// `MarkdownSourceStyler`, one paragraph-style transplant off the read
+    /// fragment) the monolithic projection's syntax reveal uses — a second
+    /// delimiter recognizer would drift (CLAUDE.md).
+    ///
+    /// Arguments are `(source, caretUTF16)`; the caret scopes the inline-span
+    /// reveal. The contract the cell ENFORCES on every call: the returned
+    /// string must equal the source character for character. A styler that
+    /// changes the bytes is REFUSED (the source stays, unstyled) — 1:1 is what
+    /// caret mapping, Return-split and the flush path all stand on.
+    ///
+    /// `nil` (the default) leaves the island in the plain mono seed face, which
+    /// is what the Phase-2 leaf tests exercise.
+    public var sourceStyler: ((String, Int?) -> NSAttributedString)? {
+        didSet { restyle() }
+    }
+
     // A live TextKit-2 stack: content storage → layout manager → container,
     // built the same way the harness / CaretLineAnchorTests stand one up.
     private let contentStorage = NSTextContentStorage()
@@ -88,10 +111,26 @@ public final class BlockEditorCell: NSView {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        // Monospace source is fine for Phase 2 (styling is deferred).
+        // The seed face, used only until a `sourceStyler` is installed (the
+        // Phase-2 leaf tests run without one).
         textView.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+        // Align the island's glyph origin with `BlockRenderCell`'s: the read cell
+        // draws its text shifted by (leftGutter, verticalBleed) inside a row that
+        // reserves that chrome padding, and the editing row reserves the same
+        // padding (`BlockRowMetrics`). Without the inset the text jumped 14pt
+        // left and 5pt up the instant a block was activated.
+        textView.textContainerInset = NSSize(
+            width: DecorationDraw.leftGutter, height: DecorationDraw.verticalBleed)
 
-        changeForwarder.onChange = { [weak self] in self?.onTextDidChange?() }
+        changeForwarder.onChange = { [weak self] in
+            guard let self else { return }
+            // Restyle FIRST so the height the recycler is about to re-query off
+            // `fittingHeightForConfiguredWidth` is measured on the styled text,
+            // not on one keystroke's worth of unstyled seed face.
+            self.restyle()
+            self.onTextDidChange?()
+        }
+        changeForwarder.onSelectionChange = { [weak self] in self?.caretDidMove() }
         textView.delegate = changeForwarder
 
         textView.translatesAutoresizingMaskIntoConstraints = false
@@ -125,7 +164,87 @@ public final class BlockEditorCell: NSView {
         textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
         // Seeding the source is NOT a user edit — swap the string directly.
         textView.string = slice
+        lastStyledCaret = nil
+        restyle()
         textView.setFrameSize(NSSize(width: width, height: fittingHeightForConfiguredWidth))
+    }
+
+    // MARK: - Styling (Phase 3)
+
+    /// Re-entrancy latch. `restyle()` writes attributes into the live text
+    /// storage and restores the selection; both can echo back through the
+    /// delegate (`textDidChange` / `textViewDidChangeSelection`). Without the
+    /// latch that echo re-enters `restyle()` — the infinite loop the
+    /// styling-on-every-keystroke design is most exposed to.
+    private var isRestyling = false
+
+    /// The caret offset the current attributes were computed for, so a
+    /// selection change that does not move the caret (e.g. the one our own
+    /// restyle provokes) does no work.
+    private var lastStyledCaret: Int?
+
+    /// Test hook (BlockEditorCellStylingTests): how many times attributes were
+    /// actually written into the storage. A restyle loop makes this unbounded.
+    private(set) var restyleCountForTest = 0
+
+    /// Apply `sourceStyler` to the island's CURRENT text, in place, as
+    /// ATTRIBUTES ONLY. The characters are never touched: a styler whose output
+    /// string differs from the source is refused outright.
+    private func restyle() {
+        guard !isRestyling, let styler = sourceStyler,
+              let storage = textView.textStorage, storage.length > 0
+        else { return }
+        isRestyling = true
+        defer { isRestyling = false }
+
+        let source = storage.string
+        let caret = textView.selectedRange().location
+        let styled = styler(source, caret)
+        guard styled.string == source else {
+            // THE string is sacred: a styler that changed the bytes would
+            // desynchronize every offset the island's edit path computes.
+            ilog("style.refuse", "styler changed the source (len \(source.utf16.count) → \(styled.length))")
+            return
+        }
+        lastStyledCaret = caret
+
+        let selection = textView.selectedRanges
+        let full = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        // `setAttributes` per run REPLACES that run's attributes wholesale, and
+        // the enumeration partitions the whole string — so no stale attribute
+        // from the previous pass can survive.
+        styled.enumerateAttributes(in: full, options: []) { attributes, range, _ in
+            storage.setAttributes(attributes, range: range)
+        }
+        storage.endEditing()
+        // Attribute-only editing does not move the caret, but restoring it is
+        // free insurance against an AppKit selection clamp during endEditing.
+        textView.selectedRanges = selection
+        // Newly typed characters inherit the caret's own run rather than the
+        // seed face, so a keystroke never flashes unstyled before the restyle.
+        if caret > 0, caret <= styled.length {
+            textView.typingAttributes = styled.attributes(at: caret - 1, effectiveRange: nil)
+        }
+        restyleCountForTest += 1
+        ilog("style.apply", "len=\(full.length) caret=\(caret) count=\(restyleCountForTest)")
+    }
+
+    /// Caret-scoped span reveal: the handoff makes an inline span's delimiters
+    /// appear ONLY while the caret is inside that span, so moving the caret is a
+    /// styling event. Cheap-guarded — a selection notification that leaves the
+    /// caret where it was (including the one our own restyle emits) is dropped.
+    private func caretDidMove() {
+        guard !isRestyling, sourceStyler != nil else { return }
+        guard textView.selectedRange().location != lastStyledCaret else { return }
+        restyle()
+    }
+
+    /// Test hook (BlockEditorCellStylingTests): the island's live attributed
+    /// text, exactly as it is laid out and drawn.
+    var styledTextForTest: NSAttributedString {
+        textView.textStorage.map { NSAttributedString(attributedString: $0) }
+            ?? NSAttributedString()
     }
 
     /// The content width the island currently LAYS OUT at (the text container's
@@ -184,7 +303,10 @@ public final class BlockEditorCell: NSView {
     /// `onTextDidChange` without exposing conformance on `BlockEditorCell`.
     private final class ChangeForwarder: NSObject, NSTextViewDelegate {
         var onChange: (() -> Void)?
+        /// Caret moves drive the caret-scoped span reveal (Phase 3 styling).
+        var onSelectionChange: (() -> Void)?
         func textDidChange(_ notification: Notification) { onChange?() }
+        func textViewDidChangeSelection(_ notification: Notification) { onSelectionChange?() }
     }
 }
 #endif

@@ -70,10 +70,19 @@ final class IslandControllerTests: XCTestCase {
 
     // MARK: - Editing row sizes from the live raw-source layout at activation
 
-    /// A heading's RAW source (`# Heading`, monospace) lays out differently from
-    /// its projected read height (large heading font). On activation — BEFORE any
-    /// typing — the editing row must re-query height and size from the live island
-    /// layout, or content below shifts on a click with no edit.
+    /// On activation — BEFORE any typing — the editing row must re-query its
+    /// height and size from the LIVE island layout, not from the read
+    /// projection's cached metric, or a later keystroke's growth has nothing to
+    /// grow from.
+    ///
+    /// **Phase 3 flipped the second half of this test.** It used to assert that a
+    /// heading's island height DIFFERS from its read height — true while the
+    /// island rendered `# Heading` in uniform 13pt mono, and precisely the defect
+    /// the user reported ("doesn't preserve the layout"): the row shrank on a
+    /// click with no edit. Now the island carries the H1 ramp on that line and
+    /// the editing row uses the same bleed/separator arithmetic as the read row,
+    /// so the two AGREE. Sizing-from-live-layout is still what is under test;
+    /// what changed is that the live layout now measures the same as the read one.
     func testHeadingIslandRowSizesFromLiveLayoutAtActivation() {
         let (v, doc, window) = makeRecycler("# Heading\n\nBody paragraph.")
         defer { window.orderOut(nil) }
@@ -86,12 +95,16 @@ final class IslandControllerTests: XCTestCase {
 
         let cell = v.editorCellForEditingRow()
         XCTAssertNotNil(cell)
-        let liveHeight = cell!.fittingHeightForConfiguredWidth + 2 * DecorationDraw.verticalBleed
+        let liveHeight = BlockRowMetrics.rowHeight(
+            forTextHeight: cell!.fittingHeightForConfiguredWidth,
+            of: doc.blocks[0], at: 0, in: doc,
+            renderer: v.configuredRendererForTest, width: 600)
 
         XCTAssertEqual(v.rowHeightForTest(0), liveHeight, accuracy: 0.5,
                        "the editing row is sized from the live island layout at activation")
-        XCTAssertNotEqual(v.rowHeightForTest(0), readHeight, accuracy: 0.5,
-                          "a heading's raw-source island height differs from its projected read height")
+        XCTAssertEqual(v.rowHeightForTest(0), readHeight, accuracy: 0.5,
+                       "a styled heading island measures the same as its read projection "
+                       + "— edit mode keeps the block's vertical skeleton")
     }
 
     // MARK: - Swap flushes the previous island

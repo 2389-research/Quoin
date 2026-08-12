@@ -889,7 +889,20 @@ public final class IslandController {
             textView.setSelectedRange(NSRange(location: 0, length: 0))
             return
         }
-        let index = textView.characterIndexForInsertion(at: localPoint)
+        // Clamp the point INTO the text view's content box first. The island's
+        // glyphs are inset by the decoration gutter/bleed so they line up with
+        // `BlockRenderCell`'s (Phase 3), which means a row-local point in the
+        // padding — `(0, 0)`, the "top-left of the row" every non-click
+        // activation passes — lands OUTSIDE the container. AppKit answers such a
+        // point with a nonsense index, and the `min(index, length)` below then
+        // reads as "end of block": activating at the row's top-left put the
+        // caret at the END of the text (the harness end-to-end test caught it).
+        let inset = textView.textContainerInset
+        let bounds = textView.bounds
+        let point = CGPoint(
+            x: min(max(localPoint.x, inset.width), max(inset.width, bounds.maxX - inset.width)),
+            y: min(max(localPoint.y, inset.height), max(inset.height, bounds.maxY - inset.height)))
+        let index = textView.characterIndexForInsertion(at: point)
         let clamped = max(0, min(index, length))
         textView.setSelectedRange(NSRange(location: clamped, length: 0))
     }

@@ -60,9 +60,31 @@ public enum BlockRowMetrics {
         for block: Block, at index: Int, in document: QuoinDocument,
         renderer: AttributedRenderer, theme: Theme, width: CGFloat
     ) -> CGFloat {
+        rowHeight(
+            forTextHeight: renderer.measuredHeight(of: block, in: document, width: width),
+            of: block, at: index, in: document, renderer: renderer, width: width)
+    }
+
+    /// The same row arithmetic with the TEXT height supplied by the caller —
+    /// what the EDITING row needs: its text height is the live island's own
+    /// layout, not the read projection's metric, but every other term (the
+    /// decoration bleed, the outer-edge carve-out, and the inter-block
+    /// separator contribution) is identical and must stay identical.
+    ///
+    /// Phase 3 (skeleton preservation): the editing row used to be sized as
+    /// `islandHeight + 2 * verticalBleed`, which silently dropped BOTH the
+    /// outer-edge carve-out and the separator contribution. Activating an
+    /// interior block therefore shortened its row by the whole inter-block gap
+    /// (12pt for prose, more next to a card) and everything below it jumped up —
+    /// half of the reported "doesn't preserve the layout", independent of how
+    /// the source is styled.
+    public static func rowHeight(
+        forTextHeight text: CGFloat,
+        of block: Block, at index: Int, in document: QuoinDocument,
+        renderer: AttributedRenderer, width: CGFloat
+    ) -> CGFloat {
         let isFirst = index == 0
         let isLast = index == document.blocks.count - 1
-        let text = renderer.measuredHeight(of: block, in: document, width: width)
         // Outer document edges get their bleed from the container's content
         // insets, not the row (see the type doc); interior edges reserve it.
         let topBleed = isFirst ? 0 : DecorationDraw.verticalBleed

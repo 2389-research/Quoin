@@ -304,6 +304,12 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
         let beforeRowRect = recycler.rowRectForTest(clickedRow)
         let beforeRowTopInWindow =
             recycler.windowPointForTableY(CGPoint(x: 0, y: beforeRowRect.minY)).y
+        // Phase 3: the row BELOW the click, measured directly (not derived) —
+        // it is the one that slides when the island is a different height than
+        // the read cell it replaced.
+        let nextRow = clickedRow + 1
+        let beforeNextTopInWindow =
+            recycler.windowPointForTableY(CGPoint(x: 0, y: recycler.rowRectForTest(nextRow).minY)).y
         let point = windowPoint(forRow: clickedRow, in: recycler)
 
         dispatchRealClick(at: point, in: window)
@@ -334,6 +340,27 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
         XCTAssertTrue(recycler.animationDurationsForTest.allSatisfy { $0 == 0 },
                       "the read↔island height flip must not animate — "
                       + "durations=\(recycler.animationDurationsForTest) \(trace)")
+
+        // Phase 3 (island source styling): the clicked row's TOP not moving is
+        // only half the viewport invariant. If the island is a different height
+        // than the read cell it replaced, everything BELOW the click slides —
+        // which is exactly what the user reported ("doesn't preserve the
+        // layout") and what an unstyled mono island, or an editing row that
+        // dropped its separator contribution, both cause. The row must keep its
+        // own height AND the next row must stay where it was.
+        //
+        // 1pt, not the row-top assertion's 4pt: both quantities here are
+        // deterministic row arithmetic, and the prose→prose separator
+        // contribution this guards is only 2.0pt (measured) — a 4pt budget
+        // swallows it whole and the assertion is vacuous.
+        XCTAssertEqual(afterRowRect.height, beforeRowRect.height, accuracy: 1.0,
+                       "edit mode must keep the block's vertical skeleton — "
+                       + "rowHeight \(beforeRowRect.height)→\(afterRowRect.height) \(trace)")
+        let afterNextTopInWindow =
+            recycler.windowPointForTableY(CGPoint(x: 0, y: recycler.rowRectForTest(nextRow).minY)).y
+        XCTAssertEqual(afterNextTopInWindow, beforeNextTopInWindow, accuracy: 1.0,
+                       "the row BELOW the click must not slide — "
+                       + "nextTop \(beforeNextTopInWindow)→\(afterNextTopInWindow) \(trace)")
     }
 
     // MARK: - 3. Dirty-table activation survival
@@ -474,7 +501,7 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
                       "first responder is the SAME island text view (not a rebuilt one) — \(trace)")
         XCTAssertEqual(afterRowRect.origin.y, beforeRowRect.origin.y, accuracy: 4.0,
                        "the editing row does not move across the re-apply — \(trace)")
-        XCTAssertEqual(afterRowRect.height, beforeRowRect.height, accuracy: 4.0,
+        XCTAssertEqual(afterRowRect.height, beforeRowRect.height, accuracy: 1.0,
                        "the editing row does not resize across the re-apply — \(trace)")
     }
 
