@@ -69,6 +69,32 @@ final class IslandControllerTests: XCTestCase {
                       "the island text view is first responder")
     }
 
+    // MARK: - Editing row sizes from the live raw-source layout at activation
+
+    /// A heading's RAW source (`# Heading`, monospace) lays out differently from
+    /// its projected read height (large heading font). On activation — BEFORE any
+    /// typing — the editing row must re-query height and size from the live island
+    /// layout, or content below shifts on a click with no edit.
+    func testHeadingIslandRowSizesFromLiveLayoutAtActivation() {
+        let (v, doc, window) = makeRecycler("# Heading\n\nBody paragraph.")
+        defer { window.orderOut(nil) }
+        let controller = IslandController(recycler: v)
+
+        // The projected read height of the heading row, before any activation.
+        let readHeight = v.rowHeightForTest(0)
+
+        controller.activate(blockID: doc.blocks[0].id, localPoint: .zero, in: doc, baseRevision: 0)
+
+        let cell = v.editorCellForEditingRow()
+        XCTAssertNotNil(cell)
+        let liveHeight = cell!.fittingHeightForConfiguredWidth + 2 * DecorationDraw.verticalBleed
+
+        XCTAssertEqual(v.rowHeightForTest(0), liveHeight, accuracy: 0.5,
+                       "the editing row is sized from the live island layout at activation")
+        XCTAssertNotEqual(v.rowHeightForTest(0), readHeight, accuracy: 0.5,
+                          "a heading's raw-source island height differs from its projected read height")
+    }
+
     // MARK: - Swap flushes the previous island
 
     func testActivateWhileActiveFlushesPrevious() {

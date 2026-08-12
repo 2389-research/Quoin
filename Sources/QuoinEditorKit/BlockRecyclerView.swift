@@ -263,6 +263,19 @@ public final class BlockRecyclerView: NSView {
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? BlockEditorCell
     }
 
+    /// Re-query the editing row's height so it picks up the LIVE island layout
+    /// (raw source) instead of the projected read height. The controller calls
+    /// this once the island cell is realized at activation — for blocks whose
+    /// raw source height differs from the projection (headings show `#`, code
+    /// shows fences, tables show pipes) the row would otherwise stay mis-sized on
+    /// click with no edit. Same signal `editingCellDidChangeText` sends per
+    /// keystroke, fired once up front.
+    func noteEditingRowHeight() {
+        guard let id = _editingBlockID, let row = rowByBlockID[id],
+              row < tableView.numberOfRows else { return }
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+    }
+
     /// Reload the current editing row (the read↔edit transition goes through
     /// `reloadData(forRowIndexes:)`, never a hand-swap of the row view).
     func reloadEditingRow() {

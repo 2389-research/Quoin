@@ -106,18 +106,25 @@ public final class IslandController {
             return
         }
 
-        // Mint the island from the block's own content range (its start byte is
-        // always inside the block, so `record(at:)` resolves it).
+        // Mint FIRST and gate the swap on it: a nil mint (block's content range
+        // unresolvable) must NOT leave a stuck editable row with no active
+        // island. Bail cleanly with no side effects.
         var model = BlockListModel(document: document)
-        let island = model.mintIsland(at: block.range.offset, baseRevision: baseRevision)
+        guard let island = model.mintIsland(at: block.range.offset, baseRevision: baseRevision) else {
+            state = .idle
+            return
+        }
 
         // THE SWAP: set editingBlockID → the recycler reloads that one row so
         // `viewFor` vends a seeded `BlockEditorCell`. Then realize it, hand it
-        // first responder, and place the caret from the click point.
+        // first responder, place the caret from the click point, and re-query the
+        // row height so it sizes from the LIVE raw-source island layout (not the
+        // projected read height) at activation, before any keystroke.
         recycler.editingBlockID = blockID
         if let cell = recycler.editorCellForEditingRow() {
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
+            recycler.noteEditingRowHeight()
         }
 
         activeIsland = island
