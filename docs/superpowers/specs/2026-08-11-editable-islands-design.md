@@ -446,6 +446,43 @@ The recycler now shares the model's actual configured renderer (baseURL,
 onContentReady, imageResolution, loadsRemoteImages; textScale/codeTheme via theme),
 so relative images and reader config already match the projection reader.
 
+## 13d. Phase 2 landed — carry-forward before flipping `QuoinEditorRecycler` default-on
+
+Phase 2 (ONE editable island) is complete on `main`, behind the default-OFF flag;
+the projection reader is unchanged (plan
+`docs/superpowers/plans/2026-08-11-phase2-editable-island.md`). Clicking a block
+in the recycler promotes it to a real editable `NSTextView` island
+(`BlockEditorCell`, source-safe substitutions off); `IslandController` + a
+`SwapState` machine handle click→swap→caret with IME refusal; edits debounce and
+reconcile back through the KEEP `ReaderModel.reconcileIsland` →
+`applyAbsolute(caretUTF8:nil)` path as one byte-exact `SourceEdit`; the split
+classifier is safe-by-construction (never edits across a split — Return is a soft
+newline, split→deactivate); the Phase-0 `EditorTestHarness.init(adopting:)` now
+drives the real island end-to-end as the standing gate. **The final review caught
+a data-loss bug (an island torn down by its own reconcile's projection refresh,
+then empty-flushed) — FIXED**: the refresh preserves the active island and
+`flushActiveIsland` never empty-splices a missing cell.
+
+**Must-fix BEFORE flipping the flag default-on:**
+1. **Island-preservation async race (parked).** Keeping the island alive across its
+   own reconcile depends on `applyReconciled` re-anchoring BEFORE SwiftUI's
+   revision-driven `updateNSView` refresh runs. If the refresh wins the race,
+   `_editingBlockID` is stale and the island silently drops to read-only mid-edit
+   (NOT data loss — the empty-splice bail backstops it; common case preserves).
+   Make it order-independent: defer the revision-bump refresh until
+   `applyReconciled` completes, OR re-anchor by position, OR tag the reconcile
+   revision so `apply` skips the redundant refresh.
+2. **Blur / deactivate + IME-retry not wired to responder events.** Clicking
+   outside any block / window blur does not flush+deactivate the island (edits
+   still reconcile on the 200 ms idle debounce, so no loss — the island just stays
+   visually editable until the next click). An IME-refused activation is dropped
+   (re-click needed). Wire both to real responder events.
+3. **Editing-cell wrap width on mid-edit window resize** (cosmetic reflow lag).
+4. **Structural ops are Phase 3** — Return does NOT yet create a new block (soft
+   newline; split→deactivate); Backspace-merge and block-selection ⌘A-delete are
+   Phase 3, which also flips the flag default-on and deletes the projection RIP
+   machinery.
+
 ## 14. Definition of done (v1 / Phase 3 default-on)
 
 Prose editing (headings, paragraphs, lists, block-quotes) works natively: Return
