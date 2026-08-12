@@ -108,6 +108,14 @@ public final class BlockRecyclerView: NSView {
     public var onTopBlockChange: ((BlockID) -> Void)?
     private var lastReportedTop: BlockID?
 
+    /// Fan-out hook the `IslandController` installs (Phase 2, Task 6) to drive
+    /// its reconcile debounce. The recycler stays the SOLE owner of the editing
+    /// cell's single `onTextDidChange` slot (Task-5 invariant): its
+    /// `editingCellDidChangeText` fans that ONE signal out to BOTH the row-height
+    /// re-notify (`noteHeightOfRows`) AND this closure. Do NOT wire the cell's
+    /// `onTextDidChange` from elsewhere — install here instead.
+    var onEditingTextChanged: (() -> Void)?
+
     /// Single-click seam (Phase 2, Task 2): fired when the user clicks a row,
     /// reporting the clicked block and the click's CELL-LOCAL point (origin at
     /// the cell's top-left, flipped like the cell). Phase 2 only REPORTS the
@@ -305,11 +313,16 @@ public final class BlockRecyclerView: NSView {
     }
 
     // The island cell's live edits re-notify its own row height (the editing row
-    // is excluded from `settledHeights`; its height is the live text layout).
+    // is excluded from `settledHeights`; its height is the live text layout) AND
+    // fan out to the `IslandController`'s reconcile debounce (Task 6). This is
+    // the SINGLE owner of the cell's `onTextDidChange` slot; both consumers are
+    // driven from here so neither clobbers the other.
     private func editingCellDidChangeText(_ cell: BlockEditorCell) {
-        guard let id = cell.blockID, let row = rowByBlockID[id],
-              row < tableView.numberOfRows else { return }
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        if let id = cell.blockID, let row = rowByBlockID[id],
+           row < tableView.numberOfRows {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        }
+        onEditingTextChanged?()
     }
 
     // MARK: - Click seam (Phase 2, Task 2)
