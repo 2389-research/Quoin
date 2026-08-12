@@ -324,51 +324,101 @@ public final class IslandController {
         onReconcile?(ByteRange(island.byteRange), newText, caret)
     }
 
-    /// KEEP-path re-anchor. The app calls this with the document produced by
-    /// applying the most recently fired reconcile edit. Re-runs `BlockListModel`
-    /// over the new document and finds the block that 1:1 corresponds to the
-    /// edited island — same origin byte position, and content EXACTLY the text
-    /// the island flushed. If no single block maps 1:1 (an interior newline split
-    /// the block, or it merged with a neighbour) the island is torn down per the
-    /// NO-STRUCTURAL-OPS rule — WITHOUT a re-flush (the edit is already applied);
-    /// we do not hop the caret into a split block or merge. Otherwise the
-    /// island's byte range is re-anchored and the caret re-seeded through
-    /// `IslandCaretMapping`.
-    public func applyReconciled(_ newDocument: QuoinDocument) {
+    /// Re-anchor handoff from the app after it applies the most recently fired
+    /// reconcile edit. Two outcomes:
+    ///
+    /// **KEEP (no structural change):** the island's origin byte still resolves to
+    /// a block whose content is EXACTLY the text the island flushed → re-anchor the
+    /// byte range + origin block id in place and re-seat the caret. The
+    /// `IslandUnit.id` is preserved.
+    ///
+    /// **SPLIT / structural change (Phase 3, Task 4 — the re-activate-at-caret
+    /// primitive):** the flushed text no longer maps 1:1 (an interior newline split
+    /// the block, or it merged with a neighbour). Instead of Phase-2's teardown, the
+    /// island is RE-HOMED into the block that CONTAINS the reconcile-time caret
+    /// (`caretDocByte`): re-anchor onto that block, re-seed the island cell's source
+    /// from the block's bytes, and seat the caret there. This branch NEVER splices —
+    /// only re-anchors + re-seeds the view (the edit is already applied). When no
+    /// caret is supplied (legacy callers) or the caret fell into a separator gap
+    /// (shouldn't happen for a real caret), it falls back to the safe `teardownIsland`.
+    ///
+    /// `caretDocByte` is the absolute UTF-8 byte offset of the reconcile-time caret,
+    /// computed at FLUSH time (`island.byteRange.lowerBound +
+    /// UTF8IndexMap(flushedText).utf8(fromUTF16: caret)` — bytes before the caret
+    /// don't move), NOT a live `selectedRange()` re-read (the cell may be gone after
+    /// a split). Additive + defaulted so pre-Task-4 callers keep compiling.
+    public func applyReconciled(_ newDocument: QuoinDocument, caretDocByte: Int? = nil) {
         // The in-flight apply has landed — clear the stale-range guard regardless
         // of the outcome below.
         reconcileInFlight = false
         guard let island = activeIsland, let flushed = lastFlushedText else { return }
         let model = BlockListModel(document: newDocument)
-        guard let record = model.record(at: island.byteRange.lowerBound),
-              newDocument.source.substring(in: ByteRange(record.byteRange)) == flushed else {
-            // Structural change: no clean 1:1 mapping → deactivate cleanly.
+
+        // KEEP: the island's origin byte still resolves to a block whose content is
+        // EXACTLY the flushed text → 1:1 re-anchor in place. The byte-range OFFSET is
+        // unchanged (bytes before the island never moved) but its length tracks the
+        // new text; the origin block id changes (content-hash) so hand it to the
+        // recycler so its editing identity tracks in lockstep across the projection
+        // refresh (`updateDocumentPreservingEditing`).
+        if let record = model.record(at: island.byteRange.lowerBound),
+           newDocument.source.substring(in: ByteRange(record.byteRange)) == flushed {
+            let oldStart = island.byteRange.lowerBound
+            activeIsland?.byteRange = record.byteRange
+            activeIsland?.originBlockID = record.blockID
+            recycler.reanchorEditing(to: record.blockID)
+            if let textView = recycler.currentEditorCell?.islandTextView {
+                // Prefer the flush-time caret (`caretDocByte`); fall back to a live
+                // re-read for legacy callers that pass no caret.
+                let reseated: Int?
+                if let caretDocByte {
+                    reseated = IslandCaretMapping.localUTF16(
+                        documentByte: caretDocByte, islandSource: flushed,
+                        islandByteStart: record.byteRange.lowerBound)
+                } else {
+                    let localCaret = textView.selectedRange().location
+                    reseated = IslandCaretMapping.documentByte(
+                        localUTF16: localCaret, islandSource: flushed, islandByteStart: oldStart)
+                        .flatMap {
+                            IslandCaretMapping.localUTF16(
+                                documentByte: $0, islandSource: flushed,
+                                islandByteStart: record.byteRange.lowerBound)
+                        }
+                }
+                if let reseated {
+                    let length = (textView.string as NSString).length
+                    textView.setSelectedRange(
+                        NSRange(location: max(0, min(reseated, length)), length: 0))
+                }
+            }
+            return
+        }
+
+        // SPLIT / structural change → RE-ACTIVATE AT CARET. Re-home the island onto
+        // the block that now CONTAINS the reconcile-time caret. No caret (legacy) or
+        // caret in a separator gap → safe teardown (the edit is already applied).
+        guard let caretDocByte, let rec = model.record(at: caretDocByte) else {
             teardownIsland()
             return
         }
-        // 1:1 KEEP: re-anchor the byte range (its offset is unchanged — bytes
-        // before the island never moved — but the length tracks the new text) and
-        // its origin block id (content changed → content-hash id changed), then
-        // re-seed the caret through the map. The IslandUnit.id is preserved.
-        // Hand the NEW block id to the recycler so its editing identity (and the
-        // live cell's) tracks in lockstep — the revision-driven projection refresh
-        // then carries this same editing row across `updateDocumentPreservingEditing`
-        // instead of tearing it down.
-        let oldStart = island.byteRange.lowerBound
-        activeIsland?.byteRange = record.byteRange
-        activeIsland?.originBlockID = record.blockID
-        recycler.reanchorEditing(to: record.blockID)
+        let islandSource = newDocument.source.substring(in: ByteRange(rec.byteRange)) ?? ""
+        activeIsland?.byteRange = rec.byteRange
+        activeIsland?.originBlockID = rec.blockID
+        // The island now flushes the caret block's text; keep `lastFlushedText` in
+        // step so a subsequent KEEP reconcile maps 1:1 against it.
+        lastFlushedText = islandSource
+        recycler.reanchorEditing(to: rec.blockID)
         if let textView = recycler.currentEditorCell?.islandTextView {
-            let localCaret = textView.selectedRange().location
-            if let docByte = IslandCaretMapping.documentByte(
-                    localUTF16: localCaret, islandSource: flushed, islandByteStart: oldStart),
-               let reseated = IslandCaretMapping.localUTF16(
-                    documentByte: docByte, islandSource: flushed,
-                    islandByteStart: record.byteRange.lowerBound) {
-                let length = (textView.string as NSString).length
-                textView.setSelectedRange(
-                    NSRange(location: max(0, min(reseated, length)), length: 0))
+            // Re-seed the island cell's source from the caret block's bytes (NOT a
+            // user edit — swap the string directly, which does not re-fire the
+            // reconcile debounce).
+            if textView.string != islandSource {
+                textView.string = islandSource
             }
+            let reseated = IslandCaretMapping.localUTF16(
+                documentByte: caretDocByte, islandSource: islandSource,
+                islandByteStart: rec.byteRange.lowerBound) ?? 0
+            let length = (textView.string as NSString).length
+            textView.setSelectedRange(NSRange(location: max(0, min(reseated, length)), length: 0))
         }
     }
 

@@ -282,14 +282,22 @@ public final class BlockRecyclerView: NSView {
         // Locate the editing row by the island's STABLE start byte. `record(at:)`
         // is content-ranges-only (nil for a separator-gap offset), but the island
         // start is always inside a block's content, so this resolves. A KEEP
-        // reconcile never changes the block COUNT; if it did (structural), we
-        // cannot preserve the row — fall back to the full swap.
-        guard let record = BlockListModel(document: document).record(at: islandStartByte),
-              document.blocks.count == tableView.numberOfRows else {
+        // reconcile leaves the block COUNT unchanged; a Phase-3 structural op
+        // (split/merge) changes it — Task 4 handles that WITHOUT tearing down (see
+        // the count-change branch below), so the guard only bails when the island
+        // start resolves to no block at all.
+        guard let record = BlockListModel(document: document).record(at: islandStartByte) else {
             setDocument(document, contentWidth: contentWidth)
             return
         }
         let newID = record.blockID
+        let oldRowCount = tableView.numberOfRows
+        let newRowCount = document.blocks.count
+        // The editing cell's CURRENT physical slot (before the model rebuild), so a
+        // structural count change can shift its view to the right row via row
+        // insert/remove instead of a full reload (which would re-vend it and drop
+        // first responder + caret).
+        let oldEditingRow = _editingBlockID.flatMap { rowByBlockID[$0] }
         self.document = document
         self.contentWidth = contentWidth
         settledHeights.removeAll()
@@ -308,19 +316,90 @@ public final class BlockRecyclerView: NSView {
         }
         lastReportedTop = nil
         tableView.tableColumns.first?.width = contentWidth + 2 * DecorationDraw.leftGutter
-        // Reload every row EXCEPT the live editing row: that row keeps its
-        // realized `BlockEditorCell`, so first responder and caret survive.
         let editingRow = rowByBlockID[newID]
-        var rows = IndexSet(integersIn: 0..<document.blocks.count)
-        if let editingRow { rows.remove(editingRow) }
+        if newRowCount == oldRowCount {
+            // KEEP path: reload every row EXCEPT the live editing row, which keeps
+            // its realized `BlockEditorCell` (first responder + caret survive).
+            var rows = IndexSet(integersIn: 0..<newRowCount)
+            if let editingRow { rows.remove(editingRow) }
+            if !rows.isEmpty {
+                tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+            }
+            // The editing block's byte content changed; re-size its row off the live
+            // cell layout (its height is excluded from `settledHeights`).
+            if let editingRow {
+                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: editingRow))
+            }
+        } else {
+            // STRUCTURAL count change (Phase 3, Task 4): a split/merge changed the
+            // row count. Reconcile the table WITHOUT tearing the island down —
+            // shift the editing cell to its new row via insert/remove (which move
+            // existing row views instead of re-vending them, so first responder +
+            // caret survive), then refresh every other row's content.
+            reconcileRowCountKeepingEditing(
+                oldRowCount: oldRowCount, newRowCount: newRowCount,
+                oldEditingRow: oldEditingRow, newEditingRow: editingRow)
+        }
+    }
+
+    /// Reconcile a structural row-count change while KEEPING the live editing cell
+    /// (first responder + caret). The island's edit is localized to the editing
+    /// block's region, so the delta rows are inserted/removed around it: rows added
+    /// BEFORE the editing block shift its view DOWN, rows added AFTER leave it in
+    /// place — `insert`/`removeRows` move existing views rather than re-vend them,
+    /// which is what preserves the editor cell. Every non-editing row is then
+    /// reloaded to pick up its new content/position.
+    private func reconcileRowCountKeepingEditing(
+        oldRowCount: Int, newRowCount: Int, oldEditingRow: Int?, newEditingRow: Int?
+    ) {
+        // Without a realized editing row to preserve, a full reload is correct.
+        guard let oldEditingRow, let newEditingRow else {
+            tableView.reloadData()
+            return
+        }
+        let delta = newRowCount - oldRowCount
+        tableView.beginUpdates()
+        if delta > 0 {
+            // `insertedBefore` rows land ahead of the editing block (shifting its
+            // view down from `oldEditingRow` to `newEditingRow`); the rest land
+            // just after it.
+            let insertedBefore = min(max(0, newEditingRow - oldEditingRow), delta)
+            let insertedAfter = delta - insertedBefore
+            if insertedBefore > 0 {
+                tableView.insertRows(
+                    at: IndexSet(integersIn: oldEditingRow..<(oldEditingRow + insertedBefore)),
+                    withAnimation: [])
+            }
+            if insertedAfter > 0 {
+                tableView.insertRows(
+                    at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + insertedAfter)),
+                    withAnimation: [])
+            }
+        } else if delta < 0 {
+            let removed = -delta
+            // Symmetric: rows removed BEFORE the editing block shift its view up.
+            let removedBefore = min(max(0, oldEditingRow - newEditingRow), removed)
+            let removedAfter = removed - removedBefore
+            if removedBefore > 0 {
+                tableView.removeRows(
+                    at: IndexSet(integersIn: newEditingRow..<(newEditingRow + removedBefore)),
+                    withAnimation: [])
+            }
+            if removedAfter > 0 {
+                tableView.removeRows(
+                    at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + removedAfter)),
+                    withAnimation: [])
+            }
+        }
+        tableView.endUpdates()
+        // Refresh every NON-editing row (their blocks/positions changed); the
+        // editing row keeps its shifted, still-realized cell.
+        var rows = IndexSet(integersIn: 0..<newRowCount)
+        rows.remove(newEditingRow)
         if !rows.isEmpty {
             tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
         }
-        // The editing block's byte content changed; re-size its row off the live
-        // cell layout (its height is excluded from `settledHeights`).
-        if let editingRow {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: editingRow))
-        }
+        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: newEditingRow))
     }
 
     /// KEEP-path re-anchor handoff from `IslandController.applyReconciled`: a

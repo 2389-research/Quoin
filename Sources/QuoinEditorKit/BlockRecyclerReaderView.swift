@@ -123,11 +123,18 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
                                  in: coordinator.document, baseRevision: coordinator.baseRevision)
         }
 
-        controller.onReconcile = { [weak coordinator, weak controller] range, text, _ in
+        controller.onReconcile = { [weak coordinator, weak controller] range, text, caret in
             guard let coordinator, let onReconcile = coordinator.onReconcile else { return }
+            // Phase 3, Task 4: compute the reconcile-time caret's ABSOLUTE document
+            // byte at FLUSH time — bytes before the caret don't move, so this is
+            // stable even if the split makes the live cell's selection meaningless.
+            // Threaded to `applyReconciled` so a split RE-HOMES the island into the
+            // caret's new block instead of tearing down.
+            let caretDocByte = IslandCaretMapping.documentByte(
+                localUTF16: caret, islandSource: text, islandByteStart: range.offset)
             Task { @MainActor in
                 let newDocument = await onReconcile(range, text)
-                controller?.applyReconciled(newDocument)
+                controller?.applyReconciled(newDocument, caretDocByte: caretDocByte)
             }
         }
     }
