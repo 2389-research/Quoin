@@ -161,7 +161,15 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
             // is active and re-anchored, and falls back to `setDocument` otherwise
             // (read-only, external swap, structural change) — so the non-editing
             // path is byte-identical to before.
-            view.updateDocumentPreservingEditing(document, contentWidth: width)
+            // Re-anchor by the active island's STABLE start byte (bytes before the
+            // island never move across its own edits), so the preserve path is
+            // idempotent with `IslandController.applyReconciled` in EITHER order —
+            // it no longer depends on `_editingBlockID` having already been
+            // re-pointed onto the new content-hash id. Nil when no island is active
+            // (read-only / external swap), which falls through to `setDocument`.
+            let islandStart = coordinator.islandController?.activeIsland?.byteRange.lowerBound
+            view.updateDocumentPreservingEditing(
+                document, contentWidth: width, islandStartByte: islandStart)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
         }

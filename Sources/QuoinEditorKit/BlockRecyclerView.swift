@@ -250,27 +250,46 @@ public final class BlockRecyclerView: NSView {
     /// for the coordinated seam.
     ///
     /// A KEEP reconcile changes the edited block's CONTENT, so its content-hash
-    /// `BlockID` changes; `applyReconciled` has already re-anchored the island and
-    /// called `reanchorEditing(to:)`, so `_editingBlockID` and the live cell's
-    /// `blockID` already point at the NEW id by the time this runs. This method
-    /// swaps in the new document + row map and reloads every NON-editing row,
-    /// KEEPING the editing row's `BlockEditorCell` (and thus its first responder +
-    /// caret) untouched. Falls back to `setDocument` whenever the invariants don't
-    /// hold (not editing, the new document doesn't contain the editing block, or
-    /// the row count changed) — so the read-only flag-on path is byte-identical to
+    /// `BlockID` changes. This method locates the editing row by the island's
+    /// STABLE START BYTE (`islandStartByte`) — bytes BEFORE the island never move
+    /// across the island's own edits, so the start offset is invariant while the
+    /// content-hash id mutates on every keystroke. It re-points the recycler's
+    /// editing identity (`_editingBlockID` + the live cell's `blockID`) onto the
+    /// block that now owns that offset, rebuilds the row map, reloads every
+    /// NON-editing row, and KEEPS the editing row's `BlockEditorCell` (and thus its
+    /// first responder + caret) untouched.
+    ///
+    /// Locating by position (not the stale id) makes this refresh IDEMPOTENT with
+    /// `IslandController.applyReconciled` in EITHER order: both do the same
+    /// `record(at:)`-based re-anchor, and re-pointing no-ops when the id is already
+    /// current. Previously the guard was `document.blocks.contains { $0.id ==
+    /// _editingBlockID }`, which failed when this refresh raced AHEAD of
+    /// `applyReconciled` (id not yet re-anchored) → fell back to `setDocument` →
+    /// island torn down. Now the ordering no longer matters.
+    ///
+    /// Falls back to `setDocument` whenever the invariants don't hold (not editing,
+    /// no island start byte, the start offset resolves to no block, or the row
+    /// count changed) — so the read-only / flag-off path is byte-identical to
     /// before.
-    public func updateDocumentPreservingEditing(_ document: QuoinDocument, contentWidth: CGFloat) {
-        guard let editID = _editingBlockID, liveEditorCell != nil,
-              document.blocks.contains(where: { $0.id == editID }) else {
+    public func updateDocumentPreservingEditing(_ document: QuoinDocument, contentWidth: CGFloat, islandStartByte: Int?) {
+        // Read-only / flag-off path: no active editing island (or no island start)
+        // → full swap, byte-identical to before.
+        guard _editingBlockID != nil, liveEditorCell != nil,
+              let islandStartByte else {
             setDocument(document, contentWidth: contentWidth)
             return
         }
-        // A KEEP reconcile never changes the block COUNT; if it did (structural),
-        // we cannot preserve the row — fall back to the full swap.
-        guard document.blocks.count == tableView.numberOfRows else {
+        // Locate the editing row by the island's STABLE start byte. `record(at:)`
+        // is content-ranges-only (nil for a separator-gap offset), but the island
+        // start is always inside a block's content, so this resolves. A KEEP
+        // reconcile never changes the block COUNT; if it did (structural), we
+        // cannot preserve the row — fall back to the full swap.
+        guard let record = BlockListModel(document: document).record(at: islandStartByte),
+              document.blocks.count == tableView.numberOfRows else {
             setDocument(document, contentWidth: contentWidth)
             return
         }
+        let newID = record.blockID
         self.document = document
         self.contentWidth = contentWidth
         settledHeights.removeAll()
@@ -278,11 +297,20 @@ public final class BlockRecyclerView: NSView {
         for (index, block) in document.blocks.enumerated() {
             rowByBlockID[block.id] = index
         }
+        // Re-point the editing identity onto the block that now owns the island's
+        // start byte (folds `reanchorEditing`'s body): the content-hash id changed
+        // with the edit, so update `_editingBlockID` and the live cell's `blockID`.
+        // No-ops when already current (e.g. `applyReconciled` re-anchored first),
+        // which is what makes the two paths order-independent.
+        if _editingBlockID != newID {
+            _editingBlockID = newID
+            liveEditorCell?.reassignBlockID(newID)
+        }
         lastReportedTop = nil
         tableView.tableColumns.first?.width = contentWidth + 2 * DecorationDraw.leftGutter
         // Reload every row EXCEPT the live editing row: that row keeps its
         // realized `BlockEditorCell`, so first responder and caret survive.
-        let editingRow = rowByBlockID[editID]
+        let editingRow = rowByBlockID[newID]
         var rows = IndexSet(integersIn: 0..<document.blocks.count)
         if let editingRow { rows.remove(editingRow) }
         if !rows.isEmpty {
