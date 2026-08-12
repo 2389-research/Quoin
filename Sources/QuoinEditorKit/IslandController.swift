@@ -97,6 +97,13 @@ public final class IslandController {
 
     private unowned let recycler: BlockRecyclerView
 
+    // Observer token for `NSWindow.didResignKeyNotification`. When the app loses
+    // key window (e.g. Cmd-Tab away) the text view keeps first responder — so the
+    // blur seam does NOT fire — but any pending edits should still be persisted.
+    // We flush the KEEP-path reconcile WITHOUT tearing the island down, so the
+    // user returns to the same active island with their typing already applied.
+    private var resignKeyObserver: NSObjectProtocol?
+
     public init(recycler: BlockRecyclerView) {
         self.recycler = recycler
         // Install the reconcile-debounce fan-out. The recycler stays the SOLE
@@ -105,10 +112,24 @@ public final class IslandController {
         recycler.onEditingTextChanged = { [weak self] in
             self?.islandTextDidChange()
         }
+        resignKeyObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.windowDidResignKey() }
+        }
     }
 
     deinit {
         reconcileTimer?.invalidate()
+        if let resignKeyObserver { NotificationCenter.default.removeObserver(resignKeyObserver) }
+    }
+
+    /// The app lost key window while an island is active: flush pending edits
+    /// through the existing KEEP reconcile path (no teardown — the island stays
+    /// active). No-op when nothing is pending or there is no active island.
+    private func windowDidResignKey() {
+        guard activeIsland != nil else { return }
+        flushPendingReconcile()
     }
 
     // MARK: - Activation
@@ -159,6 +180,11 @@ public final class IslandController {
         // projected read height) at activation, before any keystroke.
         recycler.editingBlockID = blockID
         if let cell = recycler.editorCellForEditingRow() {
+            // Blur seam: a click outside the island — or the window handing first
+            // responder to another view — flushes + swaps this row back to
+            // read-only. A responder override, NOT a delegate method, so the
+            // cell's ChangeForwarder delegate is untouched.
+            cell.onResignFirstResponder = { [weak self] in self?.deactivate() }
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
             recycler.noteEditingRowHeight()

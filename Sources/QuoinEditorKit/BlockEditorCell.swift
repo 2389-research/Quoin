@@ -32,7 +32,31 @@ public final class BlockEditorCell: NSView {
 
     /// The real editable view. The harness (and, in Task 5, the controller)
     /// makes THIS first responder and places the caret from a click point.
+    /// Publicly typed `NSTextView`; internally the `IslandTextView` subclass that
+    /// carries the responder seams (blur / Return / Backspace).
     public var islandTextView: NSTextView { textView }
+
+    /// Blur seam passthrough to the hosted `IslandTextView` (a responder override,
+    /// NOT a delegate method — the `ChangeForwarder` delegate is untouched). The
+    /// controller installs `deactivate()` here so a click outside the island — or
+    /// the window handing first responder elsewhere — flushes + swaps back to
+    /// read-only.
+    public var onResignFirstResponder: (() -> Void)? {
+        get { textView.onResignFirstResponder }
+        set { textView.onResignFirstResponder = newValue }
+    }
+
+    /// Return-key seam passthrough (wired in Task 5).
+    public var onInsertNewline: (() -> Bool)? {
+        get { textView.onInsertNewline }
+        set { textView.onInsertNewline = newValue }
+    }
+
+    /// Backspace seam passthrough (wired in Task 7).
+    public var onDeleteBackward: (() -> Bool)? {
+        get { textView.onDeleteBackward }
+        set { textView.onDeleteBackward = newValue }
+    }
 
     // A live TextKit-2 stack: content storage → layout manager → container,
     // built the same way the harness / CaretLineAnchorTests stand one up.
@@ -40,7 +64,7 @@ public final class BlockEditorCell: NSView {
     private let layoutManager = NSTextLayoutManager()
     private let textContainer = NSTextContainer(
         size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-    private let textView: NSTextView
+    private let textView: IslandTextView
 
     // Bridges the text view's `textDidChange` back to `onTextDidChange` without
     // making the cell itself the delegate (keeps NSTextViewDelegate off the
@@ -50,7 +74,7 @@ public final class BlockEditorCell: NSView {
     public override init(frame frameRect: NSRect) {
         contentStorage.addTextLayoutManager(layoutManager)
         layoutManager.textContainer = textContainer
-        textView = NSTextView(frame: frameRect, textContainer: textContainer)
+        textView = IslandTextView(frame: frameRect, textContainer: textContainer)
 
         super.init(frame: frameRect)
         wantsLayer = true
