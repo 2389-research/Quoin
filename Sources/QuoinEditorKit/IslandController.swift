@@ -496,6 +496,28 @@ public final class IslandController {
     /// revalidation stands down and lets the in-flight path finish. `currentDocument`
     /// is still refreshed, which is what keeps the flush-time drift check honest.
     ///
+    /// ## An accepted re-anchor is a THREE-WAY decision (the ⌘Z data-loss fix)
+    ///
+    /// Re-anchoring ADVANCES `anchoredSource` to the document's new bytes, which is
+    /// precisely what makes the flush-time drift check stop objecting. So the
+    /// island's DISPLAYED TEXT may never be left stale behind a refreshed anchor:
+    ///
+    ///  1. **The island's own block is byte-identical** (`newSource ==
+    ///     anchoredSource`) — the external change happened elsewhere. Pure
+    ///     re-anchor: nothing is re-seeded and UNFLUSHED TYPING SURVIVES.
+    ///  2. **Its bytes changed and the island is CLEAN** (live text ==
+    ///     `lastFlushedText`) — RE-SEED the text view from the new bytes and stay
+    ///     open (`revalidate.reseed`). The user keeps their place and the undo is
+    ///     visible immediately.
+    ///  3. **Its bytes changed and there ARE unflushed keystrokes** — abandon
+    ///     loudly. Merging is ambiguous, and either half written at the other's
+    ///     offsets corrupts.
+    ///
+    /// Pre-fix only the re-anchor happened: after a ⌘Z that rewrote the open block
+    /// IN PLACE the island kept showing the pre-undo text while the anchor claimed
+    /// to be in sync, and the very next keystroke's flush spliced that stale text
+    /// back over the restored bytes.
+    ///
     /// UNFLUSHED KEYSTROKES on a refused re-anchor are DISCARDED, loudly
     /// (`revalidate.abandon … discardedUnflushed=`). They cannot be flushed first:
     /// by the time a projected document reaches us the external change has ALREADY
@@ -533,12 +555,95 @@ public final class IslandController {
             return nil
         }
         let record = model.records[index]
+        let newSource = document.source.substring(in: ByteRange(record.byteRange)) ?? ""
+
+        // Did this external change touch the ISLAND'S OWN block, or only bytes
+        // elsewhere? Everything below turns on that question, because a re-anchor
+        // ADVANCES `anchoredSource` — and an advanced anchor is exactly what makes
+        // the flush-time drift check wave a stale splice through.
+        if newSource != anchoredSource {
+            // THE ISLAND'S BLOCK CHANGED UNDERNEATH IT. Its text view still shows
+            // the PRE-change bytes, so leaving it alone here is not cosmetic: with
+            // the anchor refreshed to the new bytes, `anchorIsIntact` passes and the
+            // next keystroke's flush splices the STALE text over the span the
+            // external change just wrote (⌘Z silently reverted — the shipped bug).
+            guard let cell = recycler.currentEditorCell,
+                  cell.blockID == island.originBlockID else {
+                // No live cell to re-seed (or it hosts some other block): there is no
+                // trustworthy island text at all. Down it goes.
+                ilog("revalidate.reseed.impossible",
+                     "islandStart=\(start) reason=noLiveCell")
+                abandonIslandForInvalidatedDocument(reason: "externalBlockChangeWithoutCell")
+                return nil
+            }
+            let live = cell.islandTextView.string
+            if live != lastFlushedText {
+                // UNFLUSHED TYPING over changed bytes. Re-seeding would silently eat
+                // the user's in-progress keystrokes; keeping them would re-ship the
+                // corruption. ⌘Z-with-unflushed-typing is genuinely ambiguous, and
+                // the established rule here is "discard LOUDLY rather than write at
+                // wrong offsets" — same teardown, counters and log line as the
+                // positional-mismatch path.
+                ilog("revalidate.reseed.refused",
+                     "islandStart=\(start) reason=unflushedEdits liveLen=\((live as NSString).length)")
+                abandonIslandForInvalidatedDocument(
+                    reason: "externalBlockChangeWithUnflushedEdits")
+                return nil
+            }
+            // CLEAN island → RE-SEED it in place and stay open. The user keeps their
+            // place in the block and the undo becomes visible immediately.
+            reseedIsland(cell: cell, from: newSource, blockID: record.blockID)
+            ilog("revalidate.reseed",
+                 "islandStart=\(start) index=\(index) newID=\(record.blockID) oldLen=\((live as NSString).length) newLen=\((newSource as NSString).length) caret=\(cell.islandTextView.selectedRange().location)")
+        }
+
         activeIsland?.byteRange = record.byteRange
         activeIsland?.originBlockID = record.blockID
         activeIslandKind = record.kind
-        anchoredSource = document.source.substring(in: ByteRange(record.byteRange))
+        anchoredSource = newSource
         ilog("revalidate.reanchor", "islandStart=\(start) index=\(index) newID=\(record.blockID)")
         return start
+    }
+
+    /// Re-seed the live island's text view from the document's bytes for the block
+    /// it has just been re-anchored onto, and re-seat the caret.
+    ///
+    /// Only ever called with a CLEAN island (live text == `lastFlushedText`), so
+    /// nothing the user typed can be lost here.
+    ///
+    /// It goes through `BlockEditorCell.configure(slice:blockID:width:)` — the SAME
+    /// seeding path the row-vending code uses — rather than poking
+    /// `islandTextView.string`, so the string-integrity gate and the restyle pass
+    /// both run and the island stays byte-identical to the document AND styled
+    /// (`IslandSourceStylingTests`). The cell's recycling identity moves with it:
+    /// `reconcileNow` requires `cell.blockID == island.originBlockID`, and the
+    /// caller re-points `originBlockID` onto `blockID` immediately after.
+    ///
+    /// **The caret rule:** the caret keeps its UTF-16 offset within the island,
+    /// clamped to the new text's length and snapped back to a composed-character
+    /// boundary. A block that SHRANK past the caret parks it at the very end (the
+    /// nearest surviving position) instead of crashing; a caret that still fits is
+    /// preserved exactly. Byte-for-byte caret tracking across an arbitrary external
+    /// rewrite is not knowable — there is no edit script — so "same offset, clamped"
+    /// is the honest rule.
+    private func reseedIsland(cell: BlockEditorCell, from source: String, blockID: BlockID) {
+        let previousCaret = cell.islandTextView.selectedRange().location
+        cell.configure(slice: source, blockID: blockID, width: cell.currentContentWidth)
+        let text = source as NSString
+        var caret = max(0, min(previousCaret, text.length))
+        if caret > 0, caret < text.length {
+            // Never leave the caret inside a surrogate pair / composed sequence.
+            let sequence = text.rangeOfComposedCharacterSequence(at: caret)
+            if sequence.location < caret { caret = sequence.location }
+        }
+        cell.islandTextView.setSelectedRange(NSRange(location: caret, length: 0))
+        // The island now holds exactly the document's bytes: that IS the
+        // unchanged-text baseline, so a flush with no further typing short-circuits
+        // instead of replaying byte-identical bytes as a real edit (C3). Any pending
+        // debounce is stale by construction — the island was clean when we got here.
+        lastFlushedText = source
+        pendingReconcile = false
+        cancelReconcileTimer()
     }
 
     /// Drop the island because the document it was anchored to is gone, WITHOUT
