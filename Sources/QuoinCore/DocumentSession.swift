@@ -518,6 +518,25 @@ public actor DocumentSession {
         if let baseRevision, baseRevision != contentRevision {
             throw SessionError.staleEditBase(expected: contentRevision, got: baseRevision)
         }
+        // NO-OP GUARD (defence in depth). An edit whose replacement is BYTE-IDENTICAL
+        // to the bytes it replaces produces the same source, so applying it is all
+        // cost and no change: a dead undo step (⌘Z that visibly does nothing), a
+        // scheduled autosave that rewrites the user's file and moves its mtime (which
+        // then surfaces as an external change), and a published revision bump that
+        // refreshes the whole projection. The editable-island flush is the caller
+        // that can produce one — a click-in/click-away with zero typing replays the
+        // block's own bytes — but the guard is universal because a no-op edit is
+        // meaningless from EVERY caller.
+        //
+        // Callers audited for a revision-bump dependency: none. `applyEdit` does not
+        // bump `contentRevision` at all (only `adoptExternal`/undo/redo do), and every
+        // caller either ignores the return value or uses the returned document — which
+        // is byte-identical either way. `substring(in:)` returns nil for an
+        // out-of-range edit, which never equals a replacement, so a malformed edit
+        // still falls through to `parseAfterEdit` and throws as before.
+        if document.source.substring(in: edit.range) == edit.replacement {
+            return document
+        }
         let parsed = try MarkdownConverter.parseAfterEdit(previous: document, edit: edit)
         recordUndo(edit: edit, inverse: parsed.inverse, actionName: actionName)  // reads pre-edit `document`
         if publishSnapshot {

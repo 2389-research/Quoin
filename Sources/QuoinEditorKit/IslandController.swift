@@ -51,19 +51,69 @@ public final class IslandController {
     /// `applyReconciled(...)` (every branch, before any early return).
     private var currentDocument: QuoinDocument?
 
-    /// Task 7 (Fix round 1): a Backspace-merge that must wait for a preceding
-    /// debounced (KEEP) flush's apply to LAND before it fires. In the real app
+    // MARK: - The deferral channel (ordered work behind an in-flight apply)
+
+    /// Work that MUST NOT fire until the currently in-flight `onReconcile` apply has
+    /// LANDED (i.e. the app has called `applyReconciled`). In the real app
     /// `onReconcile` is async (`Task { await onReconcile(...); applyReconciled(...) }`),
-    /// so when `handleBackspace` flushes a pending edit the flush's apply is NOT
-    /// complete when it returns — firing the merge as a sibling Task would race the
-    /// flush (unstructured-`Task` @MainActor enqueue order is not FIFO). Instead the
-    /// merge is DEFERRED: set here, consumed at the END of the next `applyReconciled`
-    /// (the flush's), which recomputes the predecessor + separator against the now-
-    /// refreshed document and fires the merge. This makes flush-before-merge ordering
-    /// GUARANTEED, and — because the recompute runs post-flush — removes the
-    /// stale-offset reliance entirely (the separator invariant holds against the
-    /// actual current document).
-    private var pendingMergeAfterFlush = false
+    /// so anything fired as a sibling `Task` races it — unstructured-`Task`
+    /// @MainActor enqueue order is not FIFO — and would splice against offsets the
+    /// in-flight apply is about to move (the CLAUDE.md "compute-where-applied /
+    /// stale-base" bug class).
+    ///
+    /// This is the ONE deferral channel (Task 7 built it for the Backspace-merge;
+    /// the Phase-3 critical-fix wave generalized it rather than adding a second):
+    /// entries are appended in order and drained ONE PER `applyReconciled`, so each
+    /// deferred op is itself ordered behind the op before it.
+    private enum DeferredOp {
+        /// A Backspace-merge, KEYED to the island that armed it (C2). At consume
+        /// time `fireBackspaceMerge` re-resolves the predecessor/separator from
+        /// whatever island is CURRENT, so an unkeyed flag would happily merge the
+        /// neighbours of a completely different block the user has since clicked
+        /// into. The key makes a stale merge a no-op instead.
+        case backspaceMerge(IslandUnitID)
+        /// A TERMINAL flush (swap-out / blur) that arrived while an apply was in
+        /// flight (C1). The island is already gone, so there is nothing left to
+        /// re-anchor — the op carries everything needed to splice the outgoing
+        /// text exactly once, against the document the in-flight apply produces.
+        case terminalFlush(TerminalFlush)
+    }
+
+    /// A terminal flush parked behind an in-flight apply. It records the island's
+    /// START byte (bytes BEFORE an island never move across its own edits) and the
+    /// text the in-flight apply is writing there (`priorText`), so the deferred
+    /// splice range is `islandStart ..< islandStart + priorText.utf8.count` — the
+    /// exact span the in-flight apply wrote, computable without re-deriving block
+    /// structure (which a structural edit would have changed).
+    private struct TerminalFlush {
+        let islandStart: Int
+        let priorText: String
+        let text: String
+        let caretUTF16: Int
+    }
+
+    private var deferredOps: [DeferredOp] = []
+
+    /// Test-only observability: how many ops are queued behind the in-flight apply.
+    /// The falsifier tests assert on it directly so "the work was DEFERRED" is an
+    /// observed interaction, not inferred from a downstream outcome that a
+    /// fired-immediately implementation might also produce.
+    var deferredOpCountForTest: Int { deferredOps.count }
+
+    /// Who the currently in-flight `onReconcile` belongs to. `applyReconciled` uses
+    /// it to refuse a re-anchor that would land on the WRONG island: by the time an
+    /// apply comes back the user may have clicked into another block, and the
+    /// KEEP/SPLIT branches would then re-anchor (or tear down) an island that had
+    /// nothing to do with the edit.
+    private enum InFlightOwner {
+        /// A KEEP reconcile / Backspace-merge fired by this island — its
+        /// `applyReconciled` re-anchors it.
+        case island(IslandUnitID)
+        /// A TERMINAL flush (swap-out, blur, deferred terminal flush). The island
+        /// was dropped before the fire, so the apply has nothing to re-anchor.
+        case orphan
+    }
+    private var inFlightOwner: InFlightOwner?
 
     /// The `BlockKind` of the block the active island currently hosts, threaded at
     /// `activate` and kept in step with the hosted block across KEEP re-anchors and
@@ -92,6 +142,13 @@ public final class IslandController {
     // flushes immediately (not after another idle window). `lastFlushedText` is
     // the text most recently sent through `onReconcile`, against which
     // `applyReconciled` verifies the re-anchored block still maps 1:1.
+    //
+    // C1/C3: `lastFlushedText` is also the UNCHANGED-TEXT BASELINE. It is SEEDED at
+    // `activate` with the island's own source, so "the document already holds this
+    // text" is expressible from the very first moment of an island's life — a
+    // click-in/click-away with zero typing then short-circuits instead of replaying
+    // byte-identical bytes as a real edit (dead undo step, spurious autosave/mtime
+    // bump, pointless revision bump + recycler refresh).
     private var pendingReconcile = false
     private var reconcileTimer: Timer?
     private var wasComposing = false
@@ -193,6 +250,12 @@ public final class IslandController {
             return
         }
 
+        // C2: a Backspace-merge armed by the OUTGOING island must never be consumed
+        // by the incoming one. Purge merge deferrals before the swap (a deferred
+        // TERMINAL flush is kept — it carries the outgoing island's unwritten text
+        // and is self-contained; dropping it would drop an edit).
+        purgeDeferredMerges()
+
         // Flush the OUTGOING island (if any) before touching the recycler, while
         // its editor cell still hosts the outgoing block's text.
         if activeIsland != nil {
@@ -203,7 +266,7 @@ public final class IslandController {
 
         guard let block = document.blocks.first(where: { $0.id == blockID }) else {
             // The block vanished from the document; abandon the swap cleanly.
-            state = .idle
+            abandonSwap(reason: "blockNotInDocument")
             return
         }
 
@@ -212,7 +275,7 @@ public final class IslandController {
         // island. Bail cleanly with no side effects.
         var model = BlockListModel(document: document)
         guard let island = model.mintIsland(at: block.range.offset, baseRevision: baseRevision) else {
-            state = .idle
+            abandonSwap(reason: "mintFailed")
             return
         }
 
@@ -226,8 +289,7 @@ public final class IslandController {
         // cleanly rather than leave a half-promoted row.
         guard let cell = recycler.promoteRow(to: blockID) else {
             ilog("activate.promoteFailed", "blockID=\(blockID)")
-            recycler.editingBlockID = nil
-            state = .idle
+            abandonSwap(reason: "promoteFailed")
             return
         }
         // Install the responder seams (blur / Return / Backspace). Extracted so
@@ -257,9 +319,58 @@ public final class IslandController {
         pendingReconcile = false
         wasComposing = false
         reconcileInFlight = false
-        lastFlushedText = nil
+        inFlightOwner = nil
+        // C1/C3: SEED the unchanged-text baseline with the island's own source, so a
+        // flush that replays byte-identical bytes is recognisable as a no-op. Read
+        // off the realized cell (the exact string a later flush reads back), with
+        // the document slice as the fallback for a not-yet-seeded cell.
+        lastFlushedText = cell.islandTextView.string
         cancelReconcileTimer()
         state = .idle
+        assertNoOrphanedEditorCell("activate")
+    }
+
+    // MARK: - Clean abandonment (C5)
+
+    /// Abandon an in-progress swap and leave a CLEAN state.
+    ///
+    /// Every `activate` bail AFTER `flushActiveIsland()` has dropped the outgoing
+    /// island runs through here. Without it the recycler is still pointed at the
+    /// OUTGOING block (`editingBlockID` set, `liveEditorCell` realized) whose
+    /// `IslandTextView` is still FIRST RESPONDER, while `activeIsland` is nil — so
+    /// every subsequent keystroke reaches `islandTextDidChange`, hits its
+    /// `activeIsland != nil` guard, and is SILENTLY DISCARDED (the user types into
+    /// a live-looking editor and nothing is ever written).
+    ///
+    /// Drop first responder BEFORE demoting so the resign is observed while the
+    /// cell still exists; the blur seam is inert (`activeIsland` is already nil), so
+    /// this cannot re-enter `deactivate`.
+    private func abandonSwap(reason: String) {
+        ilog("activate.abandon", "reason=\(reason) editingBlockID=\(recycler.editingBlockID.map { "\($0)" } ?? "nil")")
+        if let cell = recycler.currentEditorCell, let window = cell.window,
+           window.firstResponder === cell.islandTextView {
+            // `makeFirstResponder(nil)` hands first responder back to the window.
+            window.makeFirstResponder(nil)
+        }
+        recycler.editingBlockID = nil
+        activeIslandKind = nil
+        state = .idle
+        assertNoOrphanedEditorCell("abandonSwap(\(reason))")
+    }
+
+    /// The ⟺ invariant: a live editable cell exists **iff** an island is active.
+    /// Exposed (not private) so the falsifier test can assert it directly; asserted
+    /// in DEBUG at every SETTLED point (`activate`, `deactivate`, `abandonSwap`,
+    /// `teardownIsland`) — never mid-swap, where it is legitimately violated for a
+    /// few statements.
+    var hasOrphanedEditorCell: Bool {
+        activeIsland == nil
+            && (recycler.editingBlockID != nil || recycler.currentEditorCell != nil)
+    }
+
+    private func assertNoOrphanedEditorCell(_ context: String) {
+        assert(!hasOrphanedEditorCell,
+               "island invariant violated at \(context): a live editable cell exists with no active island")
     }
 
     /// Install the island's responder seams onto `cell`: blur (resign), Return,
@@ -327,9 +438,13 @@ public final class IslandController {
             state = .idle
             return
         }
+        // C2: a Backspace-merge armed by THIS island must not survive its teardown.
+        purgeDeferredMerges()
         flushActiveIsland()
         recycler.editingBlockID = nil
+        activeIslandKind = nil
         state = .idle
+        assertNoOrphanedEditorCell("deactivate")
     }
 
     // MARK: - Return (Phase 3, Task 5)
@@ -348,10 +463,16 @@ public final class IslandController {
     /// composing-edge discipline), or for the not-yet-implemented list/quote/table
     /// modes (Task 6).
     public func handleReturn() -> Bool {
-        guard let kind = activeIslandKind,
-              let textView = recycler.currentEditorCell?.islandTextView else {
+        // I9: act ONLY on the live island cell. Without the `cell.blockID ==
+        // island.originBlockID` check (the one `handleBackspace` already makes) a
+        // reload that re-vended some OTHER row's cell would have Return splice into
+        // the wrong block's text.
+        guard let island = activeIsland, let kind = activeIslandKind,
+              let cell = recycler.currentEditorCell,
+              cell.blockID == island.originBlockID else {
             return false
         }
+        let textView = cell.islandTextView
         // Never split mid-composition: splicing into half-composed marked text
         // corrupts the source. Let native handle the newline.
         if currentHasMarkedText() { return false }
@@ -480,22 +601,47 @@ public final class IslandController {
             return false
         }
 
-        // ORDERING (Fix round 1): if a debounced KEEP edit is pending, the real
-        // app's `onReconcile` is async, so the flush's apply lands LATER. Firing
-        // the merge now would race it (non-FIFO Tasks) and could splice the merge
-        // FIRST, leaving the flush's whole-island range to overrun the shrunken
-        // document (the CLAUDE.md "compute-where-applied / stale-base" bug class).
-        // Defer the merge behind the flush: flush now, and let the flush's
-        // `applyReconciled` fire the merge once it has landed and refreshed the
-        // document + island range. When nothing is pending, the flush is a no-op
-        // and we fire the merge immediately (unchanged from the original path).
-        if pendingReconcile {
-            pendingMergeAfterFlush = true
-            flushPendingReconcile()
+        // ORDERING (Fix round 1, extended by I2): the real app's `onReconcile` is
+        // async, so an apply that is PENDING (debounced, not yet fired) *or already
+        // IN FLIGHT* lands LATER. Firing the merge now would race it (non-FIFO
+        // Tasks) and could splice the merge FIRST — everything then shifts left by
+        // the separator length and the flush's whole-island range splices at offsets
+        // short by exactly that much (the CLAUDE.md "compute-where-applied /
+        // stale-base" bug class). Defer the merge behind whatever is outstanding,
+        // KEYED to this island (C2), and let the landing `applyReconciled` fire it
+        // against the refreshed document + re-anchored island range.
+        if reconcileInFlight {
+            // Something is already in flight; its `applyReconciled` will drain us.
+            // (I2: the original code fired immediately in the
+            // `reconcileInFlight && !pendingReconcile` case — a direct race.)
+            deferredOps.append(.backspaceMerge(island.id))
+        } else if pendingReconcile {
+            deferredOps.append(.backspaceMerge(island.id))
+            // If the flush turns out to be a NO-OP (unchanged text — C1's
+            // short-circuit), nothing will ever call `applyReconciled`, so the
+            // deferred merge would never be drained and Backspace would silently do
+            // nothing while still consuming the keystroke. Fire it directly instead.
+            if !reconcileNow() {
+                purgeDeferredMerges()
+                fireBackspaceMerge()
+            }
         } else {
             fireBackspaceMerge()
         }
         return true
+    }
+
+    /// Drop every DEFERRED Backspace-merge. Called at each island-identity
+    /// transition (`activate`, `deactivate`, `teardownIsland`) so a merge armed by
+    /// an island that no longer exists can never be consumed. Deferred TERMINAL
+    /// flushes are deliberately KEPT — they carry an outgoing island's unwritten
+    /// text and are self-contained (no island identity is needed to fire them), so
+    /// purging them would DROP AN EDIT.
+    private func purgeDeferredMerges() {
+        guard deferredOps.contains(where: { if case .backspaceMerge = $0 { return true }; return false })
+        else { return }
+        ilog("deferred.purgeMerges", "count=\(deferredOps.count)")
+        deferredOps.removeAll { if case .backspaceMerge = $0 { return true }; return false }
     }
 
     /// The block immediately before `islandStart`: the record whose content ends at
@@ -533,6 +679,7 @@ public final class IslandController {
         guard separator.lowerBound < separator.upperBound else { return }
         lastFlushedText = cell.islandTextView.string
         reconcileInFlight = true
+        inFlightOwner = .island(island.id)
         onReconcile?(ByteRange(separator), "", 0)
     }
 
@@ -544,9 +691,28 @@ public final class IslandController {
     /// (deactivate). This is a TERMINAL flush: the island is dropped BEFORE
     /// `onReconcile` fires, so a synchronous `applyReconciled` from the app's
     /// apply is a no-op (there is nothing left to re-anchor).
+    ///
+    /// SYNCHRONOUS AND SAFE FROM THE CALLER'S PERSPECTIVE (C1). `activate` and
+    /// `deactivate` call this and then proceed immediately; the outgoing island's
+    /// content is guaranteed to reach the document exactly once, by one of three
+    /// mutually exclusive exits:
+    ///
+    ///  1. **Unchanged** (`text == lastFlushedText`) — the document ALREADY holds
+    ///     these exact bytes (the baseline is seeded at `activate` and re-set on
+    ///     every fire), so there is nothing to write. Firing here is the C3 bug:
+    ///     a byte-identical replay costs a dead undo step, an autosave/mtime bump
+    ///     on the user's real file, and a full recycler refresh.
+    ///  2. **Nothing in flight** — fire `onReconcile` right now, exactly as before.
+    ///  3. **An apply IS in flight** — the island's `byteRange` is about to move
+    ///     under us, so firing now would splice a stale span AND could land out of
+    ///     order (the C1 double-apply: "Helloabc" written twice → "Helloabcabc").
+    ///     Park a `.terminalFlush` on the deferral channel; it fires from the
+    ///     landing `applyReconciled`, against the range the in-flight apply
+    ///     actually wrote. See `fireDeferredTerminalFlush` for why that range is
+    ///     exact and why this cannot lose the text.
     private func flushActiveIsland() {
         guard let island = activeIsland else { return }
-        ilog("flush.enter", "originBlockID=\(island.originBlockID) byteRange=\(island.byteRange)")
+        ilog("flush.enter", "originBlockID=\(island.originBlockID) byteRange=\(island.byteRange) inFlight=\(reconcileInFlight)")
         cancelReconcileTimer()
         pendingReconcile = false
         state = .pendingFlush(island.originBlockID)
@@ -572,9 +738,100 @@ public final class IslandController {
         // Drop the island FIRST so any synchronous applyReconciled is inert.
         activeIsland = nil
         activeIslandKind = nil
+
+        // (1) UNCHANGED → no edit at all (C3, and half of C1).
+        if let priorFlushed, priorFlushed == text {
+            ilog("flush.fired", "fired=false reason=unchanged textLen=\((text as NSString).length)")
+            state = .idle
+            return
+        }
+        // (3) An apply is IN FLIGHT → park behind it (C1).
+        if reconcileInFlight, let priorFlushed {
+            deferredOps.append(.terminalFlush(TerminalFlush(
+                islandStart: island.byteRange.lowerBound, priorText: priorFlushed,
+                text: text, caretUTF16: caret)))
+            ilog("flush.deferred", "islandStart=\(island.byteRange.lowerBound) priorLen=\(priorFlushed.utf8.count) textLen=\((text as NSString).length) queued=\(deferredOps.count)")
+            state = .idle
+            return
+        }
+        // (2) Fire now.
         lastFlushedText = text
+        inFlightOwner = .orphan
         ilog("flush.fired", "fired=true textLen=\((text as NSString).length) changed=\(priorFlushed != text) caret=\(caret)")
         onReconcile?(ByteRange(island.byteRange), text, caret)
+    }
+
+    /// Fire a `.terminalFlush` parked behind an apply that has now LANDED.
+    ///
+    /// ## Why the range is exact
+    ///
+    /// The in-flight apply replaced the island's byte range with `priorText`. An
+    /// island's own edit never moves the bytes BEFORE it, so after that apply the
+    /// island's content occupies exactly
+    /// `islandStart ..< islandStart + priorText.utf8.count` — derived from the two
+    /// values captured at arm time, with NO dependence on block structure (which a
+    /// structural edit would have changed) and no re-parse guesswork. Replacing that
+    /// span with the outgoing island's final `text` yields precisely the document the
+    /// island represented when it was torn down.
+    ///
+    /// ## Refuse-on-drift
+    ///
+    /// The span is byte-re-validated against the landed document before firing
+    /// (CLAUDE.md: "refuse-on-drift byte re-validation"). A mismatch means the apply
+    /// did NOT write what we fired (e.g. the session rejected it on a stale base), in
+    /// which case splicing would corrupt; refuse and log instead.
+    ///
+    /// Returns true when an `onReconcile` was fired (so the drain waits for ITS
+    /// apply before releasing the next deferred op).
+    private func fireDeferredTerminalFlush(_ flush: TerminalFlush) -> Bool {
+        guard let document = currentDocument else {
+            ilog("deferred.flush.refused", "reason=noDocument")
+            return false
+        }
+        guard flush.text != flush.priorText else {
+            ilog("deferred.flush.skipped", "reason=unchanged")
+            return false
+        }
+        let length = flush.priorText.utf8.count
+        let range = ByteRange(offset: flush.islandStart, length: length)
+        guard flush.islandStart >= 0,
+              flush.islandStart + length <= document.source.utf8.count,
+              document.source.substring(in: range) == flush.priorText else {
+            ilog("deferred.flush.refused",
+                 "reason=byteDrift islandStart=\(flush.islandStart) priorLen=\(length) sourceLen=\(document.source.utf8.count)")
+            return false
+        }
+        ilog("deferred.flush.fired", "range=\(range) textLen=\(flush.text.utf8.count)")
+        // The island is long gone: this is an ORPHAN apply — nothing to re-anchor,
+        // and it must NOT be mistaken for the CURRENT island's reconcile.
+        inFlightOwner = .orphan
+        onReconcile?(range, flush.text, flush.caretUTF16)
+        return true
+    }
+
+    /// Release the NEXT deferred op, if any. Drained one-per-`applyReconciled` so
+    /// each op is ordered behind the one before it; ops whose island is gone are
+    /// skipped (not fired) and the drain moves on.
+    private func fireNextDeferredOp() {
+        while !deferredOps.isEmpty {
+            let op = deferredOps.removeFirst()
+            switch op {
+            case .backspaceMerge(let islandID):
+                guard activeIsland?.id == islandID else {
+                    // C2: the island that armed this merge is gone (the user clicked
+                    // into another block before the flush landed). Consuming it here
+                    // would delete the separator between the CURRENT island and ITS
+                    // predecessor — two untouched blocks merged.
+                    ilog("deferred.merge.skipped", "reason=islandChanged")
+                    continue
+                }
+                fireBackspaceMerge()
+                return
+            case .terminalFlush(let flush):
+                if fireDeferredTerminalFlush(flush) { return }
+                continue
+            }
+        }
     }
 
     // MARK: - Reconciliation (Phase 2, Task 6) — the KEEP path
@@ -627,12 +884,18 @@ public final class IslandController {
     /// Build the `SourceEdit` from the live island text and fire `onReconcile`
     /// (KEEP semantics: the island stays active; the app hands the resulting
     /// document back through `applyReconciled`). No-op when nothing is pending,
-    /// there is no active island, or an IME composition is still live.
-    private func reconcileNow() {
+    /// there is no active island, the text is UNCHANGED since the last flush, or an
+    /// IME composition is still live.
+    ///
+    /// Returns whether an `onReconcile` was actually fired — callers that DEFER work
+    /// behind this flush's apply (the Backspace-merge) must know, because a no-op
+    /// flush never calls back and would strand the deferral forever.
+    @discardableResult
+    private func reconcileNow() -> Bool {
         cancelReconcileTimer()
         guard pendingReconcile, let island = activeIsland else {
             pendingReconcile = false
-            return
+            return false
         }
         // Minor fix (stale-range guard): a prior reconcile's apply/re-anchor is
         // still in flight, so `island.byteRange` is about to move. Computing a
@@ -641,18 +904,27 @@ public final class IslandController {
         // re-anchor lands.
         if reconcileInFlight {
             scheduleReconcileTimer()
-            return
+            return false
         }
         guard let cell = recycler.currentEditorCell,
-              cell.blockID == island.originBlockID else { return }
+              cell.blockID == island.originBlockID else { return false }
         // Never splice mid-composition; the commit keystroke will re-drive this.
-        if currentHasMarkedText() { return }
+        if currentHasMarkedText() { return false }
         pendingReconcile = false
         let newText = cell.islandTextView.string
+        // C3/C1: the document already holds exactly these bytes (typed-then-undone,
+        // a re-seed, or an activation with no typing). Firing would be a no-op edit
+        // with real costs: a dead undo step and an autosave rewrite of the file.
+        if newText == lastFlushedText {
+            ilog("reconcile.skipped", "reason=unchanged textLen=\((newText as NSString).length)")
+            return false
+        }
         let caret = cell.islandTextView.selectedRange().location
         lastFlushedText = newText
         reconcileInFlight = true
+        inFlightOwner = .island(island.id)
         onReconcile?(ByteRange(island.byteRange), newText, caret)
+        return true
     }
 
     /// Re-anchor handoff from the app after it applies the most recently fired
@@ -683,21 +955,36 @@ public final class IslandController {
         // The in-flight apply has landed — clear the stale-range guard regardless
         // of the outcome below.
         reconcileInFlight = false
+        let owner = inFlightOwner
+        inFlightOwner = nil
         // Refresh the retained parse in EVERY branch (before any early return) so
         // a subsequent structural op sees the latest document.
         currentDocument = newDocument
-        // Fix round 1: a Backspace-merge deferred behind THIS (KEEP-flush) apply
-        // fires once it has landed — recomputing predecessor + separator against
-        // the now-refreshed document/island range and firing through onReconcile.
-        // Runs at EVERY exit (whichever branch the flush took), and at most once:
-        // the flag is cleared before the merge, so the merge's own applyReconciled
-        // is a no-op here (no re-entrant loop).
-        defer {
-            if pendingMergeAfterFlush {
-                pendingMergeAfterFlush = false
-                fireBackspaceMerge()
-            }
+        // Fix round 1 (generalized by the Phase-3 critical-fix wave): work DEFERRED
+        // behind this apply is released here, at EVERY exit (whichever branch the
+        // apply took), ONE op per apply — so each deferred op is ordered behind the
+        // one before it. The op is removed from the queue before it fires, so its
+        // own `applyReconciled` cannot re-consume it (no re-entrant loop).
+        defer { fireNextDeferredOp() }
+
+        // OWNERSHIP GUARD: an apply is only allowed to re-anchor the island that
+        // FIRED it. `.orphan` = a terminal flush (the island was dropped before the
+        // fire), and a mismatched `.island` = the user clicked into a different
+        // block while this apply was in flight. Re-anchoring in either case would
+        // move (or tear down) an island that had nothing to do with the edit. A nil
+        // owner means the caller drove `applyReconciled` directly (tests / legacy
+        // callers), which keeps the pre-existing behaviour exactly.
+        switch owner {
+        case .orphan:
+            ilog("apply.branch", "branch=orphanTerminalFlush")
+            return
+        case .island(let id) where id != activeIsland?.id:
+            ilog("apply.branch", "branch=crossIsland")
+            return
+        case .island, .none:
+            break
         }
+
         guard let island = activeIsland, let flushed = lastFlushedText else {
             ilog("apply.branch", "branch=noIslandOrFlushed")
             return
@@ -833,11 +1120,15 @@ public final class IslandController {
         pendingReconcile = false
         wasComposing = false
         reconcileInFlight = false
+        inFlightOwner = nil
+        // C2: the island that could have armed a merge is going away.
+        purgeDeferredMerges()
         activeIsland = nil
         activeIslandKind = nil
         lastFlushedText = nil
         recycler.editingBlockID = nil
         state = .idle
+        assertNoOrphanedEditorCell("teardownIsland")
     }
 
     // MARK: - Debounce timer
@@ -847,7 +1138,7 @@ public final class IslandController {
         reconcileTimer = Timer.scheduledTimer(
             withTimeInterval: reconcileDebounceInterval, repeats: false
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.reconcileNow() }
+            MainActor.assumeIsolated { _ = self?.reconcileNow() }
         }
     }
 

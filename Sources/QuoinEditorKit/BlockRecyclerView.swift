@@ -879,6 +879,37 @@ public final class BlockRecyclerView: NSView {
             ilog("click.super", "reason=noLiveIslandAfterPromote blockID=\(blockID)")
             return false
         }
+        // The promote must have landed on the block that was actually CLICKED.
+        // `activate` has several paths that return WITHOUT promoting — an IME
+        // composition is live (the intent is parked, the current island kept), the
+        // block is not in the document, the mint failed, `promoteRow` failed — and
+        // on the IME path `liveEditorCell`/`_editingBlockID` still point at the
+        // PREVIOUS island. Checking only `cell.blockID == editing` passes there, and
+        // the code below would hand a window point taken over block N to block M's
+        // text view: the caret jumps to whatever that point maps to in the wrong
+        // block, a drag-select can start there, and `return true` swallows the click
+        // so the table never sees it either.
+        guard editing == blockID else {
+            // Do NOT forward. What to do with the click depends on WHY the clicked
+            // block was not promoted:
+            //  • a LIVE IME COMPOSITION in the current island: swallow the click.
+            //    Letting `super` run would let the table reclaim first responder
+            //    inside its tracking loop and blur the composing island — dropping
+            //    the half-composed characters, which is the very thing
+            //    `IslandController`'s `.blockedIME` refusal exists to prevent. The
+            //    parked intent replays the activation once the composition commits,
+            //    so the user's click destination is still honoured.
+            //  • anything else (a stale cell with no composition): fall through to
+            //    `super`, per the standing "never swallow a click that promoted
+            //    nothing" rule.
+            if cell.islandTextView.hasMarkedText() {
+                ilog("click.swallowed",
+                     "reason=imeCompositionInOtherIsland clicked=\(blockID) editing=\(editing)")
+                return true
+            }
+            ilog("click.super", "reason=promotedOtherBlock clicked=\(blockID) editing=\(editing)")
+            return false
+        }
         // FORWARD: the island's text view runs its OWN native tracking loop for
         // this very event — it places its own caret and supports drag-select on
         // the promoting click.

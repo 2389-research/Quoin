@@ -120,6 +120,16 @@ final class IslandControllerTests: XCTestCase {
         controller.activate(blockID: doc.blocks[0].id, localPoint: .zero, in: doc, baseRevision: 0)
         XCTAssertTrue(reconciledRanges.isEmpty, "activating from idle flushes nothing")
 
+        // TYPE, so the swap-out has something to write. A swap-out with NO typing
+        // is now (correctly) a no-op — the island would replay the block's own bytes,
+        // which costs a dead undo step and an autosave rewrite of the user's file.
+        // That case is pinned by `IslandNoOpFlushTests`; this test is about the
+        // flush FIRING, so it must make a real change first.
+        let editing = v.editorCellForEditingRow()!
+        editing.islandTextView.insertText("X", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(editing.islandTextView.string, "X# Heading",
+                       "precondition: the island text really changed")
+
         controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
         XCTAssertEqual(reconciledRanges.count, 1, "the previous island is flushed exactly once")
         XCTAssertEqual(reconciledRanges.first?.offset, doc.blocks[0].range.offset,
@@ -170,6 +180,13 @@ final class IslandControllerTests: XCTestCase {
 
         controller.activate(blockID: doc.blocks[0].id, localPoint: .zero, in: doc, baseRevision: 0)
         XCTAssertTrue(v.isEditingRow(0))
+        // Type first: a blur with NO typing is now a no-op flush (see
+        // `IslandNoOpFlushTests`), so without a real change this would be asserting
+        // the byte-identical-replay bug.
+        let editing = v.editorCellForEditingRow()!
+        editing.islandTextView.insertText("X", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(editing.islandTextView.string, "X# Heading",
+                       "precondition: the island text really changed")
 
         controller.deactivate()
         XCTAssertEqual(reconciled, 1, "blur flushes the island once")
@@ -188,9 +205,15 @@ final class IslandControllerTests: XCTestCase {
         let controller = IslandController(recycler: v)
 
         controller.activate(blockID: doc.blocks[0].id, localPoint: .zero, in: doc, baseRevision: 0)
+        XCTAssertNotNil(controller.activeIsland,
+                        "precondition: there IS an active island while we scroll")
         v.scroll(to: doc.blocks[399].id)
         v.layoutSubtreeIfNeeded()
 
+        // ANTI-VACUITY (proved: with `visibleCellCount` stubbed to 0 this test
+        // still passed) — an "at most N" bound is met by a dead counter.
+        XCTAssertGreaterThan(v.visibleCellCount, 0,
+                             "the live-cell instrument must actually observe cells")
         XCTAssertLessThan(v.visibleCellCount, 60,
                           "promoting one row to an island must not defeat recycling")
     }
