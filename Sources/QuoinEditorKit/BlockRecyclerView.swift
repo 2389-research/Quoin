@@ -280,13 +280,14 @@ public final class BlockRecyclerView: NSView {
         clearEditingWithoutReload()
         self.document = document
         self.contentWidth = contentWidth
-        settledHeights.removeAll()
-        rowByBlockID.removeAll()
+        settledHeights.removeAll(); settledHeightsClearedCountForTest += 1
+        rowByBlockID.removeAll(); rowMapRebuildCountForTest += 1
         for (index, block) in document.blocks.enumerated() {
             rowByBlockID[block.id] = index
         }
         lastReportedTop = nil
         tableView.tableColumns.first?.width = contentWidth + 2 * DecorationDraw.leftGutter
+        fullReloadCountForTest += 1
         tableView.reloadData()
     }
 
@@ -376,6 +377,34 @@ public final class BlockRecyclerView: NSView {
         // insert/remove instead of a full reload (which would re-vend it and drop
         // first responder + caret).
         let oldEditingRow = _editingBlockID.flatMap { rowByBlockID[$0] }
+        // FREEZE / UNFREEZE (spec §4 steps 3 + 6) around the WHOLE refresh — the
+        // anchor is the EDITING row, which is where the caret is. Which policy
+        // depends on what kind of change this is, and that is knowable up front
+        // (see `ViewportPolicy`): an equal row count is the island's own KEEP
+        // re-projection (projection-only ⇒ `.pinRow`); a changed row count is a
+        // structural split/merge (content ⇒ `.pinScroll`).
+        let structural = newRowCount != oldRowCount
+        performPreservingViewport(
+            anchorRow: oldEditingRow,
+            policy: structural ? .pinScroll : .pinRow,
+            anchorRowAfter: { [weak self] in
+                self?._editingBlockID.flatMap { self?.rowByBlockID[$0] }
+            },
+            tag: structural ? "preserve.structural" : "preserve.keep"
+        ) {
+            applyPreservingEditing(document, contentWidth: contentWidth,
+                                   newID: newID, oldRowCount: oldRowCount,
+                                   newRowCount: newRowCount, oldEditingRow: oldEditingRow)
+        }
+    }
+
+    /// The body of `updateDocumentPreservingEditing`'s refresh, factored out so the
+    /// whole mutation sits inside ONE `performPreservingViewport` bracket.
+    private func applyPreservingEditing(
+        _ document: QuoinDocument, contentWidth: CGFloat, newID: BlockID,
+        oldRowCount: Int, newRowCount: Int, oldEditingRow: Int?
+    ) {
+        let previousContentWidth = self.contentWidth
         self.document = document
         self.contentWidth = contentWidth
         // WIDTH DRIFT (Phase 3): the KEEP path below spares the editing row from
@@ -383,8 +412,22 @@ public final class BlockRecyclerView: NSView {
         // container. Re-lay the LIVE island at the new column explicitly — geometry
         // only, so unflushed keystrokes are never clobbered. No-op at equal width.
         updateEditingCellWidth(contentWidth)
-        settledHeights.removeAll()
-        rowByBlockID.removeAll()
+        // Settled heights are keyed by the CONTENT-HASH block id and measured at a
+        // given column, so every entry whose block SURVIVES this refresh at the
+        // SAME width is still exact. Wiping them wholesale was not just churn: an
+        // image row's true height is recorded ONLY by `contentDidSettle`, which
+        // fires on the pending→ready transition — once the decode is cached that
+        // transition never happens again, so a wiped image row fell back to the
+        // `.textReference` PLACEHOLDER height permanently (measured: 35.8 pt → 33.0
+        // pt, and the cell draws the full image into the short row). Keep the
+        // survivors; a width change invalidates all of them.
+        if contentWidth != previousContentWidth || wipeSettledHeightsOnRefreshForTest {
+            settledHeights.removeAll(); settledHeightsClearedCountForTest += 1
+        } else {
+            let surviving = Set(document.blocks.map(\.id))
+            settledHeights = settledHeights.filter { surviving.contains($0.key) }
+        }
+        rowByBlockID.removeAll(); rowMapRebuildCountForTest += 1
         for (index, block) in document.blocks.enumerated() {
             rowByBlockID[block.id] = index
         }
@@ -410,6 +453,13 @@ public final class BlockRecyclerView: NSView {
                 withoutAnimation {
                     tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
                 }
+                // `reloadData(forRowIndexes:)` re-vends the row's VIEW but never
+                // re-asks its HEIGHT, so a reloaded row whose block got taller or
+                // shorter kept the OLD row height with a new-height cell drawn into
+                // it, until some later pass re-measured it — the same deferred jump
+                // the close path had. Re-note them here, inside the viewport bracket,
+                // so the re-size lands in the SAME settled draw the anchor covers.
+                noteRowHeights(rows)
             }
             // The editing block's byte content changed; re-size its row off the live
             // cell layout (its height is excluded from `settledHeights`).
@@ -441,6 +491,7 @@ public final class BlockRecyclerView: NSView {
     ) {
         // Without a realized editing row to preserve, a full reload is correct.
         guard let oldEditingRow, let newEditingRow else {
+            fullReloadCountForTest += 1
             tableView.reloadData()
             return
         }
@@ -486,6 +537,8 @@ public final class BlockRecyclerView: NSView {
             rows.remove(newEditingRow)
             if !rows.isEmpty {
                 tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+                // See the KEEP path: a reload does not re-ask row heights.
+                noteRowHeights(rows)
             }
         }
         noteRowHeights(IndexSet(integer: newEditingRow))
@@ -603,14 +656,14 @@ public final class BlockRecyclerView: NSView {
             }
         }
 
-        // FREEZE (spec §4 step 3): record the scroll origin + the target row's
-        // frame before anything moves.
-        let anchor = viewportAnchor(forRow: row)
         var realized: BlockEditorCell?
-        // LEXICAL suppression bracket: raised here, lowered below, with the actual
-        // re-vend provably inside it (not a flag around a deferred call).
-        isReloadingEditingRow = true
-        withoutAnimation {
+        // FREEZE / UNFREEZE (spec §4 steps 3 + 6) — the clicked row IS the caret
+        // row, and a promote is a PROJECTION-ONLY flip (read height ↔ island
+        // height), so its top must not move on screen: `.pinRow`.
+        performPreservingViewport(anchorRow: row, policy: .pinRow, tag: "promote") {
+            // LEXICAL suppression bracket: raised here, lowered below, with the
+            // actual re-vend provably inside it (not a flag around a deferred call).
+            isReloadingEditingRow = true
             _editingBlockID = blockID
             liveEditorCell = nil
             tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
@@ -626,11 +679,8 @@ public final class BlockRecyclerView: NSView {
             // otherwise stay mis-sized on a click with no edit.
             noteEditingRowHeight()
             tableView.layoutSubtreeIfNeeded()
+            isReloadingEditingRow = false
         }
-        isReloadingEditingRow = false
-        // UNFREEZE (spec §4 step 6): the target row's layout is committed; put the
-        // viewport back so the clicked line has not moved on screen.
-        restoreViewportAnchor(anchor, forRow: row)
 
         guard let realized, realized.blockID == blockID else {
             ilog("promote.fail", "reason=notAnEditorCell blockID=\(blockID) row=\(row)")
@@ -640,13 +690,34 @@ public final class BlockRecyclerView: NSView {
         return realized
     }
 
-    /// The edit→read direction: drop the editing identity and reload the row that
-    /// was the island so `viewFor` vends a read-only cell again.
+    /// The edit→read direction (**the CLOSE path**): drop the editing identity and
+    /// reload the row that was the island so `viewFor` vends a read-only cell
+    /// again.
+    ///
+    /// Two things CLAUDE.md's viewport invariant requires here, neither of which
+    /// the pre-Phase-3 shape did:
+    ///
+    ///  • **Re-size the row.** `reloadData(forRowIndexes:)` re-vends the row's
+    ///    VIEW but never re-asks its HEIGHT (documented AppKit behaviour), so the
+    ///    row stayed at the ISLAND height with a read-only cell drawn into it —
+    ///    until some unrelated later pass (`noteHeightOfRows` for another row, a
+    ///    document refresh) collapsed it. That deferred collapse IS the "content
+    ///    below jumps" report: the shrink arrives detached from the close that
+    ///    caused it.
+    ///  • **Anchor the viewport around the shrink** (`.pinRow` on the closing
+    ///    row, which is the row the caret was just on) — spec §4 steps 3 + 6, the
+    ///    same freeze/unfreeze the promote path has had since 75f697f.
     private func demoteEditingRow() {
         let old = _editingBlockID
-        _editingBlockID = nil
-        reloadRows(forBlocks: [old])
-        liveEditorCell = nil
+        let row = old.flatMap { rowByBlockID[$0] }
+        performPreservingViewport(anchorRow: row, policy: .pinRow, tag: "demote") {
+            _editingBlockID = nil
+            reloadRows(forBlocks: [old])
+            if let row, row >= 0, row < tableView.numberOfRows {
+                noteRowHeights(IndexSet(integer: row))
+            }
+            liveEditorCell = nil
+        }
     }
 
     /// Re-query the editing row's height so it picks up the LIVE island layout
@@ -679,36 +750,146 @@ public final class BlockRecyclerView: NSView {
 
     // MARK: - Spec §4 steps 3 + 6: freeze / unfreeze the viewport
 
-    /// The scroll origin plus the target row's position at FREEZE time.
+    /// What a mutation is allowed to do to the viewport. Both policies serve the
+    /// SAME user directive ("the line the caret is on must not move on screen;
+    /// scroll only when the caret leaves the viewport, then minimally") — they
+    /// differ only in what stays fixed, because a row INDEX means different
+    /// things across the two kinds of change.
+    enum ViewportPolicy {
+        /// **Projection-only change** (promote, close, keep-path reload): the
+        /// document's bytes are identical, so the anchor row is the SAME content
+        /// before and after. Pin its TOP to the same screen y — if rows above it
+        /// re-measured, shift the scroll origin by exactly that delta.
+        case pinRow
+        /// **Content change** (structural split/merge): the anchor row's index is
+        /// NOT stable content — after a Backspace-merge the caret's row is the
+        /// PREDECESSOR's row, after a Return-split it is a row that did not exist
+        /// — so pinning "the row's top" against a before-picture taken at another
+        /// index would scroll the document by a whole block. Pin the SCROLL ORIGIN
+        /// instead (the document does not move under the user; the content that
+        /// genuinely changed is the only thing that moves), then scroll minimally
+        /// IF the caret's row has left the viewport.
+        ///
+        /// Measured: without this, AppKit's own `removeRows` adjustment scrolled a
+        /// mid-document Backspace-merge by 33.5 pt (the removed row's height) —
+        /// the whole viewport jumped, caret row included.
+        case pinScroll
+    }
+
+    /// The scroll origin plus the anchor row's position at FREEZE time.
+    /// `rowMinY == nil` means "no usable anchor row" — absent, out of range, or
+    /// OFF SCREEN (see `captureViewportAnchor`).
     private struct ViewportAnchor {
         let scrollOrigin: CGPoint
-        let rowMinY: CGFloat
+        let rowMinY: CGFloat?
     }
 
-    private func viewportAnchor(forRow row: Int) -> ViewportAnchor {
-        ViewportAnchor(
-            scrollOrigin: scrollView.contentView.bounds.origin,
-            rowMinY: (row >= 0 && row < tableView.numberOfRows)
-                ? tableView.rect(ofRow: row).minY : 0)
+    /// **The one freeze/unfreeze bracket (spec §4 steps 3 + 6).**
+    ///
+    /// Every projection change the recycler makes runs through here: promote
+    /// (read → island), close (island → read), the KEEP-path reload, and the
+    /// structural row-count reconcile. It captures the anchor, runs `body` with
+    /// implicit animation off and a zero duration, forces the table's layout to
+    /// commit (the `ensureLayout` of the spec's step 6 — row rects are stale until
+    /// it runs), and restores.
+    ///
+    /// **Anchor-row rule.** The anchor is the row the CARET is on, never merely
+    /// the top row: the caller names it (`anchorRow`) because only the caller
+    /// knows whether the caret is arriving (promote: the clicked row), leaving
+    /// (close: the row being demoted) or staying (a refresh: the editing row).
+    /// `anchorRowAfter` re-resolves that row's INDEX after the mutation for the
+    /// paths that can move it (the structural reconcile); when it is nil the index
+    /// is assumed unchanged.
+    ///
+    /// **Off-screen rule.** If the anchor row is not in the viewport at capture
+    /// time we do NOT fight it: `.pinRow` skips the restore entirely (there is no
+    /// visible line to hold still, and scrolling to hold an invisible row would be
+    /// the very motion the invariant forbids), and `.pinScroll` still restores the
+    /// origin (the document must not jump) but never scrolls the caret's row into
+    /// view — the user did not have it on screen and an edit is not a reason to
+    /// yank the viewport to it.
+    @discardableResult
+    private func performPreservingViewport<T>(
+        anchorRow: Int?,
+        policy: ViewportPolicy,
+        anchorRowAfter: (() -> Int?)? = nil,
+        tag: String,
+        _ body: () -> T
+    ) -> T {
+        // ANTI-VACUITY hook: with the anchor neutered the mutation still runs, so
+        // a geometry test can measure the movement this bracket prevents.
+        let anchor = disableViewportAnchorForTest ? nil : captureViewportAnchor(forRow: anchorRow, tag: tag)
+        var result: T!
+        withoutAnimation { result = body() }
+        // The spec's `ensureLayout`: `rect(ofRow:)` answers the table's CACHED
+        // geometry, which a reload / height note only invalidates. Without this the
+        // restore would measure the pre-mutation layout and compute a zero delta.
+        withoutAnimation { tableView.layoutSubtreeIfNeeded() }
+        guard let anchor else { return result }
+        restoreViewportAnchor(anchor, forRow: anchorRowAfter?() ?? anchorRow,
+                              policy: policy, tag: tag)
+        return result
     }
 
-    /// Restore the recorded anchor: if the swap changed the target row's position
-    /// in the document (rows above it re-sized), shift the scroll origin by exactly
-    /// that delta so the row — and the line the user clicked on — stays where it was
-    /// on screen. Spec §4's drift target is < 4 pt; this is exact. A no-op in the
-    /// common case (only the target row's own height changed), which is what keeps
-    /// the recycler from ever scrolling on a click.
-    private func restoreViewportAnchor(_ anchor: ViewportAnchor, forRow row: Int) {
-        guard row >= 0, row < tableView.numberOfRows else { return }
-        let delta = tableView.rect(ofRow: row).minY - anchor.rowMinY
-        let target = CGPoint(x: anchor.scrollOrigin.x, y: anchor.scrollOrigin.y + delta)
+    private func captureViewportAnchor(forRow row: Int?, tag: String) -> ViewportAnchor {
+        let origin = scrollView.contentView.bounds.origin
+        guard let row, row >= 0, row < tableView.numberOfRows else {
+            ilog("viewport.capture", "tag=\(tag) row=nil origin=\(NSStringFromPoint(origin))")
+            return ViewportAnchor(scrollOrigin: origin, rowMinY: nil)
+        }
+        let rect = tableView.rect(ofRow: row)
+        guard rect.intersects(scrollView.contentView.bounds) else {
+            // Off-screen rule (documented on `performPreservingViewport`).
+            ilog("viewport.capture", "tag=\(tag) row=\(row) offscreen rowMinY=\(rect.minY) origin=\(NSStringFromPoint(origin))")
+            return ViewportAnchor(scrollOrigin: origin, rowMinY: nil)
+        }
+        ilog("viewport.capture", "tag=\(tag) row=\(row) rowMinY=\(rect.minY) origin=\(NSStringFromPoint(origin))")
+        return ViewportAnchor(scrollOrigin: origin, rowMinY: rect.minY)
+    }
+
+    /// Restore the recorded anchor per `policy` (see `ViewportPolicy`). Spec §4's
+    /// drift target is < 4 pt for a ≤ 50 pt height delta; both branches are exact,
+    /// and both are a no-op when nothing moved — which is what keeps the recycler
+    /// from ever scrolling on a click.
+    private func restoreViewportAnchor(
+        _ anchor: ViewportAnchor, forRow row: Int?, policy: ViewportPolicy, tag: String
+    ) {
+        let target: CGPoint
+        switch policy {
+        case .pinRow:
+            guard let row, row >= 0, row < tableView.numberOfRows,
+                  let rowMinY = anchor.rowMinY else {
+                ilog("viewport.skip", "tag=\(tag) policy=pinRow reason=noAnchorRow")
+                return
+            }
+            // Rows above the anchor re-measured by exactly this much; absorb it.
+            let delta = tableView.rect(ofRow: row).minY - rowMinY
+            target = CGPoint(x: anchor.scrollOrigin.x, y: anchor.scrollOrigin.y + delta)
+        case .pinScroll:
+            target = anchor.scrollOrigin
+        }
         let current = scrollView.contentView.bounds.origin
-        guard abs(current.x - target.x) > 0.01 || abs(current.y - target.y) > 0.01 else { return }
-        ilog("viewport.restore",
-             "row=\(row) delta=\(delta) \(NSStringFromPoint(current))→\(NSStringFromPoint(target))")
+        if abs(current.x - target.x) > 0.01 || abs(current.y - target.y) > 0.01 {
+            ilog("viewport.restore",
+                 "tag=\(tag) policy=\(policy) row=\(row.map { "\($0)" } ?? "nil") "
+                 + "\(NSStringFromPoint(current))→\(NSStringFromPoint(target))")
+            withoutAnimation {
+                scrollView.contentView.scroll(to: target)
+                scrollView.reflectScrolledClipView(scrollView.contentView)
+            }
+        }
+        // "Scroll only when the caret leaves the viewport, then minimally": after a
+        // CONTENT change the caret's row can genuinely fall outside the (restored)
+        // viewport — the split/merge moved it. Bring it back the smallest possible
+        // amount, and only if we had it on screen to begin with.
+        guard case .pinScroll = policy, anchor.rowMinY != nil,
+              let row, row >= 0, row < tableView.numberOfRows else { return }
+        let rowRect = tableView.rect(ofRow: row)
+        guard !scrollView.contentView.bounds.contains(
+                CGPoint(x: rowRect.minX, y: rowRect.midY)) else { return }
+        ilog("viewport.caretLeftViewport", "tag=\(tag) row=\(row) rowRect=\(NSStringFromRect(rowRect))")
         withoutAnimation {
-            scrollView.contentView.scroll(to: target)
-            scrollView.reflectScrolledClipView(scrollView.contentView)
+            tableView.scrollRowToVisible(row)
         }
     }
 
@@ -1012,7 +1193,44 @@ public final class BlockRecyclerView: NSView {
             renderer: renderer, theme: theme, width: contentWidth)
         settledHeights[blockID] = height
         didRecordSettledHeightForTest?(blockID)
+        // REPAINT the row, not just re-size it (I6). The cell still holds the
+        // PLACEHOLDER fragment it rendered before the decode landed; only a
+        // re-`configure` picks the decoded image up. That repaint used to arrive as
+        // a side effect of `ReaderModel`'s 120 ms projection bump reloading the
+        // WHOLE table — which is exactly the churn the content-keyed refresh gate
+        // removes, so the repaint now hangs off the readiness signal that actually
+        // means "this row's pixels changed". Never the editing row: reloading it
+        // would destroy the live island (an image block is not editable-as-island
+        // today, but the guard is the invariant, not the current shape).
+        if blockID != _editingBlockID {
+            projectionRepaintedRowsForTest.append(row)
+            withoutAnimation {
+                tableView.reloadData(forRowIndexes: IndexSet(integer: row),
+                                     columnIndexes: IndexSet(integer: 0))
+            }
+        }
         noteRowHeights(IndexSet(integer: row))
+    }
+
+    /// **The projection-only refresh (I6).** `ReaderModel` bumps
+    /// `rendered.revision` for reasons that change NO document byte — `restoreCaret`,
+    /// `rerenderAsync`, the 120 ms async-decode debounce. The recycler's refresh is
+    /// keyed off the document's CONTENT hash instead (see
+    /// `BlockRecyclerReaderView.apply`), and this is what a projection-only bump
+    /// gets: nothing but a log line and a counter.
+    ///
+    /// That is not laziness — it is the whole point. The recycler never reads
+    /// `rendered.attributed`; it re-projects each row itself from the DOCUMENT
+    /// through its own renderer + theme, both fixed at `makeNSView` time. So with
+    /// identical bytes, an identical column and the same renderer, every row would
+    /// re-render to exactly what is already on screen. The one appearance change a
+    /// bump used to carry — an async image/diagram decode landing — is now
+    /// repainted by `contentDidSettle`, off the readiness signal itself, so it no
+    /// longer needs a whole-table reload to find its way to the screen.
+    public func noteProjectionOnlyBump() {
+        projectionOnlyBumpCountForTest += 1
+        ilog("refresh.projectionOnly",
+             "rows=\(tableView.numberOfRows) editing=\(_editingBlockID.map { "\($0)" } ?? "nil")")
     }
 
     // MARK: - Top-block reporting
@@ -1195,6 +1413,69 @@ public final class BlockRecyclerView: NSView {
     /// says a click must not move the content under the caret; this is half of
     /// the evidence (the other half is the row's window-space position).
     var scrollOriginForTest: CGPoint { scrollView.contentView.bounds.origin }
+
+    /// The clip view's visible document rect — the viewport the anchor helper
+    /// measures "is the caret's row on screen" against.
+    var visibleDocumentRectForTest: CGRect { scrollView.contentView.bounds }
+
+    /// Test-only: park the viewport at document-space `y` so a geometry test can
+    /// put the caret's row MID-VIEWPORT (the only place the invariant is
+    /// observable — a row pinned at the very top moves for free).
+    func setScrollOriginForTest(_ y: CGFloat) {
+        scrollView.contentView.scroll(to: CGPoint(x: 0, y: y))
+        scrollView.reflectScrolledClipView(scrollView.contentView)
+        layoutSubtreeIfNeeded()
+    }
+
+    /// The window-space `y` of `row`'s TOP edge — the measurement the viewport
+    /// invariant is stated in ("the line the caret is on must not move on
+    /// screen"). Combines the row's document-space rect with the live scroll
+    /// offset, exactly as a click's window→table conversion does.
+    func rowTopInWindowForTest(_ row: Int) -> CGFloat {
+        windowPointForTableY(CGPoint(x: 0, y: tableView.rect(ofRow: row).minY)).y
+    }
+
+    // MARK: - Refresh-gate instrumentation (I6; test-only, behavior-free)
+
+    /// How many times `settledHeights` was emptied WHOLESALE. A projection-only
+    /// bump must never move this (the "$120 ms debounce throws every measured
+    /// image height away mid-typing" churn).
+    private(set) var settledHeightsClearedCountForTest = 0
+    /// How many times `rowByBlockID` was rebuilt from scratch.
+    private(set) var rowMapRebuildCountForTest = 0
+    /// How many `tableView.reloadData()` (WHOLE table) calls have run.
+    private(set) var fullReloadCountForTest = 0
+    /// How many projection-only bumps reached the recycler.
+    private(set) var projectionOnlyBumpCountForTest = 0
+    /// Rows repainted because their async content settled (I6's positive control:
+    /// an image decode still reaches the screen without a whole-table reload).
+    private(set) var projectionRepaintedRowsForTest: [Int] = []
+
+    func resetRefreshCountersForTest() {
+        settledHeightsClearedCountForTest = 0
+        rowMapRebuildCountForTest = 0
+        fullReloadCountForTest = 0
+        projectionOnlyBumpCountForTest = 0
+        projectionRepaintedRowsForTest.removeAll()
+    }
+
+    /// The number of blocks with a recorded settled (post-decode) height —
+    /// anti-vacuity for "the refresh did not throw the measured heights away".
+    var settledHeightCountForTest: Int { settledHeights.count }
+
+    /// Test-only kill switch for the viewport anchor (ANTI-VACUITY). With this
+    /// set, `performPreservingViewport` runs the mutation but neither captures
+    /// nor restores — so a geometry test can measure the movement the helper is
+    /// preventing instead of asserting a zero that might be zero for free.
+    var disableViewportAnchorForTest = false
+
+    /// Test-only: restore the PRE-FIX behaviour of the refresh path — throw every
+    /// settled (post-decode) row height away on each refresh instead of keeping the
+    /// survivors. The other half of the KEEP-path anti-vacuity pair: with this on,
+    /// an image row above the caret reverts to its `.textReference` placeholder
+    /// height and the rows below it really do move, so the anchor has something to
+    /// hold still.
+    var wipeSettledHeightsOnRefreshForTest = false
 
     /// The hosted table, so a test can put it in the DIRTY state the app is
     /// permanently in under `NSHostingView` (pending layout ⇒ a

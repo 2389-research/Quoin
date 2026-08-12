@@ -125,23 +125,29 @@ final class BlockRecyclerReaderViewTests: AppKitWindowTestCase {
                        + "block (row \(visible.location); got \(top.map { "\($0)" } ?? "nil"))")
     }
 
-    /// A repeat re-apply with an unchanged revision must NOT reload (that would
-    /// discard scroll position); a changed revision must.
+    /// A re-apply that changes nothing must NOT reload (that would discard scroll
+    /// position); a re-apply whose CONTENT differs must.
     ///
-    /// PROVEN VACUOUS AND REWRITTEN. The old body re-applied the SAME
-    /// representable and then asserted `numberOfRowsForTest` and
-    /// `appliedRevision` — both of which are equally true when `apply` reloads on
-    /// every call, so it discriminated nothing. Measured: with the revision gate
-    /// deleted in production (an unconditional `always-reload` branch), the old
-    /// test still passed.
+    /// PROVEN VACUOUS AND REWRITTEN ONCE (the old body re-applied the SAME
+    /// representable and asserted `numberOfRowsForTest` + `appliedRevision`, both
+    /// equally true under an unconditional always-reload; measured — with the gate
+    /// deleted in production the old test still passed). The rewrite makes the
+    /// applies differ in DOCUMENT CONTENT, so "did the refresh run?" has a directly
+    /// observable answer that does not depend on AppKit's reload timing:
+    /// content-hash `BlockID`s change with the text, so the recycler either knows
+    /// the new document's blocks or it does not.
     ///
-    /// The rewrite makes the two applies differ in DOCUMENT CONTENT, so the
-    /// question "did the refresh run?" has a directly observable answer that does
-    /// not depend on AppKit's reload timing: content-hash `BlockID`s change with
-    /// the text, so the recycler either knows the new document's blocks or it
-    /// does not. A gate that leaks (always reloads) adopts the new document at
-    /// step 1 and fails; a gate welded shut never adopts it and fails step 2.
-    func testRevisionGuardsReload() {
+    /// **RE-POINTED AT THE CONTENT GATE (I6).** The gate used to be
+    /// `appliedRevision != rendered.revision`, so this test asserted that a new
+    /// document at an UNCHANGED revision must be ignored. That polarity is now
+    /// inverted, deliberately: `rendered.revision` is a PROJECTION counter that
+    /// `ReaderModel` bumps without changing a byte (`restoreCaret`,
+    /// `rerenderAsync`, the 120 ms decode debounce), so the gate keys off
+    /// `document.sourceHash`. New bytes are re-projected whether or not the
+    /// revision moved (showing stale bytes would be the worse failure), and a bare
+    /// revision bump re-projects nothing. `RecyclerRefreshGateTests` owns the
+    /// churn measurements; this stays as the wrapper-level statement of the gate.
+    func testContentIdentityGuardsReload() {
         let doc = MarkdownConverter.parse("# H\n\nBody.")
         let edited = MarkdownConverter.parse("# H\n\nBody, edited.")
         XCTAssertNotEqual(doc.blocks[1].id, edited.blocks[1].id,
@@ -172,26 +178,33 @@ final class BlockRecyclerReaderViewTests: AppKitWindowTestCase {
         XCTAssertNotNil(view.rowForBlockID(doc.blocks[1].id),
                         "precondition: the recycler hosts the ORIGINAL document")
 
-        // 1. NEW document, UNCHANGED revision → the gate must hold. The recycler
-        // must still be showing the old document: re-applying here would discard
-        // scroll position (and, with an island live, first responder).
-        repr(revision: 1, document: edited).apply(to: view, coordinator: coordinator, initial: false)
-        XCTAssertNil(view.rowForBlockID(edited.blocks[1].id),
-                     "an unchanged revision must NOT adopt a new document (that reload would "
-                     + "discard scroll position)")
+        // 1. SAME document, BUMPED revision → the gate must hold. A projection-only
+        // bump must not re-project anything: no reload, no scroll position thrown
+        // away, and (elsewhere) no settled heights discarded.
+        repr(revision: 2, document: doc).apply(to: view, coordinator: coordinator, initial: false)
         XCTAssertNotNil(view.rowForBlockID(doc.blocks[1].id),
-                        "…the original document is still the one on screen")
-        XCTAssertEqual(coordinator.appliedRevision, 1)
+                        "a bare revision bump must leave the projected document alone")
+        XCTAssertEqual(coordinator.appliedRevision, 2,
+                       "…while still consuming the revision, so it is not re-evaluated forever")
 
-        // 2. Same new document, BUMPED revision → the refresh must genuinely run.
-        // Anti-vacuity for step 1: a gate welded shut would satisfy it forever.
-        repr(revision: 2, document: edited).apply(to: view, coordinator: coordinator, initial: false)
+        // 2. NEW document → the refresh must genuinely run, because the CONTENT is
+        // what the gate keys off. Anti-vacuity for step 1: a gate welded shut would
+        // satisfy it forever.
+        repr(revision: 3, document: edited).apply(to: view, coordinator: coordinator, initial: false)
         XCTAssertNotNil(view.rowForBlockID(edited.blocks[1].id),
-                        "a revision bump must re-run the refresh onto the new document")
+                        "a content change must re-run the refresh onto the new document")
         XCTAssertNil(view.rowForBlockID(doc.blocks[1].id),
                      "…and the superseded document's blocks are gone")
-        XCTAssertEqual(coordinator.appliedRevision, 2)
+        XCTAssertEqual(coordinator.appliedRevision, 3)
         XCTAssertEqual(view.numberOfRowsForTest, edited.blocks.count)
+
+        // 3. And the content gate does not need the revision's permission: a
+        // FURTHER content change at the SAME revision is adopted too (stale bytes
+        // on screen would be the worse failure).
+        let again = MarkdownConverter.parse("# H\n\nBody, edited twice.")
+        repr(revision: 3, document: again).apply(to: view, coordinator: coordinator, initial: false)
+        XCTAssertNotNil(view.rowForBlockID(again.blocks[1].id),
+                        "content identity, not the projection counter, decides")
     }
 }
 #endif

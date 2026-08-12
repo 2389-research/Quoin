@@ -155,14 +155,35 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         coordinator.islandController?.noteBaseRevision(rendered.revision)
 
         let width = contentWidth(for: view)
-        ilog("apply.enter", "initial=\(initial) appliedRevision=\(coordinator.appliedRevision.map { "\($0)" } ?? "nil") currentRevision=\(rendered.revision) appliedWidth=\(coordinator.appliedWidth.map { "\($0)" } ?? "nil") width=\(width)")
+        // THE REFRESH GATE (I6). `rendered.revision` is a PROJECTION counter, not a
+        // content one: `ReaderModel` bumps it from `restoreCaret`, from
+        // `rerenderAsync`, and from the ~120 ms `scheduleAsyncContentRerender`
+        // image-decode debounce — none of which change a byte. Keying the recycler's
+        // document refresh off it ran a full re-project (settled heights thrown
+        // away, row map rebuilt, every non-editing row reloaded) MID-TYPING, on a
+        // timer. The gate is now CONTENT identity — `QuoinDocument.sourceHash`, the
+        // same hash `DocumentSession`/`ReaderModel.ingest` use to decide an edit is
+        // real — plus the laid-out width, which is the other input the projection
+        // is a function of.
+        //
+        // A projection-only bump still reaches the recycler (`noteProjectionOnlyBump`),
+        // but does no table work: with identical bytes, an identical column and the
+        // renderer/theme fixed at `makeNSView` time, every row would re-render to
+        // what is already on screen. The one appearance change a bump used to
+        // carry — an async image/diagram decode landing — is repainted by
+        // `BlockRecyclerView.contentDidSettle` off the readiness signal itself.
+        let contentChanged = coordinator.appliedSourceHash != document.sourceHash
+        let widthChanged = coordinator.appliedWidth != width
+        let revisionChanged = coordinator.appliedRevision != rendered.revision
+        ilog("apply.enter", "initial=\(initial) appliedRevision=\(coordinator.appliedRevision.map { "\($0)" } ?? "nil") currentRevision=\(rendered.revision) appliedWidth=\(coordinator.appliedWidth.map { "\($0)" } ?? "nil") width=\(width) contentChanged=\(contentChanged) widthChanged=\(widthChanged)")
         if initial {
-            ilog("apply.setDocument")
+            ilog("apply.gate", "decision=setDocument reason=initial")
             view.setDocument(document, contentWidth: width)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
-        } else if coordinator.appliedRevision != rendered.revision
-                    || coordinator.appliedWidth != width {
+            coordinator.appliedSourceHash = document.sourceHash
+        } else if contentChanged || widthChanged {
+            ilog("apply.gate", "decision=refresh contentChanged=\(contentChanged) widthChanged=\(widthChanged)")
             ilog("apply.updateDoc", "islandStart=\((coordinator.islandController?.activeIsland?.byteRange.lowerBound).map { "\($0)" } ?? "nil")")
             // Phase 2 final-review fix: a revision bump is USUALLY an external
             // document swap, but it is ALSO how the active island's OWN KEEP
@@ -186,6 +207,11 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
                 document, contentWidth: width, islandStartByte: islandStart)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
+            coordinator.appliedSourceHash = document.sourceHash
+        } else if revisionChanged {
+            ilog("apply.gate", "decision=projectionOnly revision=\(rendered.revision)")
+            view.noteProjectionOnlyBump()
+            coordinator.appliedRevision = rendered.revision
         } else {
             ilog("apply.noop")
         }
@@ -215,6 +241,10 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
     public final class Coordinator {
         var appliedRevision: Int?
         var appliedWidth: CGFloat?
+        /// The CONTENT identity the recycler's rows were last projected from (I6):
+        /// `QuoinDocument.sourceHash`. This — not `rendered.revision` — is what
+        /// decides whether a refresh has anything to re-project.
+        var appliedSourceHash: String?
         var lastScrollTarget: BlockID?
         var lastScrollGeneration: Int?
         /// Phase 2, Task 7: the editable-island machine, owned here so it (and its
