@@ -12,7 +12,7 @@ import QuoinRender
 /// builds the hosted `BlockRecyclerView` and feeds it the document, so the
 /// table has one row per block.
 @MainActor
-final class BlockRecyclerReaderViewTests: XCTestCase {
+final class BlockRecyclerReaderViewTests: AppKitWindowTestCase {
 
     func testHostedRecyclerHasRowPerBlock() {
         let doc = MarkdownConverter.parse((0..<12).map { "P\($0)." }.joined(separator: "\n\n"))
@@ -104,37 +104,94 @@ final class BlockRecyclerReaderViewTests: XCTestCase {
             searchQuery: nil)
 
         let view = repr.makeRecycler(coordinator: repr.makeCoordinator())
-        let window = OffscreenTestWindow.make(width: 640, height: 400)
+        let window = makeTestWindow(width: 640, height: 400)
         window.contentView = view
-        window.makeKeyAndOrderFront(nil)
-        defer { window.orderOut(nil) }
         view.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
         view.layoutSubtreeIfNeeded()
 
         view.scroll(to: doc.blocks[20].id)
         view.layoutSubtreeIfNeeded()
-        XCTAssertNotNil(top, "onTopBlockChange must reach the hosted recycler")
+        // Not merely "something was reported": the forwarded callback must carry
+        // the RIGHT block. Checked against AppKit's own visible-row range, not
+        // against block 20 — `scroll(to:)` scrolls MINIMALLY, so block 20 lands at
+        // the bottom and an earlier block is genuinely the top one (see
+        // `BlockRecyclerViewTests.testTopBlockReported`).
+        let visible = view.tableViewForTest.rows(in: view.tableViewForTest.visibleRect)
+        XCTAssertGreaterThan(visible.length, 0, "precondition: some rows are visible")
+        XCTAssertNotEqual(top, doc.blocks[0].id,
+                          "the forwarded callback must have TRACKED the scroll")
+        XCTAssertEqual(top, doc.blocks[visible.location].id,
+                       "onTopBlockChange must reach the hosted recycler with the top-most visible "
+                       + "block (row \(visible.location); got \(top.map { "\($0)" } ?? "nil"))")
     }
 
     /// A repeat re-apply with an unchanged revision must NOT reload (that would
     /// discard scroll position); a changed revision must.
+    ///
+    /// PROVEN VACUOUS AND REWRITTEN. The old body re-applied the SAME
+    /// representable and then asserted `numberOfRowsForTest` and
+    /// `appliedRevision` — both of which are equally true when `apply` reloads on
+    /// every call, so it discriminated nothing. Measured: with the revision gate
+    /// deleted in production (an unconditional `always-reload` branch), the old
+    /// test still passed.
+    ///
+    /// The rewrite makes the two applies differ in DOCUMENT CONTENT, so the
+    /// question "did the refresh run?" has a directly observable answer that does
+    /// not depend on AppKit's reload timing: content-hash `BlockID`s change with
+    /// the text, so the recycler either knows the new document's blocks or it
+    /// does not. A gate that leaks (always reloads) adopts the new document at
+    /// step 1 and fails; a gate welded shut never adopts it and fails step 2.
     func testRevisionGuardsReload() {
         let doc = MarkdownConverter.parse("# H\n\nBody.")
+        let edited = MarkdownConverter.parse("# H\n\nBody, edited.")
+        XCTAssertNotEqual(doc.blocks[1].id, edited.blocks[1].id,
+                          "precondition: the edit changes the content-hash block id")
+
         let coordinator = BlockRecyclerReaderView.Coordinator()
-        let repr = BlockRecyclerReaderView(
-            document: doc,
-            rendered: RenderedDocument(attributed: NSAttributedString(), blockRanges: [:], revision: 1),
-            theme: Theme(),
-            renderer: AttributedRenderer(theme: Theme()),
-            scrollTarget: nil,
-            onTopBlockChange: nil,
-            searchQuery: nil)
-        let view = repr.makeRecycler(coordinator: coordinator)
+        func repr(revision: Int, document: QuoinDocument) -> BlockRecyclerReaderView {
+            BlockRecyclerReaderView(
+                document: document,
+                rendered: RenderedDocument(attributed: NSAttributedString(),
+                                           blockRanges: [:], revision: revision),
+                theme: Theme(),
+                renderer: AttributedRenderer(theme: Theme()),
+                scrollTarget: nil,
+                onTopBlockChange: nil,
+                searchQuery: nil)
+        }
+        let view = repr(revision: 1, document: doc).makeRecycler(coordinator: coordinator)
+        let window = makeTestWindow(width: 640, height: 400)
+        window.contentView = view
+        view.frame = NSRect(x: 0, y: 0, width: 640, height: 400)
+        view.layoutSubtreeIfNeeded()
         XCTAssertEqual(view.numberOfRowsForTest, doc.blocks.count)
-        // Same revision: apply is a no-op reload but rows stay consistent.
-        repr.apply(to: view, coordinator: coordinator, initial: false)
-        XCTAssertEqual(view.numberOfRowsForTest, doc.blocks.count)
+
+        // Settle the applied WIDTH to the laid-out one, so the applies below
+        // differ only in revision/document (width is the gate's other input).
+        repr(revision: 1, document: doc).apply(to: view, coordinator: coordinator, initial: false)
+        XCTAssertNotNil(view.rowForBlockID(doc.blocks[1].id),
+                        "precondition: the recycler hosts the ORIGINAL document")
+
+        // 1. NEW document, UNCHANGED revision → the gate must hold. The recycler
+        // must still be showing the old document: re-applying here would discard
+        // scroll position (and, with an island live, first responder).
+        repr(revision: 1, document: edited).apply(to: view, coordinator: coordinator, initial: false)
+        XCTAssertNil(view.rowForBlockID(edited.blocks[1].id),
+                     "an unchanged revision must NOT adopt a new document (that reload would "
+                     + "discard scroll position)")
+        XCTAssertNotNil(view.rowForBlockID(doc.blocks[1].id),
+                        "…the original document is still the one on screen")
         XCTAssertEqual(coordinator.appliedRevision, 1)
+
+        // 2. Same new document, BUMPED revision → the refresh must genuinely run.
+        // Anti-vacuity for step 1: a gate welded shut would satisfy it forever.
+        repr(revision: 2, document: edited).apply(to: view, coordinator: coordinator, initial: false)
+        XCTAssertNotNil(view.rowForBlockID(edited.blocks[1].id),
+                        "a revision bump must re-run the refresh onto the new document")
+        XCTAssertNil(view.rowForBlockID(doc.blocks[1].id),
+                     "…and the superseded document's blocks are gone")
+        XCTAssertEqual(coordinator.appliedRevision, 2)
+        XCTAssertEqual(view.numberOfRowsForTest, edited.blocks.count)
     }
 }
 #endif

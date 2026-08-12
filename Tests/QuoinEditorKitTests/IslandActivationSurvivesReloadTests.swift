@@ -21,13 +21,19 @@ import QuoinRender
 /// the click so the deferred reload commits exactly as the app's tracking loop
 /// gives it the chance to. Pre-fix this FAILS (island torn down: FR is the table,
 /// `editingBlockID` nil). Post-fix the activation survives the transient resign.
+///
+/// Inherits `AppKitWindowTestCase` so its windows are CLOSED (not merely ordered
+/// out) and the application-wide mouse queue is drained around every test — this
+/// suite POSTS a `leftMouseUp` per click, and a terminator left on that queue is
+/// the documented way one suite turns a later suite's click into a drag.
 @MainActor
-final class IslandActivationSurvivesReloadTests: XCTestCase {
+final class IslandActivationSurvivesReloadTests: AppKitWindowTestCase {
 
     /// Dispatch a genuine left click at `winPoint` through the window's real event
     /// path (queue mouseUp first so the table's `super.mouseDown` tracking loop
     /// terminates instead of blocking).
     private func dispatchRealClick(at winPoint: CGPoint, in window: NSWindow) {
+        Self.drainPendingMouseEvents()
         let down = NSEvent.mouseEvent(
             with: .leftMouseDown, location: winPoint, modifierFlags: [],
             timestamp: 0, windowNumber: window.windowNumber, context: nil,
@@ -66,10 +72,8 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     {
         let doc = MarkdownConverter.parse(markdown)
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = OffscreenTestWindow.make(width: 640, height: 480)
+        let window = makeTestWindow(width: 640, height: 480)
         window.contentView = recycler
-        window.makeKeyAndOrderFront(nil)
-        window.makeKey()
         recycler.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         recycler.setDocument(doc, contentWidth: 600)
         recycler.layoutSubtreeIfNeeded()
@@ -88,12 +92,19 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     func testParagraphClickStaysEditableAcrossDeferredReload() {
         let (recycler, controller, doc, window) =
             makeStack("First para.\n\nSecond para.\n\nThird para.")
-        defer { window.orderOut(nil) }
 
         let clickedBlockID = doc.blocks[1].id
         let row0H = recycler.rowHeightForTest(0)
         let winPoint = recycler.windowPointForTableY(CGPoint(x: 40, y: row0H + 6))
         dispatchRealClick(at: winPoint, in: window)
+
+        // The interaction happened BEFORE the reload is commanded: without this,
+        // "the island survived the reload" is indistinguishable from "there was
+        // never an island to lose", and `reloadEditingRow()` on a nil editing row
+        // is itself a no-op that could not fail.
+        XCTAssertEqual(recycler.editingBlockID, clickedBlockID,
+                       "precondition: the click promoted the clicked block")
+        XCTAssertNotNil(controller.activeIsland, "precondition: the click produced a live island")
 
         // Give the deferred read→edit reload the chance the app's tracking loop
         // gives it. This is where the pre-fix teardown fires.
@@ -116,7 +127,6 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     func testClickingDifferentBlockMovesTheIsland() {
         let (recycler, controller, doc, window) =
             makeStack("First para.\n\nSecond para.\n\nThird para.")
-        defer { window.orderOut(nil) }
 
         // Activate block 1.
         let row0H = recycler.rowHeightForTest(0)
@@ -146,15 +156,12 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     func testGenuineBlurStillDeactivates() {
         let doc = MarkdownConverter.parse("First para.\n\nSecond para.")
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = OffscreenTestWindow.make(width: 640, height: 400)
-        defer { window.orderOut(nil) }
+        let window = makeTestWindow(width: 640, height: 400)
         let other = NSTextField(frame: NSRect(x: 0, y: 370, width: 200, height: 24))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))
         host.addSubview(recycler)
         host.addSubview(other)
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        window.makeKey()
         recycler.frame = NSRect(x: 0, y: 0, width: 640, height: 360)
         recycler.setDocument(doc, contentWidth: 600)
         recycler.layoutSubtreeIfNeeded()

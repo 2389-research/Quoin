@@ -151,8 +151,24 @@ class AppKitWindowTestCase: XCTestCase {
             .rightMouseDown, .rightMouseUp, .rightMouseDragged,
             .otherMouseDown, .otherMouseUp, .otherMouseDragged, .mouseMoved,
         ]
-        while NSApp.nextEvent(matching: mask, until: .distantPast,
-                              inMode: .default, dequeue: true) != nil {}
+        // `NSApplication.shared`, NOT `NSApp`: the latter is an implicitly
+        // unwrapped global that stays nil until something first instantiates the
+        // application, so draining before the suite's first window exists (which
+        // `setUp` does, deliberately) crashed on a nil unwrap.
+        let app = NSApplication.shared
+        while app.nextEvent(matching: mask, until: .distantPast,
+                            inMode: .default, dequeue: true) != nil {}
+    }
+
+    /// Drain BEFORE the test as well as after. `tearDown` only protects against
+    /// suites that inherit from this class; a suite that stands its own window up
+    /// with `OffscreenTestWindow.make` (several still do) can leave a posted
+    /// mouseUp on the application-wide queue, and the next click test's tracking
+    /// loop would eat it and come back with a spurious selection. Draining on
+    /// entry makes every event-dispatching test independent of what ran before it.
+    override func setUp() {
+        super.setUp()
+        MainActor.assumeIsolated { Self.drainPendingMouseEvents() }
     }
 
     override func tearDown() {

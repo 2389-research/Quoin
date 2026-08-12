@@ -43,6 +43,12 @@ final class BlockRecyclerViewTests: XCTestCase {
         // buffer), NOT 400.
         v.scroll(to: doc.blocks[399].id)
         v.layoutSubtreeIfNeeded()
+        // ANTI-VACUITY (proved: with `visibleCellCount` stubbed to 0 this test
+        // still passed). An upper bound on a counter is satisfied by a counter
+        // that never counts, so pin the lower end too: a 480pt viewport of ~24pt
+        // rows must be holding real cells.
+        XCTAssertGreaterThan(v.visibleCellCount, 0,
+                             "the live-cell instrument must actually observe cells")
         XCTAssertLessThan(v.visibleCellCount, 60,
                           "recycling must keep live cells bounded, not one-per-block")
     }
@@ -62,7 +68,22 @@ final class BlockRecyclerViewTests: XCTestCase {
 
         v.scroll(to: doc.blocks[20].id)
         v.layoutSubtreeIfNeeded()
-        XCTAssertNotNil(top)
+
+        // `XCTAssertNotNil(top)` alone passes for a callback that reports a
+        // CONSTANT or the WRONG row, and "which block is at the top" is the entire
+        // content of this signal (the outline highlight reads it). Pin it against
+        // an INDEPENDENT oracle — AppKit's own `rows(in: visibleRect)` — rather
+        // than against block 20: `scroll(to:)` is a MINIMAL scroll, so it brings
+        // block 20 to the BOTTOM of the viewport and the top block is an earlier
+        // one (measured: block 9 at this geometry). Asserting `blocks[20]` here
+        // would be asserting a bug.
+        let visible = v.tableViewForTest.rows(in: v.tableViewForTest.visibleRect)
+        XCTAssertGreaterThan(visible.length, 0, "precondition: some rows are visible")
+        XCTAssertNotEqual(top, doc.blocks[0].id,
+                          "the top block must have TRACKED the scroll, not stayed at block 0")
+        XCTAssertEqual(top, doc.blocks[visible.location].id,
+                       "the reported top block must be the top-most visible row "
+                       + "(row \(visible.location); got \(top.map { "\($0)" } ?? "nil"))")
     }
 
     /// Acceptance (A): the scroll view reserves the edge bleed so the first

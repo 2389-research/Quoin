@@ -24,7 +24,7 @@ import QuoinRender
 @MainActor
 final class IslandHarnessEndToEndTests: XCTestCase {
 
-    func testHarnessDrivesRealIslandEditPathEndToEnd() {
+    func testHarnessDrivesRealIslandEditPathEndToEnd() throws {
         // A live recycler in an offscreen window (same recipe as IslandReconcileTests).
         let md = "# Title\n\nHello world.\n\nTail."
         let doc = MarkdownConverter.parse(md)
@@ -62,9 +62,8 @@ final class IslandHarnessEndToEndTests: XCTestCase {
         // Activate the block — the recycler promotes a row to a BlockEditorCell and
         // the island text view appears.
         controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
-        guard let cell = recycler.currentEditorCell else {
-            return XCTFail("activation did not promote an editor cell")
-        }
+        let cell = try XCTUnwrap(recycler.currentEditorCell,
+                                 "activation did not promote an editor cell")
         let islandTextView = cell.islandTextView
 
         // Repoint the Phase-0 harness at the REAL island. The applied-revision
@@ -88,8 +87,11 @@ final class IslandHarnessEndToEndTests: XCTestCase {
                        "block[0] + gap untouched")
         XCTAssertTrue(session.doc.source.hasSuffix("\n\nTail."),
                       "gap + block[2] untouched")
-        XCTAssertGreaterThanOrEqual(harness.appliedRevision, 1,
-                                    "the real applied-edit signal ticked")
+        // EXACTLY one applied edit, not ">= 1": the loose bound is satisfied by a
+        // signal that fired twice (a duplicate KEEP-then-terminal flush — a real
+        // bug class this suite has already shipped once, see IslandIMEDrainTests).
+        XCTAssertEqual(harness.appliedRevision, 1,
+                       "the real applied-edit signal ticked exactly once for one keystroke")
 
         // (b) The caret is a REAL insertion bar in the REAL island — the standing
         // 2pt-dot gate, now on the actual edit path.

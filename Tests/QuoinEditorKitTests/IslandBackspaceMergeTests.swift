@@ -130,7 +130,13 @@ final class IslandBackspaceMergeTests: XCTestCase {
         // Native single-char delete ran ("Second" → "Scond"), proving the hook fell
         // through; NO merge fired (the debounce did not flush), so the document is
         // untouched and the island stays on the SAME second block.
-        XCTAssertEqual(cell.islandTextView.string, "Scond",
+        //
+        // Read the LIVE cell, not the captured one: if the row were re-vended the
+        // captured `cell` would be a detached object whose text still looks right
+        // while the island the user is typing into is wrong.
+        XCTAssertTrue(v.currentEditorCell === cell,
+                      "the row must not have been re-vended by a native delete")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "Scond",
                        "native deleteBackward removed the 'e' (hook returned false)")
         XCTAssertEqual(stub.doc().source, "First\n\nSecond", "no merge fired")
         XCTAssertNotNil(controller.activeIsland)

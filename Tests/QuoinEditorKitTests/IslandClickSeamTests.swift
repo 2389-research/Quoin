@@ -265,27 +265,63 @@ final class IslandClickSeamTests: AppKitWindowTestCase {
     /// The seam still DEFERS to the table where table semantics belong: a
     /// modifier-click (reserved for future block selection) must not promote and
     /// must not be swallowed.
+    ///
+    /// PROVEN VACUOUS AND STRENGTHENED. Measured: with `handleTableMouseDown`
+    /// stubbed to `return false` unconditionally — i.e. the promote seam switched
+    /// OFF entirely — the old body still passed, because "returns false / promotes
+    /// nothing" is exactly what a dead seam does. A negative assertion needs a
+    /// POSITIVE CONTROL in the same test: the identical point, WITHOUT the
+    /// modifier, must promote. Only the pair discriminates "the modifier is
+    /// respected" from "nothing works".
     func testModifierClickFallsThroughToTheTable() {
-        let (recycler, controller, _, window) = makeStack("First para.\n\nSecond para.")
+        let (recycler, controller, doc, window) = makeStack("First para.\n\nSecond para.")
+        let clickPoint = point(row: 1, dx: 40, dy: 6, in: recycler)
 
-        let event = mouse(.leftMouseDown, at: point(row: 1, dx: 40, dy: 6, in: recycler),
-                          in: window, modifiers: .command)
+        let event = mouse(.leftMouseDown, at: clickPoint, in: window, modifiers: .command)
         XCTAssertFalse(recycler.handleTableMouseDown(event),
                        "a ⌘-click must fall through to super.mouseDown (table semantics)")
         XCTAssertNil(controller.activeIsland, "a ⌘-click must not promote an island")
         XCTAssertNil(recycler.editingBlockID)
+
+        // POSITIVE CONTROL: the same point, unmodified, DOES promote — so the
+        // refusal above is about the modifier and not about a dead seam. Driven
+        // through `dispatchClick`, never `handleTableMouseDown` directly: the
+        // handled path FORWARDS the event into the text view's modal tracking
+        // loop, which blocks forever unless a mouseUp is already queued.
+        dispatchClick(at: clickPoint, in: window)
+        settle(recycler, in: window)
+        XCTAssertEqual(recycler.editingBlockID, doc.blocks[1].id,
+                       "control: an unmodified click at the same point promotes row 1")
+        XCTAssertNotNil(controller.activeIsland, "control: …with a live island")
     }
 
     /// A click that resolves to NO block (below the last row) also falls through.
+    ///
+    /// Same vacuity as the modifier case (measured identically): paired with a
+    /// positive control at a point that DOES resolve to a block.
     func testClickOnEmptyAreaFallsThroughToTheTable() {
-        let (recycler, controller, _, window) = makeStack("First para.\n\nSecond para.")
+        let (recycler, controller, doc, window) = makeStack("First para.\n\nSecond para.")
 
         // Far below the last row: `blockAndPoint` returns nil there.
         let far = recycler.windowPointForTableY(CGPoint(x: 40, y: 100_000))
+        XCTAssertNil(recycler.blockAndPoint(forWindowPoint: far),
+                     "precondition: the far point really resolves to no block")
         let event = mouse(.leftMouseDown, at: far, in: window)
         XCTAssertFalse(recycler.handleTableMouseDown(event),
                        "a click that resolves to no block must fall through to the table")
         XCTAssertNil(controller.activeIsland)
+
+        // POSITIVE CONTROL: a point that DOES resolve promotes. Dispatched (not a
+        // direct `handleTableMouseDown`) because the handled path forwards into
+        // the text view's tracking loop and needs its queued terminator.
+        let onRow = point(row: 1, dx: 40, dy: 6, in: recycler)
+        XCTAssertNotNil(recycler.blockAndPoint(forWindowPoint: onRow),
+                        "control: the row point resolves to a block")
+        dispatchClick(at: onRow, in: window)
+        settle(recycler, in: window)
+        XCTAssertEqual(recycler.editingBlockID, doc.blocks[1].id,
+                       "control: a click over a real row promotes that row")
+        XCTAssertNotNil(controller.activeIsland, "control: …with a live island")
     }
 
     /// A DOUBLE click is forwarded too (documented choice): word-select belongs to

@@ -420,23 +420,32 @@ final class IslandSourceStylingTests: XCTestCase {
 
     /// The production recycler installs the styler — otherwise every assertion
     /// above tests a code path the app never takes.
-    func testRecyclerInstallsTheStylerOnTheIslandItVends() {
+    func testRecyclerInstallsTheStylerOnTheIslandItVends() throws {
         let doc = MarkdownConverter.parse("## Headings and structure lol\n\nBody text.")
         let recycler = BlockRecyclerView(renderer: renderer, theme: theme)
         let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = recycler
+        defer { window.contentView = nil; window.close() }
         recycler.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
         recycler.setDocument(doc, contentWidth: 600)
         recycler.layoutSubtreeIfNeeded()
 
-        let cell = recycler.promoteRow(to: doc.blocks[0].id)
-        let island = try? XCTUnwrap(cell)
-        XCTAssertNotNil(island?.sourceStyler, "the recycler must install a source styler")
-        let styled = try? XCTUnwrap(island?.styledTextForTest)
-        XCTAssertEqual(styled?.string, "## Headings and structure lol")
-        XCTAssertEqual(styled?.attribute(.font, at: 3, effectiveRange: nil) as? NSFont,
+        // `try XCTUnwrap`, not `try? XCTUnwrap`: the `try?` form swallows the
+        // throw, so every assertion below then ran against `nil` optionals and the
+        // failure message pointed at the wrong line.
+        let island = try XCTUnwrap(recycler.promoteRow(to: doc.blocks[0].id),
+                                   "the recycler must vend an editor cell for the promoted row")
+        XCTAssertNotNil(island.sourceStyler, "the recycler must install a source styler")
+        let styled = island.styledTextForTest
+        XCTAssertEqual(styled.string, "## Headings and structure lol")
+        XCTAssertEqual(styled.attribute(.font, at: 3, effectiveRange: nil) as? NSFont,
                        theme.headingFont(level: 2),
                        "the vended island renders its heading on the H2 ramp")
+        // Anti-vacuity: the H2 face must not be the mono seed the unstyled island
+        // uses, or "the styler is installed" would hold for a styler that did
+        // nothing.
+        XCTAssertNotEqual(styled.attribute(.font, at: 3, effectiveRange: nil) as? NSFont,
+                          NSFont.monospacedSystemFont(ofSize: 13, weight: .regular))
     }
 }
 #endif
