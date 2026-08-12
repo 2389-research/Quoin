@@ -25,14 +25,46 @@ import AppKit
 /// `EditorTestHarness` extension.
 @MainActor
 public final class EditorTestHarness {
-    private let window: NSWindow
-    private let scroll: NSScrollView
-    /// A real editable `NSTextView` in an offscreen window.
+    /// Owned window/scroll for the standalone (`init(width:)`) stack. Nil when the
+    /// harness is *adopting* a live island cell's text view — that view's window
+    /// and enclosing scroll view are owned by the recycler, not by us.
+    private let window: NSWindow?
+    private let scroll: NSScrollView?
+    /// A real editable `NSTextView`. In the standalone stack it is one this
+    /// harness built; when adopting, it points at a live
+    /// `BlockEditorCell.islandTextView` — the drivers/reads below touch ONLY this
+    /// view (never its delegate, owned by the cell) and `appliedRevision`, so they
+    /// run unchanged against the real island edit path.
     public let textView: NSTextView
-    /// Monotonic; bumps once per driven edit.
-    public private(set) var appliedRevision = 0
+    /// Bumped once per driven edit in the standalone stack. When adopting, the
+    /// applied-revision is sourced from the orchestrator via `appliedRevisionSource`.
+    private var drivenRevision = 0
+    /// When adopting, keys `appliedRevision` off the real applied-edit signal (the
+    /// orchestrator's revision) instead of the harness-local driven counter.
+    private let appliedRevisionSource: (() -> Int)?
+    /// Monotonic; bumps once per driven edit (standalone) or reflects the real
+    /// applied-edit signal (adopting).
+    public var appliedRevision: Int { appliedRevisionSource?() ?? drivenRevision }
+
+    /// Adopt a live island cell's text view. Skips window/stack construction — the
+    /// text view already belongs to a promoted `BlockEditorCell` inside the
+    /// recycler's own offscreen window. The same drivers
+    /// (`type`/`pressReturn`/`pressBackspace`/`move`) and reads
+    /// (`quiesce`/`caretRect`/`assertInsertionBar`) become the end-to-end
+    /// regression gate against the REAL edit path. The `appliedRevision` closure
+    /// lets the harness key its quiescence off the real applied-edit signal.
+    ///
+    /// Does NOT reassign `textView.delegate` — the cell owns it (that delegate is
+    /// what fans typed changes out to the `IslandController` reconcile debounce).
+    public init(adopting textView: NSTextView, appliedRevision: @escaping () -> Int) {
+        self.window = nil
+        self.scroll = nil
+        self.textView = textView
+        self.appliedRevisionSource = appliedRevision
+    }
 
     public init(width: CGFloat = 600) {
+        self.appliedRevisionSource = nil
         let frame = NSRect(x: 0, y: 0, width: width, height: 800)
 
         // A live TextKit-2 stack: content storage → layout manager → container.
@@ -53,10 +85,11 @@ public final class EditorTestHarness {
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
 
-        scroll = NSScrollView(frame: frame)
+        let scroll = NSScrollView(frame: frame)
         scroll.documentView = textView
+        self.scroll = scroll
 
-        window = NSWindow(
+        let window = NSWindow(
             contentRect: frame,
             styleMask: [.borderless],
             backing: .buffered,
@@ -64,6 +97,7 @@ public final class EditorTestHarness {
         window.contentView = scroll
         window.makeKeyAndOrderFront(nil)
         window.makeFirstResponder(textView)
+        self.window = window
     }
 
     // MARK: - Drivers (real responder / NSTextInputClient methods)
@@ -81,24 +115,24 @@ public final class EditorTestHarness {
             textView.insertText(
                 String(ch),
                 replacementRange: NSRange(location: NSNotFound, length: 0))
-            appliedRevision += 1
+            drivenRevision += 1
         }
     }
 
     public func pressReturn() {
         textView.insertNewline(nil)
-        appliedRevision += 1
+        drivenRevision += 1
     }
 
     public func pressBackspace() {
         textView.deleteBackward(nil)
-        appliedRevision += 1
+        drivenRevision += 1
     }
 
     /// Drive a selection/movement command (e.g. `#selector(NSResponder.moveRight(_:))`).
     public func move(_ sel: Selector) {
         textView.doCommand(by: sel)
-        appliedRevision += 1
+        drivenRevision += 1
     }
 
     // MARK: - Quiescence + reads
