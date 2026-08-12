@@ -122,18 +122,98 @@ final class IslandBackspaceMergeTests: XCTestCase {
 
         controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
         let cell = v.editorCellForEditingRow()!
-        // Caret AFTER "Se" (offset 2), mid-text → the hook returns false → native
-        // deletes the "e".
+        // Caret AFTER "Se" (offset 2), mid-text. Drive the REAL native Backspace via
+        // the command path: the hook returns false, so `super` deletes the "e".
         cell.islandTextView.setSelectedRange(NSRange(location: 2, length: 0))
-        let handled = controller.handleBackspace()
-        XCTAssertFalse(handled, "mid-text Backspace falls through to the native delete")
+        let harness = EditorTestHarness(adopting: cell.islandTextView, appliedRevision: stub.rev)
+        harness.pressBackspace()
 
-        // Nothing merged: the document is untouched by the (native) delete this test
-        // did not drive, and the island stays on the SAME second block.
+        // Native single-char delete ran ("Second" → "Scond"), proving the hook fell
+        // through; NO merge fired (the debounce did not flush), so the document is
+        // untouched and the island stays on the SAME second block.
+        XCTAssertEqual(cell.islandTextView.string, "Scond",
+                       "native deleteBackward removed the 'e' (hook returned false)")
         XCTAssertEqual(stub.doc().source, "First\n\nSecond", "no merge fired")
         XCTAssertNotNil(controller.activeIsland)
         XCTAssertEqual(stub.doc().source.substring(in: ByteRange(controller.activeIsland!.byteRange)),
                        "Second", "island still on the second block")
+    }
+
+    // MARK: - Counter-test: a non-empty selection at location 0 is a native delete
+
+    func testBackspaceWithSelectionAtStartDoesNotMerge() {
+        let (v, doc, window) = makeRecycler("First\n\nSecond")
+        defer { window.orderOut(nil) }
+        let controller = IslandController(recycler: v)
+        let stub = installStub(controller, startingFrom: doc)
+
+        controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
+        let cell = v.editorCellForEditingRow()!
+        // A NON-EMPTY selection anchored AT location 0 ({0,3} = "Sec"). This pins the
+        // `== NSRange(0,0)` guard comparing BOTH location and length: a selection
+        // must NOT be read as a caret-at-start merge.
+        cell.islandTextView.setSelectedRange(NSRange(location: 0, length: 3))
+        let handled = controller.handleBackspace()
+        XCTAssertFalse(handled,
+                       "a non-empty selection at location 0 is a native selection-delete, not a merge")
+
+        // The merge did NOT fire — the document is untouched and the island stays put.
+        XCTAssertEqual(stub.doc().source, "First\n\nSecond", "no merge fired for a selection-delete")
+        XCTAssertNotNil(controller.activeIsland)
+        XCTAssertEqual(stub.doc().source.substring(in: ByteRange(controller.activeIsland!.byteRange)),
+                       "Second", "island still on the second block")
+    }
+
+    // MARK: - Nearest predecessor across 3 blocks
+
+    func testBackspaceMergesIntoNearestPredecessor() {
+        let (v, doc, window) = makeRecycler("First\n\nSecond\n\nThird")
+        defer { window.orderOut(nil) }
+        let controller = IslandController(recycler: v)
+        let stub = installStub(controller, startingFrom: doc)
+
+        // Activate the THIRD block, caret at {0,0}. The merge must target the NEAREST
+        // predecessor ("Second"), not "First".
+        controller.activate(blockID: doc.blocks[2].id, localPoint: .zero, in: doc, baseRevision: 0)
+        let cell = v.editorCellForEditingRow()!
+        XCTAssertEqual(cell.islandTextView.string, "Third")
+        cell.islandTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        let harness = EditorTestHarness(adopting: cell.islandTextView, appliedRevision: stub.rev)
+        harness.pressBackspace()
+        controller.flushPendingReconcile()
+
+        // "Third" merged into "Second" (the nearest predecessor); "First" untouched.
+        XCTAssertEqual(stub.doc().source, "First\n\nSecondThird")
+        XCTAssertEqual(stub.doc().blocks.count, 2, "First stays; Second+Third merged")
+        XCTAssertNotNil(controller.activeIsland)
+        XCTAssertEqual(stub.doc().source.substring(in: ByteRange(controller.activeIsland!.byteRange)),
+                       "SecondThird", "island re-homed onto the merged Second+Third block")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.selectedRange().location, 6,
+                       "caret at the join, after \"Second\"")
+    }
+
+    // MARK: - Multi-byte predecessor: the join maps in UTF-16, not bytes
+
+    func testBackspaceMergeJoinMapsMultibytePredecessor() {
+        let (v, doc, window) = makeRecycler("Café\n\nSecond")
+        defer { window.orderOut(nil) }
+        let controller = IslandController(recycler: v)
+        let stub = installStub(controller, startingFrom: doc)
+
+        controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
+        let cell = v.editorCellForEditingRow()!
+        cell.islandTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        let harness = EditorTestHarness(adopting: cell.islandTextView, appliedRevision: stub.rev)
+        harness.pressBackspace()
+        controller.flushPendingReconcile()
+
+        // "é" is 2 UTF-8 bytes but 1 UTF-16 unit: the join byte (5, after "Café") maps
+        // to island-local UTF-16 offset 4.
+        XCTAssertEqual(stub.doc().source, "CaféSecond")
+        XCTAssertEqual(stub.doc().blocks.count, 1)
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "CaféSecond")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.selectedRange().location, 4,
+                       "caret at the join in UTF-16 units (after the 4-glyph \"Café\")")
     }
 
     // MARK: - Counter-test: Backspace at {0,0} on the FIRST block has no predecessor
@@ -156,6 +236,84 @@ final class IslandBackspaceMergeTests: XCTestCase {
         XCTAssertNotNil(controller.activeIsland, "island still active on the first block")
         XCTAssertEqual(stub.doc().source.substring(in: ByteRange(controller.activeIsland!.byteRange)),
                        "First", "island still on the first block")
+    }
+
+    // MARK: - Async ordering: type-then-immediately-Backspace-at-0
+
+    /// An ASYNC stub that models the REAL app's `onReconcile` seam
+    /// (`Task { @MainActor in let doc = await onReconcile(range, text);
+    /// applyReconciled(doc, ...) }`): each reconcile's apply is DEFERRED onto a
+    /// fresh `@MainActor` Task rather than applied inline. `parseAfterEdit` reads
+    /// `box.doc` at TASK-RUN time (not enqueue time), and `applyReconciled` runs
+    /// only when that Task runs — so a merge fired as a SIBLING Task before the
+    /// flush's apply landed would parse+splice against the WRONG (pre-flush)
+    /// document. `applied` counts landed applies so the test can drain.
+    private func installAsyncStub(
+        _ controller: IslandController, startingFrom doc: QuoinDocument
+    ) -> (doc: () -> QuoinDocument, applied: () -> Int) {
+        final class Box { var doc: QuoinDocument; var applied = 0; init(_ d: QuoinDocument) { doc = d } }
+        let box = Box(doc)
+        controller.onReconcile = { [weak controller] range, newText, caret in
+            let edit = SourceEdit(range: range, replacement: newText)
+            let caretDocByte = IslandCaretMapping.documentByte(
+                localUTF16: caret, islandSource: newText, islandByteStart: range.offset)
+            Task { @MainActor in
+                let result = try! MarkdownConverter.parseAfterEdit(previous: box.doc, edit: edit)
+                box.doc = result.document
+                controller?.applyReconciled(result.document, caretDocByte: caretDocByte)
+                box.applied += 1
+            }
+        }
+        return ({ box.doc }, { box.applied })
+    }
+
+    /// Drain queued `@MainActor` reconcile Tasks until `applied()` reaches `count`
+    /// (or a generous spin cap), yielding between polls so enqueued Tasks can run.
+    @MainActor
+    private func drain(until count: Int, _ applied: () -> Int) async {
+        var spins = 0
+        while applied() < count && spins < 500 {
+            await Task.yield()
+            spins += 1
+        }
+    }
+
+    func testTypeThenBackspaceAtZeroOrdersFlushBeforeMerge() async {
+        let (v, doc, window) = makeRecycler("First\n\nSecond")
+        defer { window.orderOut(nil) }
+        let controller = IslandController(recycler: v)
+        let stub = installAsyncStub(controller, startingFrom: doc)
+
+        controller.activate(blockID: doc.blocks[1].id, localPoint: .zero, in: doc, baseRevision: 0)
+        let cell = v.editorCellForEditingRow()!
+        // Type "X" at the START of the second block → island "XSecond", a PENDING
+        // debounced KEEP edit (the 200ms timer will not fire in-test).
+        cell.islandTextView.insertText("X", replacementRange: NSRange(location: 0, length: 0))
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "XSecond")
+
+        // Move the caret to {0,0} and Backspace-at-0 WHILE the typed edit is still
+        // unflushed. `handleBackspace` decides consume synchronously, flushes the
+        // typed edit, and DEFERS the merge behind the flush's async apply.
+        cell.islandTextView.setSelectedRange(NSRange(location: 0, length: 0))
+        let harness = EditorTestHarness(adopting: cell.islandTextView, appliedRevision: { 0 })
+        harness.pressBackspace()
+
+        // Two applies must land IN ORDER: (1) the typed KEEP edit
+        // ("First\n\nSecond" → "First\n\nXSecond"), then (2) the merge fired from the
+        // flush's applyReconciled ("First\n\nXSecond" → "FirstXSecond"). If they
+        // raced and the merge parsed first, the stub's `try!` parseAfterEdit would
+        // splice the flush's whole-island range past document end and crash.
+        await drain(until: 2, stub.applied)
+
+        XCTAssertEqual(stub.doc().source, "FirstXSecond",
+                       "flush landed before the merge; the typed X survived the merge")
+        XCTAssertEqual(stub.doc().blocks.count, 1)
+        XCTAssertNotNil(controller.activeIsland, "island active on the merged block")
+        XCTAssertEqual(stub.doc().source.substring(in: ByteRange(controller.activeIsland!.byteRange)),
+                       "FirstXSecond")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "FirstXSecond")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.selectedRange().location, 5,
+                       "caret at the join (after \"First\", before the typed X)")
     }
 }
 #endif

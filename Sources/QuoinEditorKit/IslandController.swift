@@ -51,6 +51,20 @@ public final class IslandController {
     /// `applyReconciled(...)` (every branch, before any early return).
     private var currentDocument: QuoinDocument?
 
+    /// Task 7 (Fix round 1): a Backspace-merge that must wait for a preceding
+    /// debounced (KEEP) flush's apply to LAND before it fires. In the real app
+    /// `onReconcile` is async (`Task { await onReconcile(...); applyReconciled(...) }`),
+    /// so when `handleBackspace` flushes a pending edit the flush's apply is NOT
+    /// complete when it returns — firing the merge as a sibling Task would race the
+    /// flush (unstructured-`Task` @MainActor enqueue order is not FIFO). Instead the
+    /// merge is DEFERRED: set here, consumed at the END of the next `applyReconciled`
+    /// (the flush's), which recomputes the predecessor + separator against the now-
+    /// refreshed document and fires the merge. This makes flush-before-merge ordering
+    /// GUARANTEED, and — because the recompute runs post-flush — removes the
+    /// stale-offset reliance entirely (the separator invariant holds against the
+    /// actual current document).
+    private var pendingMergeAfterFlush = false
+
     /// The `BlockKind` of the block the active island currently hosts, threaded at
     /// `activate` and kept in step with the hosted block across KEEP re-anchors and
     /// SPLIT re-homes. The Return handler (Task 5) classifies on this via
@@ -369,57 +383,78 @@ public final class IslandController {
         // Never merge mid-composition: splicing around half-composed marked text
         // corrupts the source. Let native handle the delete.
         if currentHasMarkedText() { return false }
-        // Consume ONLY at the island's very start with an EMPTY selection. Any
-        // non-zero location OR a non-empty selection is an ordinary within-island
-        // backspace → native.
+        // Consume ONLY at the island's very start with an EMPTY selection. The
+        // comparison pins BOTH location AND length: a non-empty selection anchored
+        // at location 0 (`{0, n}`) is a native selection-delete, NOT a merge.
         guard textView.selectedRange() == NSRange(location: 0, length: 0) else {
             return false
         }
+        guard let document = currentDocument else { return false }
 
-        // Flush any pending debounced (KEEP) edit FIRST: if the user typed then
-        // immediately Backspaced-at-0, the retained document is stale until that
-        // edit lands. Computing the merge against a stale document would splice at
-        // the wrong offsets (CLAUDE.md: "a SourceEdit must be COMPUTED where it is
-        // APPLIED"). `flushPendingReconcile` re-homes + refreshes `currentDocument`
-        // and re-anchors `island.byteRange`; re-read everything afterward.
-        if pendingReconcile { flushPendingReconcile() }
-        guard let mergedIsland = activeIsland, let document = currentDocument else {
+        // The CONSUME decision is made SYNCHRONOUSLY from caret == {0,0} +
+        // predecessor-exists. Predecessor-existence is stable across a KEEP flush
+        // (a debounced typing edit never changes the block STRUCTURE), so the
+        // possibly-stale current document answers it authoritatively even before a
+        // pending edit is flushed. No predecessor → the island is the first block →
+        // native no-op; NEVER splice with a nil record.
+        guard predecessorRecord(before: island.byteRange.lowerBound, in: document) != nil else {
             return false
         }
 
-        // Find the PREDECESSOR: the block whose content ends at or before the
-        // island's start, nearest to it (the block immediately before the island).
-        let islandStart = mergedIsland.byteRange.lowerBound
-        let predecessor = BlockListModel(document: document).records
+        // ORDERING (Fix round 1): if a debounced KEEP edit is pending, the real
+        // app's `onReconcile` is async, so the flush's apply lands LATER. Firing
+        // the merge now would race it (non-FIFO Tasks) and could splice the merge
+        // FIRST, leaving the flush's whole-island range to overrun the shrunken
+        // document (the CLAUDE.md "compute-where-applied / stale-base" bug class).
+        // Defer the merge behind the flush: flush now, and let the flush's
+        // `applyReconciled` fire the merge once it has landed and refreshed the
+        // document + island range. When nothing is pending, the flush is a no-op
+        // and we fire the merge immediately (unchanged from the original path).
+        if pendingReconcile {
+            pendingMergeAfterFlush = true
+            flushPendingReconcile()
+        } else {
+            fireBackspaceMerge()
+        }
+        return true
+    }
+
+    /// The block immediately before `islandStart`: the record whose content ends at
+    /// or before it, nearest to it. `nil` when the island is the first block.
+    private func predecessorRecord(before islandStart: Int,
+                                   in document: QuoinDocument) -> BlockRecord? {
+        BlockListModel(document: document).records
             .filter { $0.byteRange.upperBound <= islandStart }
             .max(by: { $0.byteRange.upperBound < $1.byteRange.upperBound })
-        // No predecessor → the island is the first block. Native no-op; NEVER
-        // splice with a nil record.
-        guard let prev = predecessor else { return false }
+    }
 
-        // JOIN RULE: replace the inter-block separator bytes
-        // `[prev.upperBound, islandStart)` with "" — the island's block MERGES
-        // INTO the previous block (e.g. "First\n\nSecond" → "FirstSecond", ONE
-        // block); the reparse decides the merged block's kind. The caret lands at
-        // the JOIN — `prev.byteRange.upperBound`, where the predecessor's content
-        // ends and the merged-in text begins.
+    /// Compute the separator-delete `SourceEdit` against the CURRENT document and
+    /// fire it through the existing `onReconcile` seam. Recomputes predecessor +
+    /// separator live (post-flush when deferred) so the offsets are never stale.
+    ///
+    /// JOIN RULE: replace the inter-block separator bytes
+    /// `[prev.upperBound, islandStart)` with "" — the island's block MERGES INTO
+    /// the previous block (e.g. "First\n\nSecond" → "FirstSecond", ONE block); the
+    /// reparse decides the merged block's kind. The island-local caret is 0 (island
+    /// start); in the "" replacement that maps to
+    /// `caretDocByte == separator.lowerBound == prev.byteRange.upperBound`, the join
+    /// (where the predecessor's content ends and the merged-in text begins).
+    /// `lastFlushedText`/`reconcileInFlight` mirror `reconcileNow` so the in-flight
+    /// guard holds and `applyReconciled`'s KEEP check fails (the merged block's
+    /// content is NOT the old island text) → the re-home runs. Guarded so a lost
+    /// island / vanished predecessor / empty separator NEVER splices.
+    private func fireBackspaceMerge() {
+        guard let island = activeIsland, let document = currentDocument,
+              let cell = recycler.currentEditorCell,
+              cell.blockID == island.originBlockID else { return }
+        let islandStart = island.byteRange.lowerBound
+        guard let prev = predecessorRecord(before: islandStart, in: document) else { return }
         let separator = prev.byteRange.upperBound ..< islandStart
         // EMPTY-SPLICE GUARD: only fire for a real, positive-length separator.
-        guard separator.lowerBound < separator.upperBound else { return false }
-
-        // Route through the SAME `onReconcile` seam the KEEP/flush paths use: the
-        // app (or test stub) builds `SourceEdit(range: separator, replacement: "")`
-        // and hands the reparsed document to `applyReconciled`, which re-homes the
-        // island onto the merged block. The island-local caret is 0 (we are at the
-        // island's start); in the "" replacement that maps to
-        // `caretDocByte == separator.lowerBound == prev.byteRange.upperBound`, the
-        // join. `lastFlushedText`/`reconcileInFlight` mirror `reconcileNow` so the
-        // in-flight guard holds and `applyReconciled`'s KEEP check fails (the
-        // merged block's content is NOT the old island text) → the re-home runs.
-        lastFlushedText = textView.string
+        guard separator.lowerBound < separator.upperBound else { return }
+        lastFlushedText = cell.islandTextView.string
         reconcileInFlight = true
         onReconcile?(ByteRange(separator), "", 0)
-        return true
     }
 
     // MARK: - Flush
@@ -567,6 +602,18 @@ public final class IslandController {
         // Refresh the retained parse in EVERY branch (before any early return) so
         // a subsequent structural op sees the latest document.
         currentDocument = newDocument
+        // Fix round 1: a Backspace-merge deferred behind THIS (KEEP-flush) apply
+        // fires once it has landed — recomputing predecessor + separator against
+        // the now-refreshed document/island range and firing through onReconcile.
+        // Runs at EVERY exit (whichever branch the flush took), and at most once:
+        // the flag is cleared before the merge, so the merge's own applyReconciled
+        // is a no-op here (no re-entrant loop).
+        defer {
+            if pendingMergeAfterFlush {
+                pendingMergeAfterFlush = false
+                fireBackspaceMerge()
+            }
+        }
         guard let island = activeIsland, let flushed = lastFlushedText else { return }
         let model = BlockListModel(document: newDocument)
 
