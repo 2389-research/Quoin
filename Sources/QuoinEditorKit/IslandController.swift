@@ -86,6 +86,75 @@ public final class IslandController {
     /// match too makes that coincidence non-silent.
     private var activeIslandIndex: Int?
 
+    // MARK: - The VIRTUAL LINE (Phase 3, Task 5b)
+
+    /// Non-nil while the island hosts a **transient, byte-less blank line**: a new
+    /// empty paragraph the user has opened with Return but not yet typed into.
+    ///
+    /// ## Why this state has to exist
+    ///
+    /// Markdown has no empty-paragraph node. `First\n\nMiddle\n\nLast` and
+    /// "…the same, with an empty paragraph between Middle and Last" are THE SAME
+    /// BYTES — there is nothing to write, and nothing for cmark to parse into a
+    /// block. So an interior end-of-block Return cannot be expressed as an edit,
+    /// and the pre-5b code that tried (insert `\n\n`, flush) grew the file by two
+    /// bytes and then dropped the island, because the reconcile-time caret landed
+    /// in the inter-block gap where `BlockListModel.record(at:)` answers nil.
+    ///
+    /// ## What it is
+    ///
+    /// The island's TEXT VIEW shows `logical + "\n\n"` — the host block's real
+    /// bytes plus a trailing blank line that exists ONLY in the text view — with
+    /// the caret on that line. Everything that talks to the document keeps
+    /// describing the HOST BLOCK ALONE: `activeIsland.byteRange`, `anchoredSource`,
+    /// `activeIslandIndex` and the recycler's editing row are all untouched, so
+    /// `anchorIsIntact`, `revalidateForDocumentRefresh` and
+    /// `updateDocumentPreservingEditing` need no new cases — they never see the
+    /// tail. The ONE seam that has to know is the flush, which writes
+    /// `effectiveIslandText(live)` instead of the live string.
+    ///
+    /// ## The two exits
+    ///
+    ///  • **Abandoned** (blur / click-away / Escape / an external re-seed): the
+    ///    effective text is the host slice, which the document already holds, so
+    ///    the unchanged-text short-circuit fires. Zero bytes written, no undo
+    ///    entry, no autosave — byte-losslessness by CONSTRUCTION, not by an
+    ///    un-write.
+    ///  • **Materialized** (a keystroke lands after the tail): the tail stops being
+    ///    a tail, the effective text becomes the whole string, and ONE flush
+    ///    replaces the host block's range with `logical + "\n\n" + typed`. The
+    ///    separator that already followed the host block is OUTSIDE that range, so
+    ///    it survives and the result is exactly `…Middle\n\nX\n\nLast`. The caret
+    ///    then lands in a real block and the existing Task-4 re-home takes over.
+    ///
+    /// ## Why `tail` and `materializationSuffix` are DERIVED, not `"\n\n"`
+    ///
+    /// cmark's block ranges are not uniform about the newline that ends a block: a
+    /// paragraph's range stops at its last character (`"Middle"`), a LIST's range
+    /// includes its trailing newline (`"- a\n"`). So the blank line the caret needs
+    /// is two newlines after a paragraph but only one after a list — and, on the
+    /// other side, the inter-block gap left in the document is two bytes after a
+    /// paragraph but only one after a list. Both quantities are therefore measured
+    /// from the actual bytes (`virtualTail(for:)` / `materializationSuffix(for:)`);
+    /// hard-coding `"\n\n"` on either side welds the new block onto its neighbour.
+    private struct VirtualLine {
+        /// The island's logical text when the line was opened. Diagnostics only —
+        /// the LIVE logical text is always recomputed off the text view by stripping
+        /// `tail`, so editing the host block with the line still open keeps working.
+        let openedWith: String
+        /// The byte-less newlines the text view shows after the host block's text.
+        /// Whatever it takes to put the caret on a blank line BELOW a blank line.
+        let tail: String
+    }
+    private var virtualLine: VirtualLine?
+
+    /// Test-only observability (anti-vacuity): the transient state itself, and how
+    /// many times it was entered / materialized — so a test proves the INTERACTION
+    /// happened, not just that some post-condition holds.
+    var hasVirtualLineForTest: Bool { virtualLine != nil }
+    private(set) var virtualLineEnteredCountForTest = 0
+    private(set) var virtualLineMaterializedCountForTest = 0
+
     /// Test-only observability (anti-vacuity): how many times a splice was REFUSED
     /// by the flush-time drift check, and how many times an external document
     /// change forced the island down. `lastDiscardedIslandText` is the island text
@@ -388,7 +457,10 @@ public final class IslandController {
         anchoredSource = document.source.substring(in: ByteRange(island.byteRange))
             ?? cell.islandTextView.string
         activeIslandIndex = document.blocks.firstIndex(where: { $0.id == blockID })
-        // Fresh island: clear any reconcile carry-over from the previous one.
+        // Fresh island: clear any reconcile carry-over from the previous one
+        // (Task 5b: including a virtual line the OUTGOING island may have had —
+        // it belongs to that island and dies with it).
+        virtualLine = nil
         pendingReconcile = false
         wasComposing = false
         reconcileInFlight = false
@@ -576,7 +648,8 @@ public final class IslandController {
                 abandonIslandForInvalidatedDocument(reason: "externalBlockChangeWithoutCell")
                 return nil
             }
-            let live = cell.islandTextView.string
+            // Task 5b: the byte-less virtual tail is NOT an unflushed edit.
+            let live = effectiveIslandText(cell.islandTextView.string)
             if live != lastFlushedText {
                 // UNFLUSHED TYPING over changed bytes. Re-seeding would silently eat
                 // the user's in-progress keystrokes; keeping them would re-ship the
@@ -627,6 +700,11 @@ public final class IslandController {
     /// rewrite is not knowable — there is no edit script — so "same offset, clamped"
     /// is the honest rule.
     private func reseedIsland(cell: BlockEditorCell, from source: String, blockID: BlockID) {
+        // Task 5b: an EXTERNAL rewrite of the island's block collapses the virtual
+        // line. Nothing is lost (it had no bytes) and nothing is written; keeping it
+        // would mean re-seeding the document's bytes and then bolting a tail back
+        // onto text the user did not put it after.
+        virtualLine = nil
         let previousCaret = cell.islandTextView.selectedRange().location
         cell.configure(slice: source, blockID: blockID, width: cell.currentContentWidth)
         let text = source as NSString
@@ -653,13 +731,14 @@ public final class IslandController {
     /// counters make it observable to tests.
     func abandonIslandForInvalidatedDocument(reason: String) {
         guard activeIsland != nil else { return }
-        let live = recycler.currentEditorCell?.islandTextView.string
+        let live = recycler.currentEditorCell.map { effectiveIslandText($0.islandTextView.string) }
         let unflushed = live != nil && live != lastFlushedText
         ilog("revalidate.abandon",
              "reason=\(reason) discardedUnflushed=\(unflushed) textLen=\((live as NSString?)?.length ?? 0)")
         invalidationTeardownCount += 1
         if unflushed { lastDiscardedIslandText = live }
         cancelReconcileTimer()
+        virtualLine = nil
         pendingReconcile = false
         wasComposing = false
         reconcileInFlight = false
@@ -800,6 +879,14 @@ public final class IslandController {
 
         switch ReturnSemantics.mode(for: kind) {
         case .paragraphBreak:
+            // Task 5b: at the END of an INTERIOR block the new paragraph is empty,
+            // and Markdown cannot represent an empty paragraph — so nothing is
+            // written and the caret moves onto a transient VIRTUAL LINE that
+            // materializes on the first keystroke.
+            if let consumed = handleInteriorParagraphReturn(
+                in: textView, cell: cell, island: island) {
+                return consumed
+            }
             // Markdown separates blocks with a BLANK line, so `\n\n` is what makes
             // the reparse yield two blocks; a lone `\n` is a soft break (same block).
             insertAndSeatCaret("\n\n", in: textView)
@@ -810,9 +897,9 @@ public final class IslandController {
             insertAndSeatCaret("\n", in: textView)
             return true
         case .listAware:
-            return handleListReturn(in: textView, quote: false)
+            return handleListReturn(in: textView, cell: cell, island: island, quote: false)
         case .quoteAware:
-            return handleListReturn(in: textView, quote: true)
+            return handleListReturn(in: textView, cell: cell, island: island, quote: true)
         case .tableRow:
             // Task 6b/Phase 4: table-row skeleton. A blank line TERMINATES a
             // table, so NEVER insert `\n\n` here — fall through to native.
@@ -832,12 +919,15 @@ public final class IslandController {
     ///   `lineStart ..< caret` prefix, which for an empty item IS the marker), so
     ///   the trailing item collapses to a blank line. For a list/quote at the END
     ///   of the document, Task 5's terminal-empty-paragraph branch keeps the
-    ///   island alive on the blank line; a MID-document exit-to-empty-paragraph
-    ///   shares the deferred Task 5b representation gap (may tear down) — both are
-    ///   handled gracefully (never a crash, never a byte-corrupting splice).
+    ///   island alive on the blank line; a MID-document exit now takes Task 5b's
+    ///   VIRTUAL LINE (`handleInteriorListExit`) — the empty item's real bytes are
+    ///   removed and the caret lands on a byte-less new paragraph after the block,
+    ///   instead of in the inter-block gap that used to tear the island down.
     ///
     /// Always returns `true` (the structural op consumed the Return).
-    private func handleListReturn(in textView: NSTextView, quote: Bool) -> Bool {
+    private func handleListReturn(
+        in textView: NSTextView, cell: BlockEditorCell, island: IslandUnit, quote: Bool
+    ) -> Bool {
         let ns = textView.string as NSString
         let caret = textView.selectedRange().location
         let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
@@ -854,6 +944,12 @@ public final class IslandController {
         case .exit:
             // Delete the empty marker (lineStart ..< caret) to collapse the item.
             let markerRange = NSRange(location: lineStart, length: caret - lineStart)
+            // Task 5b: mid-document, the exit lands the caret in an inter-block gap
+            // — a virtual line hosts it instead.
+            if handleInteriorListExit(
+                in: textView, cell: cell, island: island, markerRange: markerRange) != nil {
+                return true
+            }
             textView.insertText("", replacementRange: markerRange)
             textView.setSelectedRange(NSRange(location: lineStart, length: 0))
         }
@@ -871,6 +967,254 @@ public final class IslandController {
         textView.insertText(text, replacementRange: sel)
         let newCaret = sel.location + (text as NSString).length
         textView.setSelectedRange(NSRange(location: newCaret, length: 0))
+    }
+
+    // MARK: - Virtual line: the transient, byte-less new paragraph (Task 5b)
+
+    /// `live` with the virtual tail removed, or nil when there is no virtual line
+    /// or the tail is no longer the island's trailing content (it MATERIALIZED —
+    /// the user typed past it).
+    private func strippingVirtualTail(_ live: String) -> String? {
+        guard let virtual = virtualLine else { return nil }
+        let ns = live as NSString
+        let tailLength = (virtual.tail as NSString).length
+        guard ns.length >= tailLength,
+              ns.substring(from: ns.length - tailLength) == virtual.tail else { return nil }
+        return ns.substring(to: ns.length - tailLength)
+    }
+
+    /// The byte-less newlines that turn `logical` into "…and the caret is on a new
+    /// empty paragraph below it". Two when the host block's range ends on its last
+    /// character (a paragraph or heading), one when the range already swallowed the
+    /// block's trailing newline (a list, a quote).
+    private func virtualTail(for logical: String) -> String {
+        var trailing = 0
+        var index = logical.endIndex
+        while index > logical.startIndex {
+            let before = logical.index(before: index)
+            guard logical[before] == "\n" else { break }
+            trailing += 1
+            index = before
+        }
+        return String(repeating: "\n", count: max(1, 2 - trailing))
+    }
+
+    /// The newlines that must follow the MATERIALIZED content so the block after
+    /// the island is still separated from it by a blank line.
+    ///
+    /// The flush replaces the HOST BLOCK's byte range, so whatever the document
+    /// holds between that range's end and the next block's start survives
+    /// untouched. That gap is two newlines after a paragraph (nothing to add) but
+    /// only ONE after a list — whose own range ate the other — so the typed content
+    /// would land one newline away from the next block and cmark would merge them.
+    /// Measured from the CURRENT document at materialization time, never cached
+    /// (CLAUDE.md: "a `SourceEdit` must be COMPUTED where it is APPLIED").
+    private func materializationSuffix(for island: IslandUnit) -> String {
+        guard let document = currentDocument else { return "" }
+        let end = island.byteRange.upperBound
+        guard let next = BlockListModel(document: document).records
+            .filter({ $0.byteRange.lowerBound >= end })
+            .min(by: { $0.byteRange.lowerBound < $1.byteRange.lowerBound })
+        else { return "" }
+        let gap = document.source.substring(in: ByteRange(end ..< next.byteRange.lowerBound)) ?? ""
+        return String(repeating: "\n", count: max(0, 2 - gap.filter { $0 == "\n" }.count))
+    }
+
+    /// **The one seam the virtual line touches.** The text the DOCUMENT should hold
+    /// at the island's byte range, given the island's live string: the live string
+    /// minus an unmaterialized virtual tail. Identity when no virtual line is open,
+    /// so every non-5b path is byte-for-byte unchanged.
+    private func effectiveIslandText(_ live: String) -> String {
+        strippingVirtualTail(live) ?? live
+    }
+
+    /// True while the virtual line is still EMPTY (nothing typed past the tail).
+    private func isUnmaterializedVirtual(_ live: String) -> Bool {
+        strippingVirtualTail(live) != nil
+    }
+
+    /// A keystroke landed past the tail: the blank line has EARNED bytes.
+    ///
+    /// Drop the virtual state — the flush now writes the whole live string, tail
+    /// included — and top the island up with `materializationSuffix` so the block
+    /// that follows it stays separated. Appending that suffix to the TEXT VIEW
+    /// (rather than only to the flushed text) is what keeps the island 1:1 with the
+    /// bytes it is about to write: a flushed text that differs from the live string
+    /// would read as "changed" on the very next flush and splice twice.
+    ///
+    /// Called from both flush paths BEFORE their unchanged-text check, so a virtual
+    /// line can never survive its own materialization.
+    private func noteVirtualMaterializationIfNeeded(_ live: String, island: IslandUnit) {
+        guard virtualLine != nil, !isUnmaterializedVirtual(live) else { return }
+        virtualLineMaterializedCountForTest += 1
+        virtualLine = nil
+        let suffix = materializationSuffix(for: island)
+        ilog("virtual.materialized",
+             "textLen=\((live as NSString).length) suffix=\(suffix.utf8.count)")
+        guard !suffix.isEmpty, let cell = recycler.currentEditorCell,
+              cell.blockID == island.originBlockID else { return }
+        let caret = cell.islandTextView.selectedRange().location
+        cell.setSourceText(live + suffix, caretUTF16: caret)
+    }
+
+    /// Does the island's block have a LATER block in the document? That is what
+    /// makes the gap after it INTERIOR rather than the trailing end of the file —
+    /// the terminal case keeps Task 5's own branch ("the last block absorbs through
+    /// EOF"), which is already shipped and pinned by `IslandReturnSplitTests`.
+    private func hasFollowingBlock(after islandEnd: Int) -> Bool {
+        guard let document = currentDocument else { return false }
+        return BlockListModel(document: document).records
+            .contains { $0.byteRange.lowerBound >= islandEnd }
+    }
+
+    /// Open the virtual line: show `logical + "\n\n"` in the island and put the
+    /// caret on the new blank line. Writes NOTHING.
+    ///
+    /// `logical` is what the DOCUMENT should hold at the island's byte range. For
+    /// an interior Return that is the island's unchanged text (so nothing is
+    /// flushed at all); for a mid-document list/quote EXIT it is the island minus
+    /// the empty marker — real bytes that DO have to be written, so the debounce is
+    /// armed for exactly that difference and the tail still rides along for free.
+    private func enterVirtualLine(logical: String, in cell: BlockEditorCell, reason: String) {
+        let tail = virtualTail(for: logical)
+        let base = logical + tail
+        // Decide the flush BEFORE touching the text view: `setSourceText` is not a
+        // user edit, but nothing here may depend on whether AppKit echoes a
+        // programmatic string swap back through `textDidChange`.
+        let needsFlush = logical != lastFlushedText
+        virtualLine = VirtualLine(openedWith: logical, tail: tail)
+        virtualLineEnteredCountForTest += 1
+        cell.setSourceText(base, caretUTF16: (base as NSString).length)
+        pendingReconcile = needsFlush
+        if needsFlush { scheduleReconcileTimer() } else { cancelReconcileTimer() }
+        ilog("virtual.enter",
+             "reason=\(reason) logicalLen=\(logical.utf8.count) needsFlush=\(needsFlush)")
+        // The row has to grow by the new line NOW (a programmatic swap does not
+        // reach `editingCellDidChangeText`), inside the viewport bracket.
+        recycler.noteEditingRowHeightPreservingViewport(tag: "virtual.\(reason)")
+    }
+
+    /// Close the virtual line, leaving the island exactly as it was before Return.
+    /// Writes nothing (there was never anything to un-write).
+    private func collapseVirtualLine(in cell: BlockEditorCell, logical: String) {
+        virtualLine = nil
+        let needsFlush = logical != lastFlushedText
+        cell.setSourceText(logical, caretUTF16: (logical as NSString).length)
+        pendingReconcile = needsFlush
+        if needsFlush { scheduleReconcileTimer() } else { cancelReconcileTimer() }
+        ilog("virtual.collapse", "logicalLen=\(logical.utf8.count) needsFlush=\(needsFlush)")
+        recycler.noteEditingRowHeightPreservingViewport(tag: "virtual.collapse")
+    }
+
+    /// Re-establish the virtual tail after an apply re-anchored/re-seeded the
+    /// island. The apply wrote the island's LOGICAL text (the tail is byte-less by
+    /// construction), so the cell now shows the block without it.
+    ///
+    /// The caret rule: a caret at the END of the logical text was the caret ON the
+    /// virtual line, so it goes back to the end of the tail; a caret anywhere else
+    /// (the user was editing the host block's text with the line still open) keeps
+    /// its offset.
+    private func restoreVirtualTailIfNeeded(logical: String) {
+        guard virtualLine != nil else { return }
+        guard let cell = recycler.currentEditorCell else {
+            ilog("virtual.restore.dropped", "reason=noCell")
+            virtualLine = nil
+            return
+        }
+        let live = cell.islandTextView.string
+        let logicalLength = (logical as NSString).length
+        // The KEEP branch re-anchors WITHOUT re-seeding the island's string, so on
+        // that path the tail is still sitting on it — only the caret was moved (to
+        // the flush-time offset, which is clamped INTO the logical text). Nothing to
+        // rebuild; just put the caret back on the blank line if that is where it was.
+        if let alreadyThere = strippingVirtualTail(live), alreadyThere == logical {
+            if cell.islandTextView.selectedRange().location >= logicalLength {
+                cell.islandTextView.setSelectedRange(
+                    NSRange(location: (live as NSString).length, length: 0))
+            }
+            ilog("virtual.restore", "kept=true logicalLen=\(logical.utf8.count)")
+            return
+        }
+        guard live == logical else {
+            // The user typed while the apply was in flight, so the island no longer
+            // holds the text the apply wrote. Splicing newlines into the middle of
+            // that is worse than losing the blank line: drop the virtual state.
+            ilog("virtual.restore.dropped", "reason=islandChangedDuringApply")
+            virtualLine = nil
+            return
+        }
+        let caret = cell.islandTextView.selectedRange().location
+        let tail = virtualTail(for: logical)
+        let base = logical + tail
+        virtualLine = VirtualLine(openedWith: logical, tail: tail)
+        cell.setSourceText(
+            base, caretUTF16: caret >= logicalLength ? (base as NSString).length : caret)
+        ilog("virtual.restore", "logicalLen=\(logical.utf8.count) caret=\(caret)")
+        recycler.noteEditingRowHeightPreservingViewport(tag: "virtual.restore")
+    }
+
+    /// Interior end-of-block Return: open a virtual line instead of writing a
+    /// paragraph break the document cannot represent. Returns nil when this Return
+    /// is NOT the interior end-of-block case, so the caller falls through to the
+    /// existing (`\n\n`) behaviour.
+    ///
+    /// Preconditions, each of them load-bearing:
+    ///  • **Already on an empty virtual line** → consume as a NO-OP. Two adjacent
+    ///    empty paragraphs are no more representable than one, and inserting `\n\n`
+    ///    here would push the caret into a gap `record(at:)` cannot resolve — the
+    ///    very teardown 5b exists to remove.
+    ///  • **Caret at the very END of the island, empty selection** → anywhere else
+    ///    is a REAL split (both halves have content) and stays on the existing path.
+    ///  • **A block follows the island** → otherwise this is the terminal case,
+    ///    which Task 5 already handles its own way.
+    ///  • **The anchor is intact** → a virtual line is only meaningful over a byte
+    ///    range the document still holds; on drift, fall through and let the
+    ///    existing refuse-on-drift machinery deal with it.
+    private func handleInteriorParagraphReturn(
+        in textView: NSTextView, cell: BlockEditorCell, island: IslandUnit
+    ) -> Bool? {
+        let live = textView.string
+        let selection = textView.selectedRange()
+        if isUnmaterializedVirtual(live) {
+            ilog("virtual.secondReturn", "consumed as a no-op")
+            return true
+        }
+        guard virtualLine == nil, selection.length == 0,
+              selection.location == (live as NSString).length,
+              !live.isEmpty,
+              hasFollowingBlock(after: island.byteRange.upperBound),
+              anchorIsIntact(range: island.byteRange)
+        else { return nil }
+        enterVirtualLine(logical: live, in: cell, reason: "interiorReturn")
+        return true
+    }
+
+    /// Mid-document list/quote EXIT: the empty marker is removed (real bytes, so it
+    /// IS flushed) and the caret moves onto a virtual line after the block, instead
+    /// of into an inter-block gap that tears the island down. Returns nil when the
+    /// exit is not the mid-document end-of-block case (terminal exits keep Task 6's
+    /// behaviour, pinned by `IslandListReturnTests`).
+    private func handleInteriorListExit(
+        in textView: NSTextView, cell: BlockEditorCell, island: IslandUnit,
+        markerRange: NSRange
+    ) -> Bool? {
+        let ns = textView.string as NSString
+        // Delete the empty item's WHOLE LINE, not just the `lineStart ..< caret`
+        // marker: what is left has to be the block's canonical source again, and
+        // for a list that includes the block's own trailing newline (which the
+        // marker range does not cover). `"- a\n- \n"` → `"- a\n"`, the exact bytes
+        // the block had before the item was added.
+        let lineRange = ns.lineRange(for: NSRange(location: markerRange.location, length: 0))
+        guard NSMaxRange(lineRange) == ns.length,
+              hasFollowingBlock(after: island.byteRange.upperBound),
+              anchorIsIntact(range: island.byteRange)
+        else { return nil }
+        let logical = ns.replacingCharacters(in: lineRange, with: "")
+        // An exit that would empty the block outright is not an exit — it is a
+        // block deletion, which is not this feature's job. Fall through to native.
+        guard !logical.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        enterVirtualLine(logical: logical, in: cell, reason: "listExit")
+        return true
     }
 
     // MARK: - Backspace-merge (Phase 3, Task 7)
@@ -904,6 +1248,17 @@ public final class IslandController {
         // Never merge mid-composition: splicing around half-composed marked text
         // corrupts the source. Let native handle the delete.
         if currentHasMarkedText() { return false }
+        // Task 5b: Backspace on an EMPTY virtual line closes it — the inverse of
+        // the Return that opened it. Letting native run instead would delete into
+        // the tail (`"Middle\n\n"` → `"Middle\n"`) and the flush would then write a
+        // stray newline over the host block; one more and it would eat the real
+        // inter-block separator, MERGING two blocks the user never touched.
+        if let logical = strippingVirtualTail(textView.string),
+           textView.selectedRange() == NSRange(location: (textView.string as NSString).length,
+                                               length: 0) {
+            collapseVirtualLine(in: cell, logical: logical)
+            return true
+        }
         // Consume ONLY at the island's very start with an EMPTY selection. The
         // comparison pins BOTH location AND length: a non-empty selection anchored
         // at location 0 (`{0, n}`) is a native selection-delete, NOT a merge.
@@ -1063,8 +1418,17 @@ public final class IslandController {
             state = .idle
             return
         }
-        let text = textView.string
-        let caret = textView.selectedRange().location
+        // Task 5b: an UNMATERIALIZED virtual line is not part of the document, so
+        // the text that goes to the document is the live string minus its tail.
+        // That is what makes an ABANDONED empty line byte-lossless: the effective
+        // text is what the document already holds, so exit (1) below fires and
+        // nothing is written at all.
+        var live = textView.string
+        noteVirtualMaterializationIfNeeded(live, island: island)
+        live = textView.string
+        let text = effectiveIslandText(live)
+        let caret = min(textView.selectedRange().location, (text as NSString).length)
+        virtualLine = nil
         let priorFlushed = lastFlushedText
         // Drop the island FIRST so any synchronous applyReconciled is inert.
         activeIsland = nil
@@ -1256,7 +1620,14 @@ public final class IslandController {
         // Never splice mid-composition; the commit keystroke will re-drive this.
         if currentHasMarkedText() { return false }
         pendingReconcile = false
-        let newText = cell.islandTextView.string
+        // Task 5b: strip an unmaterialized virtual tail (see `effectiveIslandText`)
+        // — the blank line has no bytes until something is typed into it. A
+        // keystroke PAST the tail materializes it: the virtual state is dropped and
+        // the whole live string (tail included) is what gets written.
+        var live = cell.islandTextView.string
+        noteVirtualMaterializationIfNeeded(live, island: island)
+        live = cell.islandTextView.string
+        let newText = effectiveIslandText(live)
         // C3/C1: the document already holds exactly these bytes (typed-then-undone,
         // a re-seed, or an activation with no typing). Firing would be a no-op edit
         // with real costs: a dead undo step and an autosave rewrite of the file.
@@ -1276,7 +1647,11 @@ public final class IslandController {
             teardownIsland()
             return false
         }
-        let caret = cell.islandTextView.selectedRange().location
+        // Clamped: with a virtual line open the caret sits PAST the effective
+        // text's end (it is on the byte-less line), and the caret we hand out is an
+        // offset into `newText`.
+        let caret = min(cell.islandTextView.selectedRange().location,
+                        (newText as NSString).length)
         lastFlushedText = newText
         reconcileInFlight = true
         inFlightOwner = .island(island.id)
@@ -1392,6 +1767,11 @@ public final class IslandController {
                         NSRange(location: max(0, min(reseated, length)), length: 0))
                 }
             }
+            // Task 5b: the apply wrote the island's LOGICAL text, so a still-open
+            // virtual line has to be put back on top of it (the mid-document
+            // list/quote exit takes exactly this path: the empty item's removal is
+            // a KEEP reconcile, and the blank line rides above it).
+            restoreVirtualTailIfNeeded(logical: flushed)
             return
         }
 
@@ -1447,7 +1827,7 @@ public final class IslandController {
         // SPLIT / structural change → RE-ACTIVATE AT CARET. Re-home the island onto
         // the block that now CONTAINS the reconcile-time caret. Caret in a separator
         // gap (not the terminal case above) → safe teardown (the edit is applied).
-        guard let rec = model.record(at: caretDocByte) else {
+        guard let rec = caretRecord(model, at: caretDocByte) else {
             ilog("apply.branch", "branch=teardown reason=caretInSeparatorGap")
             teardownIsland()
             return
@@ -1479,6 +1859,28 @@ public final class IslandController {
             let length = (textView.string as NSString).length
             textView.setSelectedRange(NSRange(location: max(0, min(reseated, length)), length: 0))
         }
+        // A virtual line does not normally survive to here (materializing clears it
+        // at flush time), but a LOGICAL-text flush that happened to restructure the
+        // document would land here with one open. Keep the two in step.
+        restoreVirtualTailIfNeeded(logical: islandSource)
+    }
+
+    /// The block a reconcile-time caret belongs to.
+    ///
+    /// `BlockListModel.record(at:)` is content-ranges-only, and a caret at the END
+    /// of a block sits on that block's `upperBound` — outside its half-open range.
+    /// The model special-cases only the LAST block's end (so a trailing caret has
+    /// somewhere to land); every INTERIOR block's end answers nil, which is what
+    /// dropped the island the moment a materializing keystroke put the caret at the
+    /// end of a freshly created interior block.
+    ///
+    /// A caret at a block's end IS in that block — there is no ambiguity to
+    /// resolve, because the one position that reads as "in the gap after it"
+    /// (an empty new paragraph) is never expressed as an edit any more: 5b's
+    /// virtual line hosts it WITHOUT writing bytes, so it never reaches an apply.
+    private func caretRecord(_ model: BlockListModel, at caretDocByte: Int) -> BlockRecord? {
+        if let record = model.record(at: caretDocByte) { return record }
+        return model.records.first { $0.byteRange.upperBound == caretDocByte }
     }
 
     /// Tear the island down WITHOUT a flush (the edit that split the block is
@@ -1488,6 +1890,7 @@ public final class IslandController {
     /// text against a now-stale byte range.
     private func teardownIsland() {
         cancelReconcileTimer()
+        virtualLine = nil
         pendingReconcile = false
         wasComposing = false
         reconcileInFlight = false

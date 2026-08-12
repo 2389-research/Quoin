@@ -729,6 +729,26 @@ public final class BlockRecyclerView: NSView {
         noteRowHeights(IndexSet(integer: row))
     }
 
+    /// Re-measure the LIVE editing row after its island text was replaced
+    /// PROGRAMMATICALLY (Phase 3, Task 5b: opening / collapsing the virtual line),
+    /// inside the viewport bracket.
+    ///
+    /// A typed keystroke reaches `editingCellDidChangeText`, which re-notes the row
+    /// height for free; a direct `setSourceText` does not fire `textDidChange`, so
+    /// the row would keep the OLD height with a taller island drawn into it until
+    /// some unrelated later pass re-measured it — the same deferred jump the close
+    /// path had. `.pinRow` on the editing row because the row that grows IS the
+    /// caret's row and nothing above it re-measures: its TOP must not move, which
+    /// is exactly what the invariant asks for ("the line the caret is on must not
+    /// move on screen"; the new line appears BELOW it).
+    func noteEditingRowHeightPreservingViewport(tag: String) {
+        guard let id = _editingBlockID, let row = rowByBlockID[id],
+              row < tableView.numberOfRows else { return }
+        performPreservingViewport(anchorRow: row, policy: .pinRow, tag: tag) {
+            noteRowHeights(IndexSet(integer: row))
+        }
+    }
+
     /// Phase 3 (width drift, the confirmed defect): re-lay the LIVE island cell at
     /// `width` without re-vending it and WITHOUT re-seeding its text.
     ///

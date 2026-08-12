@@ -169,6 +169,29 @@ public final class BlockEditorCell: NSView {
         textView.setFrameSize(NSSize(width: width, height: fittingHeightForConfiguredWidth))
     }
 
+    /// Replace the island's source text WITHOUT it counting as a user edit, then
+    /// restyle and seat the caret.
+    ///
+    /// Phase 3, Task 5b (the virtual line) needs to swap the island's string in
+    /// place — host slice ⇄ host slice + the byte-less blank line — while keeping
+    /// the cell's recycling identity, its first-responder status, and its STYLING.
+    /// Poking `islandTextView.string` directly (what the `applyReconciled` re-home
+    /// does) leaves the island in the unstyled seed face until the next keystroke;
+    /// this is the same seeding path `configure` uses, minus the block identity and
+    /// container-width work.
+    ///
+    /// The caret is seated BEFORE the restyle so the caret-scoped span reveal is
+    /// computed for the position the caret actually ends at.
+    public func setSourceText(_ text: String, caretUTF16: Int) {
+        textView.string = text
+        let length = (text as NSString).length
+        textView.setSelectedRange(NSRange(location: max(0, min(caretUTF16, length)), length: 0))
+        lastStyledCaret = nil
+        restyle()
+        textView.setFrameSize(
+            NSSize(width: currentContentWidth, height: fittingHeightForConfiguredWidth))
+    }
+
     // MARK: - Styling (Phase 3)
 
     /// Re-entrancy latch. `restyle()` writes attributes into the live text
