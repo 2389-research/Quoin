@@ -10,7 +10,7 @@ final class BlockEditorCellTests: XCTestCase {
         let doc = MarkdownConverter.parse("# Heading\n\nBody.")
         let slice = doc.source.substring(in: doc.blocks[0].range)!   // "# Heading"
         let cell = BlockEditorCell()
-        let window = NSWindow(contentRect: NSRect(x:0,y:0,width:600,height:200), styleMask:[.borderless], backing:.buffered, defer:false)
+        let window = OffscreenTestWindow.make(width: 600, height: 200)
         window.contentView = cell; window.makeKeyAndOrderFront(nil)
         cell.configure(slice: slice, blockID: doc.blocks[0].id, width: 600)
         window.makeFirstResponder(cell.islandTextView)
@@ -27,7 +27,7 @@ final class BlockEditorCellTests: XCTestCase {
     }
     func testTypingFiresOnTextDidChange() {
         let cell = BlockEditorCell()
-        let window = NSWindow(contentRect: NSRect(x:0,y:0,width:400,height:100), styleMask:[.borderless], backing:.buffered, defer:false)
+        let window = OffscreenTestWindow.make(width: 400, height: 100)
         window.contentView = cell; window.makeKeyAndOrderFront(nil)
         cell.configure(slice: "ab", blockID: BlockID(contentHash: 1, occurrence: 0), width: 400)
         window.makeFirstResponder(cell.islandTextView)

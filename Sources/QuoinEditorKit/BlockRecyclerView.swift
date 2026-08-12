@@ -772,6 +772,57 @@ public final class BlockRecyclerView: NSView {
         guard row >= 0, row < tableView.numberOfRows else { return false }
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) is BlockEditorCell
     }
+
+    // MARK: - Churn instrumentation (Phase 3 falsifiers; test-only, behavior-free)
+    //
+    // The "jiggle" bug class — a clicked row animating grow/shrink and never
+    // settling into an editable island — is an OSCILLATION, not a wrong final
+    // state. Every prior test asserted a final state at a moment of our
+    // choosing, so all three shipped-broken states were green. These counters
+    // make the churn ITSELF observable: how many times `viewFor` re-vends a row
+    // and how many times the table re-asks for its height across ONE click.
+    //
+    // Strictly additive: only recorded into, never read by production code, and
+    // the recording is two dictionary writes on paths that already do table
+    // work (no measurable cost, no behavior change).
+
+    /// `viewFor` vends per row across the observation window, split by leaf kind.
+    /// One click must produce EXACTLY ONE editor-cell vend for the clicked row;
+    /// more means the row is being rebuilt in a loop.
+    private(set) var editorCellVendsByRowForTest: [Int: Int] = [:]
+    /// Read-only `BlockRenderCell` vends per row (a clicked row that keeps
+    /// re-vending a READ cell is a swap that keeps reverting).
+    private(set) var renderCellVendsByRowForTest: [Int: Int] = [:]
+    /// Every height the table asked for, per row, in query order. The COUNT is
+    /// the churn signal; the VALUES localize a grow/shrink oscillation (two
+    /// alternating heights) versus a monotone settle.
+    private(set) var heightQueriesByRowForTest: [Int: [CGFloat]] = [:]
+
+    /// Zero the churn counters, so a test observes exactly one interaction
+    /// (call immediately before dispatching the click).
+    func resetChurnCountersForTest() {
+        editorCellVendsByRowForTest.removeAll()
+        renderCellVendsByRowForTest.removeAll()
+        heightQueriesByRowForTest.removeAll()
+    }
+
+    /// The clip view's scroll origin — the recycler's analogue of the
+    /// projection reader's viewport anchor. The CLAUDE.md viewport invariant
+    /// says a click must not move the content under the caret; this is half of
+    /// the evidence (the other half is the row's window-space position).
+    var scrollOriginForTest: CGPoint { scrollView.contentView.bounds.origin }
+
+    /// The hosted table, so a test can put it in the DIRTY state the app is
+    /// permanently in under `NSHostingView` (pending layout ⇒ a
+    /// `reloadData(forRowIndexes:)` coalesces instead of running synchronously).
+    var tableViewForTest: NSTableView { tableView }
+
+    /// Back-reference to the `IslandController` driving this recycler, set by the
+    /// controller's `init`. Weak and never read by production code — it exists so
+    /// a test that stands the stack up through a REAL `NSHostingView` (where
+    /// SwiftUI, not the test, owns the Coordinator that owns the controller) can
+    /// still reach `activeIsland`.
+    weak var islandControllerForTest: IslandController?
 }
 
 extension BlockRecyclerView: NSTableViewDataSource {
@@ -782,7 +833,10 @@ extension BlockRecyclerView: NSTableViewDataSource {
 
 extension BlockRecyclerView: NSTableViewDelegate {
     public func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
-        rowHeight(atRow: row)
+        let height = rowHeight(atRow: row)
+        // Churn instrumentation (test-only, see `heightQueriesByRowForTest`).
+        heightQueriesByRowForTest[row, default: []].append(height)
+        return height
     }
 
     public func tableView(
@@ -793,8 +847,12 @@ extension BlockRecyclerView: NSTableViewDelegate {
         // Phase 2, Task 5: the ONE editing row vends an editable island cell;
         // every other row vends the read-only render cell.
         if block.id == _editingBlockID {
+            // Churn instrumentation (test-only, see `editorCellVendsByRowForTest`).
+            editorCellVendsByRowForTest[row, default: 0] += 1
             return editorView(for: block)
         }
+        // Churn instrumentation (test-only, see `renderCellVendsByRowForTest`).
+        renderCellVendsByRowForTest[row, default: 0] += 1
         let cell: BlockRenderCell
         if let reused = tableView.makeView(
             withIdentifier: Self.cellIdentifier, owner: self) as? BlockRenderCell {

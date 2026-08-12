@@ -135,6 +135,10 @@ public final class IslandController {
 
     public init(recycler: BlockRecyclerView) {
         self.recycler = recycler
+        // Test-only observability (weak, never read by production code): lets a
+        // test reach this controller when SwiftUI — not the test — owns the
+        // Coordinator that owns it. See `BlockRecyclerView.islandControllerForTest`.
+        recycler.islandControllerForTest = self
         // Install the reconcile-debounce fan-out. The recycler stays the SOLE
         // owner of the editing cell's `onTextDidChange` slot; it fans that signal
         // out to BOTH its row-height re-notify and this closure (Task 6).

@@ -29,8 +29,7 @@ final class BlockRecyclerViewTests: XCTestCase {
         let src = (0..<400).map { "Paragraph number \($0)." }.joined(separator: "\n\n")
         let doc = MarkdownConverter.parse(src)
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -53,8 +52,7 @@ final class BlockRecyclerViewTests: XCTestCase {
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
         var top: BlockID?
         v.onTopBlockChange = { top = $0 }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 400)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -73,8 +71,7 @@ final class BlockRecyclerViewTests: XCTestCase {
     func testContentInsetsReserveEdgeBleed() {
         let doc = MarkdownConverter.parse("# H\n\nBody paragraph.\n\nTail.")
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 400)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
@@ -111,8 +108,7 @@ final class BlockRecyclerViewTests: XCTestCase {
         // (pending) path a warm cache would skip.
         let renderer = AttributedRenderer(baseURL: dir, imageResolution: .async)
         let v = BlockRecyclerView(renderer: renderer, theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 400)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }

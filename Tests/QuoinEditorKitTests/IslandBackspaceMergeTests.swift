@@ -36,8 +36,7 @@ final class IslandBackspaceMergeTests: XCTestCase {
     private func makeRecycler(_ md: String) -> (BlockRecyclerView, QuoinDocument, NSWindow) {
         let doc = MarkdownConverter.parse(md)
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         v.frame = NSRect(x: 0, y: 0, width: 640, height: 480)

@@ -101,8 +101,7 @@ final class IslandRefreshSurvivalTests: XCTestCase {
         let coordinator = BlockRecyclerReaderView.Coordinator()
         let view = repr(document: doc0, revision: 1, onReconcile: appReconcile)
             .makeRecycler(coordinator: coordinator)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = view
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }

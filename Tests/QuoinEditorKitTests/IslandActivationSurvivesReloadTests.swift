@@ -66,8 +66,7 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     {
         let doc = MarkdownConverter.parse(markdown)
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = recycler
         window.makeKeyAndOrderFront(nil)
         window.makeKey()
@@ -147,8 +146,7 @@ final class IslandActivationSurvivesReloadTests: XCTestCase {
     func testGenuineBlurStillDeactivates() {
         let doc = MarkdownConverter.parse("First para.\n\nSecond para.")
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 400)
         defer { window.orderOut(nil) }
         let other = NSTextField(frame: NSRect(x: 0, y: 370, width: 200, height: 24))
         let host = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 400))

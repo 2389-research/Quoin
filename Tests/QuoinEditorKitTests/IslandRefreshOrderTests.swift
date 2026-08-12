@@ -28,8 +28,7 @@ final class IslandRefreshOrderTests: XCTestCase {
     func testRefreshBeforeReanchorPreservesIsland() {
         let doc0 = MarkdownConverter.parse("Alpha.\n\nBravo.")
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 400),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 400)
         window.contentView = recycler
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }

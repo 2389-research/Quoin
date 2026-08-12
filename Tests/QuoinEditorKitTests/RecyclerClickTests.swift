@@ -30,8 +30,7 @@ final class RecyclerClickTests: XCTestCase {
     func testResolvesClickToBlockAndLocalPoint() {
         let doc = MarkdownConverter.parse("First para.\n\nSecond para.\n\nThird para.")
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         v.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
@@ -60,8 +59,7 @@ final class RecyclerClickTests: XCTestCase {
     func testRealClickFiresOnBlockClicked() {
         let doc = MarkdownConverter.parse("First para.\n\nSecond para.\n\nThird para.")
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         v.frame = NSRect(x: 0, y: 0, width: 640, height: 480)
@@ -86,8 +84,7 @@ final class RecyclerClickTests: XCTestCase {
         for i in 0..<40 { md += "Paragraph number \(i).\n\n" }
         let doc = MarkdownConverter.parse(md)
         let v = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 300),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 300)
         window.contentView = v
         window.makeKeyAndOrderFront(nil)
         v.frame = NSRect(x: 0, y: 0, width: 640, height: 300)

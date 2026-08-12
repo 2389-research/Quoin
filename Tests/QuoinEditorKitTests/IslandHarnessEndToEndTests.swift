@@ -29,8 +29,7 @@ final class IslandHarnessEndToEndTests: XCTestCase {
         let md = "# Title\n\nHello world.\n\nTail."
         let doc = MarkdownConverter.parse(md)
         let recycler = BlockRecyclerView(renderer: AttributedRenderer(), theme: Theme())
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
+        let window = OffscreenTestWindow.make(width: 640, height: 480)
         window.contentView = recycler
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
