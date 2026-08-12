@@ -274,14 +274,32 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
     /// and must not move the clicked row under the pointer. Epsilon is 4 pt, the
     /// spec's drift target: under one line of body text, so any real
     /// reflow-under-the-caret trips it while sub-pixel rounding does not.
+    ///
+    /// Phase 3: extended to cover the PROMOTE path explicitly — the click must
+    /// actually have promoted the row (otherwise "nothing moved" is vacuous), and
+    /// every height/reload op in the swap must have run at zero animation duration
+    /// (spec §4 steps 3/6: an animated height flip IS the jiggle).
     func testClickDoesNotMoveTheClickedRowOnScreen() throws {
-        let (recycler, _, doc, window, hosting) = try makeHostedStack(
+        let (recycler, controller, doc, window, hosting) = try makeHostedStack(
             (0..<40).map { "Paragraph number \($0)." }.joined(separator: "\n\n"))
 
         recycler.scroll(to: doc.blocks[20].id)
         settle(hosting, in: window, spins: 2)
+        recycler.resetChurnCountersForTest()
 
-        let clickedRow = 22
+        // The row must actually be ON SCREEN. The original version of this test
+        // hard-coded row 22 after scrolling row 20 into view — which lands BELOW the
+        // window (window-space y of -30.6), so the click hit nothing and "the row
+        // did not move" was vacuously true. Pick a row whose whole rect is inside
+        // the window instead, and assert below that the click really promoted it.
+        let clickedRow = try XCTUnwrap(
+            (0..<40).first { row in
+                let rect = recycler.rowRectForTest(row)
+                let top = recycler.windowPointForTableY(CGPoint(x: 0, y: rect.minY)).y
+                let bottom = recycler.windowPointForTableY(CGPoint(x: 0, y: rect.maxY)).y
+                return min(top, bottom) > 8 && max(top, bottom) < window.frame.height - 8
+            },
+            "no row is fully visible after the scroll")
         let beforeScrollOrigin = recycler.scrollOriginForTest
         let beforeRowRect = recycler.rowRectForTest(clickedRow)
         let beforeRowTopInWindow =
@@ -306,6 +324,16 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
                        "activating a block must not scroll the list — \(trace)")
         XCTAssertEqual(afterRowTopInWindow, beforeRowTopInWindow, accuracy: 4.0,
                        "the clicked row must not move on screen (viewport invariant) — \(trace)")
+        // Anti-vacuity + promote-path coverage: the click really did promote, and
+        // the swap's height work was unanimated.
+        XCTAssertEqual(recycler.editingBlockID, doc.blocks[clickedRow].id,
+                       "the click must have promoted the clicked row — \(trace)")
+        XCTAssertNotNil(controller.activeIsland, "…with a live island — \(trace)")
+        XCTAssertFalse(recycler.animationDurationsForTest.isEmpty,
+                       "the promote must have run height work — \(trace)")
+        XCTAssertTrue(recycler.animationDurationsForTest.allSatisfy { $0 == 0 },
+                      "the read↔island height flip must not animate — "
+                      + "durations=\(recycler.animationDurationsForTest) \(trace)")
     }
 
     // MARK: - 3. Dirty-table activation survival
@@ -470,15 +498,14 @@ final class IslandActivationChurnTests: AppKitWindowTestCase {
     ///
     /// The assertion is constant-free: whatever the cell's width delta is, the
     /// island's text container must move by the same amount.
+    ///
+    /// FIXED (Phase 3, click-seam re-shape): `updateDocumentPreservingEditing` now
+    /// calls `updateEditingCellWidth(_:)` → `BlockEditorCell.updateWidth(_:)`, which
+    /// re-lays the LIVE island at the new column WITHOUT re-vending it and WITHOUT
+    /// re-seeding its text (the island's text is authoritative — re-seeding from the
+    /// document here would drop unflushed keystrokes). The `XCTExpectFailure` that
+    /// used to head this test is gone; it must now genuinely pass.
     func testIslandTextContainerTracksWidthAcrossAReapply() throws {
-        XCTExpectFailure("""
-            Island width drift: BlockRecyclerView.updateDocumentPreservingEditing's \
-            KEEP path re-frames the editing row but never re-configures the live \
-            BlockEditorCell, so the island's NSTextContainer keeps the OLD content \
-            width while the cell is framed at the new one — the editing row is then \
-            measured at a width it does not have.
-            """)
-
         let doc = MarkdownConverter.parse(
             "First para.\n\nSecond paragraph with enough words that the column width "
             + "genuinely decides how many lines it wraps to.\n\nThird para.")

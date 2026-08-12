@@ -216,31 +216,40 @@ public final class IslandController {
             return
         }
 
-        // THE SWAP: set editingBlockID → the recycler reloads that one row so
-        // `viewFor` vends a seeded `BlockEditorCell`. Then realize it, hand it
-        // first responder, place the caret from the click point, and re-query the
-        // row height so it sizes from the LIVE raw-source island layout (not the
-        // projected read height) at activation, before any keystroke.
-        recycler.editingBlockID = blockID
-        // (Phase 3 hotfix, approach b) COMMIT the read→edit reload NOW, while no
-        // island holds first responder yet, so the final editor cell exists before
-        // we hand focus over. In the app this reload is otherwise DEFERRED and
-        // commits inside `super.mouseDown`'s tracking loop — re-vending the row and
-        // evicting the just-focused island (the transient-resign self-teardown).
-        recycler.drainPendingEditingReload()
-        if let cell = recycler.editorCellForEditingRow() {
-            // Install the responder seams (blur / Return / Backspace). Extracted so
-            // a later reload that re-vends this cell can re-install them
-            // (`editingCellWasRebuilt`).
-            installIslandSeams(on: cell)
-            cell.window?.makeFirstResponder(cell.islandTextView)
-            placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
-            recycler.noteEditingRowHeight()
-            ilog("activate.madeFirstResponder", {
-                let fr = cell.window?.firstResponder
-                return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil") isEditable=\(cell.islandTextView.isEditable) cellFrame=\(NSStringFromRect(cell.frame))"
-            }())
+        // THE SWAP (Phase 3, click-seam re-shape): `promoteRow` is an EXPLICIT
+        // SYNCHRONOUS operation — it sets the editing identity, reloads the row
+        // through the table, FORCES that reload to commit, re-queries the row height
+        // off the live island layout, and hands back the REALIZED cell. Nothing here
+        // depends on when a `didSet`-armed reload happens to land any more (that
+        // dependency is exactly what made the previous hotfix pass headlessly and
+        // fail in the app). A nil means the promotion failed: abandon the swap
+        // cleanly rather than leave a half-promoted row.
+        guard let cell = recycler.promoteRow(to: blockID) else {
+            ilog("activate.promoteFailed", "blockID=\(blockID)")
+            recycler.editingBlockID = nil
+            state = .idle
+            return
         }
+        // Install the responder seams (blur / Return / Backspace). Extracted so
+        // a later reload that re-vends this cell can re-install them
+        // (`editingCellWasRebuilt`).
+        installIslandSeams(on: cell)
+        cell.window?.makeFirstResponder(cell.islandTextView)
+        // Caret: on the CLICK path the recycler forwards the ORIGINAL mouse event
+        // to this text view right after we return, so the text view places its own
+        // caret in its OWN coordinate space (and drag-select works on the promoting
+        // click). Running `placeCaret` there too would be both redundant and WRONG:
+        // `localPoint` is measured from the ROW's top-left, while the text view is
+        // inset by the decoration bleed / left gutter — an off-by-inset caret. Only
+        // non-click activations (arrow-key entry, tests, the IME replay) place the
+        // caret from a point here.
+        if !recycler.isForwardingClickToIsland {
+            placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
+        }
+        ilog("activate.madeFirstResponder", {
+            let fr = cell.window?.firstResponder
+            return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil") isEditable=\(cell.islandTextView.isEditable) forwardingClick=\(recycler.isForwardingClickToIsland) cellFrame=\(NSStringFromRect(cell.frame))"
+        }())
 
         activeIsland = island
         activeIslandKind = block.kind

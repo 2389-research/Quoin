@@ -128,6 +128,33 @@ public final class BlockEditorCell: NSView {
         textView.setFrameSize(NSSize(width: width, height: fittingHeightForConfiguredWidth))
     }
 
+    /// The content width the island currently LAYS OUT at (the text container's
+    /// width), which is what `fittingHeightForConfiguredWidth` measures against.
+    /// Exposed so the recycler can tell whether a live island still matches the
+    /// column it is framed at (see `updateWidth(_:)`).
+    public var currentContentWidth: CGFloat { textContainer.size.width }
+
+    /// Phase 3 (width drift): re-lay the LIVE island at a new content `width`
+    /// WITHOUT re-seeding its text.
+    ///
+    /// `configure(slice:blockID:width:)` is the only other setter of the text
+    /// container's width, and it is reachable ONLY from the table's row reload —
+    /// which `BlockRecyclerView.updateDocumentPreservingEditing`'s KEEP path
+    /// deliberately SPARES for the editing row (first responder + caret survive).
+    /// So a re-apply at a new width used to re-frame the cell while the island kept
+    /// laying out at the OLD column, and the row was then measured at a width it did
+    /// not have — mis-size, then re-size: the visible jiggle.
+    ///
+    /// The island's text is AUTHORITATIVE here: re-seeding it from the document
+    /// would drop keystrokes that have not been flushed yet. Only the container
+    /// geometry moves; the string, selection, and first-responder status are
+    /// untouched. Idempotent (no-op at the same width).
+    public func updateWidth(_ width: CGFloat) {
+        guard textContainer.size.width != width else { return }
+        textContainer.size = NSSize(width: width, height: .greatestFiniteMagnitude)
+        textView.setFrameSize(NSSize(width: width, height: fittingHeightForConfiguredWidth))
+    }
+
     /// Re-point this cell's recycling identity after a KEEP reconcile changed the
     /// hosted block's content-hash id. The hosted text, first responder, and caret
     /// are untouched — ONLY the identity tag moves, so the live editing row can be

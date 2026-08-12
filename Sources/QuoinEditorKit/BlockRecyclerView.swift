@@ -87,15 +87,25 @@ public final class BlockRecyclerView: NSView {
     // read↔edit transition MUST go through the table's reload (NOT a hand-swap
     // of the row view, which corrupts `settledHeights`/`rowByBlockID`). The
     // `IslandController` (this task) drives it.
+    //
+    // Phase 3 (click-seam re-shape): the read→edit direction is NO LONGER a
+    // `didSet` side effect whose commit timing is an AppKit implementation detail
+    // — it routes through `promoteRow(to:)`, an explicit synchronous operation
+    // that forces the reload to commit and hands back the realized cell. Setting
+    // this property to a non-nil id is now just sugar for `promoteRow` with the
+    // result discarded; callers that need the cell (the `IslandController`) call
+    // `promoteRow` directly. Clearing it (edit→read) still goes through the
+    // table's reload.
     public var editingBlockID: BlockID? {
         get { _editingBlockID }
         set {
             guard newValue != _editingBlockID else { return }
-            let old = _editingBlockID
-            ilog("editingBlockID.set", "old=\(old.map { "\($0)" } ?? "nil") new=\(newValue.map { "\($0)" } ?? "nil")")
-            _editingBlockID = newValue
-            reloadRows(forBlocks: [old, newValue])
-            if newValue == nil { liveEditorCell = nil }
+            ilog("editingBlockID.set", "old=\(_editingBlockID.map { "\($0)" } ?? "nil") new=\(newValue.map { "\($0)" } ?? "nil")")
+            if let newValue {
+                _ = promoteRow(to: newValue)
+            } else {
+                demoteEditingRow()
+            }
         }
     }
     private var _editingBlockID: BlockID?
@@ -220,8 +230,16 @@ public final class BlockRecyclerView: NSView {
         // real click. Reporting happens BEFORE the table's internal row
         // tracking, so the callback does not depend on that loop completing.
         tableView.onMouseDown = { [weak self] event in
-            self?.reportClick(event)
+            self?.handleTableMouseDown(event) ?? false
         }
+        // Defense in depth for the first-responder theft the live trace showed
+        // (`NSWindow._realMakeFirstResponder` reclaiming focus for the table from
+        // inside `super.mouseDown`'s tracking loop, in a KEY window). The forward
+        // path below never calls `super.mouseDown`, so the table cannot reach that
+        // code — but nothing else in this view wants the table to hold first
+        // responder either: it has no selection (`.none`), no type-select, and no
+        // keyboard behaviour of its own. Every keystroke belongs to the island.
+        tableView.refusesFirstResponder = true
 
         scrollView.documentView = tableView
         scrollView.frame = bounds
@@ -323,6 +341,11 @@ public final class BlockRecyclerView: NSView {
         let oldEditingRow = _editingBlockID.flatMap { rowByBlockID[$0] }
         self.document = document
         self.contentWidth = contentWidth
+        // WIDTH DRIFT (Phase 3): the KEEP path below spares the editing row from
+        // the reload, which is the only path that re-`configure`s the island's text
+        // container. Re-lay the LIVE island at the new column explicitly — geometry
+        // only, so unflushed keystrokes are never clobbered. No-op at equal width.
+        updateEditingCellWidth(contentWidth)
         settledHeights.removeAll()
         rowByBlockID.removeAll()
         for (index, block) in document.blocks.enumerated() {
@@ -347,12 +370,14 @@ public final class BlockRecyclerView: NSView {
             var rows = IndexSet(integersIn: 0..<newRowCount)
             if let editingRow { rows.remove(editingRow) }
             if !rows.isEmpty {
-                tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+                withoutAnimation {
+                    tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+                }
             }
             // The editing block's byte content changed; re-size its row off the live
             // cell layout (its height is excluded from `settledHeights`).
             if let editingRow {
-                tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: editingRow))
+                noteRowHeights(IndexSet(integer: editingRow))
             }
         } else {
             // STRUCTURAL count change (Phase 3, Task 4): a split/merge changed the
@@ -383,48 +408,50 @@ public final class BlockRecyclerView: NSView {
             return
         }
         let delta = newRowCount - oldRowCount
-        tableView.beginUpdates()
-        if delta > 0 {
-            // `insertedBefore` rows land ahead of the editing block (shifting its
-            // view down from `oldEditingRow` to `newEditingRow`); the rest land
-            // just after it.
-            let insertedBefore = min(max(0, newEditingRow - oldEditingRow), delta)
-            let insertedAfter = delta - insertedBefore
-            if insertedBefore > 0 {
-                tableView.insertRows(
-                    at: IndexSet(integersIn: oldEditingRow..<(oldEditingRow + insertedBefore)),
-                    withAnimation: [])
+        withoutAnimation {
+            tableView.beginUpdates()
+            if delta > 0 {
+                // `insertedBefore` rows land ahead of the editing block (shifting its
+                // view down from `oldEditingRow` to `newEditingRow`); the rest land
+                // just after it.
+                let insertedBefore = min(max(0, newEditingRow - oldEditingRow), delta)
+                let insertedAfter = delta - insertedBefore
+                if insertedBefore > 0 {
+                    tableView.insertRows(
+                        at: IndexSet(integersIn: oldEditingRow..<(oldEditingRow + insertedBefore)),
+                        withAnimation: [])
+                }
+                if insertedAfter > 0 {
+                    tableView.insertRows(
+                        at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + insertedAfter)),
+                        withAnimation: [])
+                }
+            } else if delta < 0 {
+                let removed = -delta
+                // Symmetric: rows removed BEFORE the editing block shift its view up.
+                let removedBefore = min(max(0, oldEditingRow - newEditingRow), removed)
+                let removedAfter = removed - removedBefore
+                if removedBefore > 0 {
+                    tableView.removeRows(
+                        at: IndexSet(integersIn: newEditingRow..<(newEditingRow + removedBefore)),
+                        withAnimation: [])
+                }
+                if removedAfter > 0 {
+                    tableView.removeRows(
+                        at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + removedAfter)),
+                        withAnimation: [])
+                }
             }
-            if insertedAfter > 0 {
-                tableView.insertRows(
-                    at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + insertedAfter)),
-                    withAnimation: [])
-            }
-        } else if delta < 0 {
-            let removed = -delta
-            // Symmetric: rows removed BEFORE the editing block shift its view up.
-            let removedBefore = min(max(0, oldEditingRow - newEditingRow), removed)
-            let removedAfter = removed - removedBefore
-            if removedBefore > 0 {
-                tableView.removeRows(
-                    at: IndexSet(integersIn: newEditingRow..<(newEditingRow + removedBefore)),
-                    withAnimation: [])
-            }
-            if removedAfter > 0 {
-                tableView.removeRows(
-                    at: IndexSet(integersIn: (newEditingRow + 1)..<(newEditingRow + 1 + removedAfter)),
-                    withAnimation: [])
+            tableView.endUpdates()
+            // Refresh every NON-editing row (their blocks/positions changed); the
+            // editing row keeps its shifted, still-realized cell.
+            var rows = IndexSet(integersIn: 0..<newRowCount)
+            rows.remove(newEditingRow)
+            if !rows.isEmpty {
+                tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
             }
         }
-        tableView.endUpdates()
-        // Refresh every NON-editing row (their blocks/positions changed); the
-        // editing row keeps its shifted, still-realized cell.
-        var rows = IndexSet(integersIn: 0..<newRowCount)
-        rows.remove(newEditingRow)
-        if !rows.isEmpty {
-            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
-        }
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: newEditingRow))
+        noteRowHeights(IndexSet(integer: newEditingRow))
     }
 
     /// KEEP-path re-anchor handoff from `IslandController.applyReconciled`: a
@@ -478,31 +505,202 @@ public final class BlockRecyclerView: NSView {
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? BlockEditorCell
     }
 
-    /// Phase 3 hotfix (approach b): force the table to COMMIT the pending
-    /// `reloadData(forRowIndexes:)` armed by the read→edit `editingBlockID`
-    /// transition NOW, before the controller hands first responder to the island.
-    /// In the app that reload is otherwise DEFERRED and commits later inside
-    /// `super.mouseDown`'s tracking loop — re-vending the editing row and evicting
-    /// the just-focused island (the transient-resign self-teardown). Draining it up
-    /// front (while no island holds first responder yet) means the final
-    /// `BlockEditorCell` already exists when first responder is handed over, so no
-    /// later re-vend can steal it. No-op when not editing.
-    func drainPendingEditingReload() {
-        guard _editingBlockID != nil else { return }
-        tableView.layoutSubtreeIfNeeded()
+    /// **Promote `blockID`'s row to the editable island, synchronously.**
+    ///
+    /// This is the read→edit transition as an EXPLICIT OPERATION rather than a
+    /// `didSet` side effect. The old shape set `editingBlockID`, whose `didSet`
+    /// armed a `reloadData(forRowIndexes:)` and returned; whether that reload had
+    /// COMMITTED by the time the controller handed first responder to the island
+    /// was an AppKit implementation detail (synchronous on a clean bare table —
+    /// which is why the hotfix tested green — DEFERRED under `NSHostingView`, where
+    /// it commits later, inside `super.mouseDown`'s tracking loop, re-vending the
+    /// row and evicting the just-focused island). Nothing may depend on that timing
+    /// again, so the commit is forced here and the REALIZED cell is the return
+    /// value: the caller proceeds only if it gets a live cell.
+    ///
+    /// Contract:
+    ///  • Sets the editing identity, reloads the incoming row (and the outgoing
+    ///    editing row, back to read-only) through the TABLE'S RELOAD — never a
+    ///    hand-swap of the row view (see the `editingBlockID` invariant above).
+    ///  • Forces the reload to commit (`layoutSubtreeIfNeeded`), realizes the row's
+    ///    view, re-queries the row height off the LIVE island layout, and commits
+    ///    that too.
+    ///  • Runs the whole swap inside a zero-duration `NSAnimationContext` and
+    ///    restores the viewport anchor afterwards (spec §4 steps 3 + 6), so the
+    ///    height flip neither animates nor moves the clicked row on screen.
+    ///  • `isReloadingEditingRow` is raised as a LEXICAL bracket around the actual
+    ///    re-vend, so the controller's blur seam provably cannot read the re-vend's
+    ///    transient resign as a user blur.
+    ///  • Returns the in-hierarchy `BlockEditorCell`, or nil if the row could not be
+    ///    realized as one — a nil is a clean failure (no half-promoted row): the
+    ///    caller (`IslandController.activate`) abandons the swap.
+    @discardableResult
+    func promoteRow(to blockID: BlockID) -> BlockEditorCell? {
+        // Re-promoting the row that is ALREADY the island is a no-op swap: no
+        // reload, no churn — just hand back the live cell.
+        if _editingBlockID == blockID {
+            let cell = editorCellForEditingRow()
+            ilog("promote.alreadyEditing", "blockID=\(blockID) cell=\(cell != nil)")
+            return cell
+        }
+        let outgoing = _editingBlockID
+        guard let row = rowByBlockID[blockID], row < tableView.numberOfRows else {
+            // No row for this block (not in the current document / not yet
+            // realized). Move the identity so `viewFor` vends an island when the row
+            // does appear, but report FAILURE: there is no cell to focus.
+            ilog("promote.fail", "reason=noRow blockID=\(blockID)")
+            _editingBlockID = blockID
+            liveEditorCell = nil
+            return nil
+        }
+
+        var rows = IndexSet(integer: row)
+        // The editing row is sized from the LIVE island layout, so drop any stale
+        // settled (read-path) height for both the incoming and outgoing rows.
+        settledHeights[blockID] = nil
+        if let outgoing {
+            settledHeights[outgoing] = nil
+            if let oldRow = rowByBlockID[outgoing], oldRow != row,
+               oldRow < tableView.numberOfRows {
+                rows.insert(oldRow)
+            }
+        }
+
+        // FREEZE (spec §4 step 3): record the scroll origin + the target row's
+        // frame before anything moves.
+        let anchor = viewportAnchor(forRow: row)
+        var realized: BlockEditorCell?
+        // LEXICAL suppression bracket: raised here, lowered below, with the actual
+        // re-vend provably inside it (not a flag around a deferred call).
+        isReloadingEditingRow = true
+        withoutAnimation {
+            _editingBlockID = blockID
+            liveEditorCell = nil
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+            // FORCE the commit: under `NSHostingView` this reload would otherwise
+            // coalesce into a later pass.
+            tableView.layoutSubtreeIfNeeded()
+            realized = tableView.view(atColumn: 0, row: row, makeIfNecessary: true)
+                as? BlockEditorCell
+            if let realized { liveEditorCell = realized }
+            // Re-query the row height so it comes off the LIVE island layout (raw
+            // source) instead of the projected read height — for headings (`#`),
+            // code (fences) and tables (pipes) the two differ, and the row would
+            // otherwise stay mis-sized on a click with no edit.
+            noteEditingRowHeight()
+            tableView.layoutSubtreeIfNeeded()
+        }
+        isReloadingEditingRow = false
+        // UNFREEZE (spec §4 step 6): the target row's layout is committed; put the
+        // viewport back so the clicked line has not moved on screen.
+        restoreViewportAnchor(anchor, forRow: row)
+
+        guard let realized, realized.blockID == blockID else {
+            ilog("promote.fail", "reason=notAnEditorCell blockID=\(blockID) row=\(row)")
+            return nil
+        }
+        ilog("promote.ok", "blockID=\(blockID) row=\(row) frame=\(NSStringFromRect(realized.frame))")
+        return realized
+    }
+
+    /// The edit→read direction: drop the editing identity and reload the row that
+    /// was the island so `viewFor` vends a read-only cell again.
+    private func demoteEditingRow() {
+        let old = _editingBlockID
+        _editingBlockID = nil
+        reloadRows(forBlocks: [old])
+        liveEditorCell = nil
     }
 
     /// Re-query the editing row's height so it picks up the LIVE island layout
-    /// (raw source) instead of the projected read height. The controller calls
-    /// this once the island cell is realized at activation — for blocks whose
-    /// raw source height differs from the projection (headings show `#`, code
-    /// shows fences, tables show pipes) the row would otherwise stay mis-sized on
-    /// click with no edit. Same signal `editingCellDidChangeText` sends per
-    /// keystroke, fired once up front.
+    /// (raw source) instead of the projected read height. Fired once at promotion
+    /// and again on every keystroke (`editingCellDidChangeText`).
     func noteEditingRowHeight() {
         guard let id = _editingBlockID, let row = rowByBlockID[id],
               row < tableView.numberOfRows else { return }
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        noteRowHeights(IndexSet(integer: row))
+    }
+
+    /// Phase 3 (width drift, the confirmed defect): re-lay the LIVE island cell at
+    /// `width` without re-vending it and WITHOUT re-seeding its text.
+    ///
+    /// `updateDocumentPreservingEditing`'s KEEP path spares the editing row from the
+    /// reload (so first responder + caret survive), and the reload is the only path
+    /// that reaches `BlockEditorCell.configure(slice:blockID:width:)` — the only
+    /// setter of the island's text-container width. A re-apply at a NEW width
+    /// therefore re-framed the cell while the island still laid out at the OLD
+    /// column, and `rowHeight(atRow:)` measured the row at a width it did not have:
+    /// mis-size then re-size, i.e. the visible jiggle. This is the explicit path
+    /// that keeps the two in step. The island's text is authoritative — only
+    /// geometry moves.
+    func updateEditingCellWidth(_ width: CGFloat) {
+        guard let cell = liveEditorCell, cell.currentContentWidth != width else { return }
+        ilog("width.reconfigureLiveIsland",
+             "old=\(cell.currentContentWidth) new=\(width) blockID=\(cell.blockID.map { "\($0)" } ?? "nil")")
+        cell.updateWidth(width)
+    }
+
+    // MARK: - Spec §4 steps 3 + 6: freeze / unfreeze the viewport
+
+    /// The scroll origin plus the target row's position at FREEZE time.
+    private struct ViewportAnchor {
+        let scrollOrigin: CGPoint
+        let rowMinY: CGFloat
+    }
+
+    private func viewportAnchor(forRow row: Int) -> ViewportAnchor {
+        ViewportAnchor(
+            scrollOrigin: scrollView.contentView.bounds.origin,
+            rowMinY: (row >= 0 && row < tableView.numberOfRows)
+                ? tableView.rect(ofRow: row).minY : 0)
+    }
+
+    /// Restore the recorded anchor: if the swap changed the target row's position
+    /// in the document (rows above it re-sized), shift the scroll origin by exactly
+    /// that delta so the row — and the line the user clicked on — stays where it was
+    /// on screen. Spec §4's drift target is < 4 pt; this is exact. A no-op in the
+    /// common case (only the target row's own height changed), which is what keeps
+    /// the recycler from ever scrolling on a click.
+    private func restoreViewportAnchor(_ anchor: ViewportAnchor, forRow row: Int) {
+        guard row >= 0, row < tableView.numberOfRows else { return }
+        let delta = tableView.rect(ofRow: row).minY - anchor.rowMinY
+        let target = CGPoint(x: anchor.scrollOrigin.x, y: anchor.scrollOrigin.y + delta)
+        let current = scrollView.contentView.bounds.origin
+        guard abs(current.x - target.x) > 0.01 || abs(current.y - target.y) > 0.01 else { return }
+        ilog("viewport.restore",
+             "row=\(row) delta=\(delta) \(NSStringFromPoint(current))→\(NSStringFromPoint(target))")
+        withoutAnimation {
+            scrollView.contentView.scroll(to: target)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
+        }
+    }
+
+    /// Run `body` with implicit animation OFF and a ZERO animation duration.
+    ///
+    /// Every `noteHeightOfRows(withIndexesChanged:)` used to be called bare, so
+    /// AppKit ANIMATED each read-height↔island-height flip — the animated
+    /// grow/shrink the user sees as the row "jiggling". Every table op that can
+    /// change a row's height now runs inside this.
+    private func withoutAnimation(_ body: () -> Void) {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        // Instrumentation only (see `animationDurationsForTest`); bounded so a long
+        // editing session cannot grow it without limit.
+        if animationDurationsForTest.count >= 64 { animationDurationsForTest.removeFirst() }
+        animationDurationsForTest.append(NSAnimationContext.current.duration)
+        body()
+        NSAnimationContext.endGrouping()
+    }
+
+    /// The ONE height-invalidation seam: always zero-duration (see
+    /// `withoutAnimation`), and instrumented so a test can prove the height change
+    /// was applied with no animation.
+    private func noteRowHeights(_ rows: IndexSet) {
+        guard !rows.isEmpty else { return }
+        withoutAnimation {
+            tableView.noteHeightOfRows(withIndexesChanged: rows)
+        }
     }
 
     /// Reload the current editing row (the read↔edit transition goes through
@@ -550,7 +748,9 @@ public final class BlockRecyclerView: NSView {
         let savedSelection = islandWasFirstResponder ? priorIslandTextView?.selectedRange() : nil
 
         if touchesEditingRow { isReloadingEditingRow = true }
-        tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+        withoutAnimation {
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+        }
         guard touchesEditingRow else { return }
         isReloadingEditingRow = false
 
@@ -581,7 +781,9 @@ public final class BlockRecyclerView: NSView {
     private func editingCellDidChangeText(_ cell: BlockEditorCell) {
         if let id = cell.blockID, let row = rowByBlockID[id],
            row < tableView.numberOfRows {
-            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+            // Zero-duration: a height change WHILE TYPING must not animate either
+            // (an animated grow on every keystroke is the same jiggle, per key).
+            noteRowHeights(IndexSet(integer: row))
         }
         onEditingTextChanged?()
     }
@@ -605,18 +807,95 @@ public final class BlockRecyclerView: NSView {
         return (document.blocks[row].id, local)
     }
 
-    // The click report is armed on the table subclass (`ClickReportingTableView`)
-    // in `setUp`, NOT via a `mouseDown` override here: `NSTableView` handles a
-    // row click internally and never propagates the event to this ancestor
-    // container (selectionHighlightStyle=.none only hides the highlight), so an
-    // override here would be dead for real clicks. The report happens on the
-    // view the click actually hits — the same rule QuoinTextView follows.
-    private func reportClick(_ event: NSEvent) {
-        guard event.type == .leftMouseDown else { return }
-        if let hit = blockAndPoint(forWindowPoint: event.locationInWindow) {
-            ilog("click.report", "blockID=\(hit.0)")
-            onBlockClicked?(hit.0, hit.1)
+    /// True only for the LEXICAL duration of the forwarding click path below. The
+    /// `IslandController` reads it to skip its row-local `placeCaret` math: on this
+    /// path the ORIGINAL event is handed to the island's text view, which places its
+    /// own caret from its own coordinate space (correct by construction, and the
+    /// only way drag-select works on the promoting click). The row-local point fed
+    /// to `characterIndexForInsertion` was measured from the ROW's top-left while
+    /// the text view is inset by the decoration bleed/gutter — an off-by-inset
+    /// caret.
+    private(set) var isForwardingClickToIsland = false
+
+    /// **The click seam: promote, then forward — never call `super`.**
+    ///
+    /// Returns `true` when this call fully handled the click (the row was promoted
+    /// and the ORIGINAL event forwarded to the new island's text view), in which
+    /// case `ClickReportingTableView` does NOT call `super.mouseDown`. The table
+    /// then never processes the click at all: it cannot take first responder inside
+    /// `NSWindow._realMakeFirstResponder` (the live trace's "island focused, then
+    /// instantly de-focused, `firstResponder=ClickReportingTableView`"), cannot
+    /// select the row, cannot start a row drag, and cannot spin its modal tracking
+    /// loop (which is where the deferred row reload used to commit and evict the
+    /// just-focused island).
+    ///
+    /// Decision tree — anything not listed FORWARDS:
+    ///  • not a left mouse-down → `super` (right/control-click keeps table + menu
+    ///    semantics; AppKit routes those through `rightMouseDown`/`menu(for:)`, and
+    ///    a control-click that arrives as a left-down is caught by the modifier
+    ///    test below).
+    ///  • ANY of ⌘/⇧/⌥/⌃ held → `super`. Modifier-clicks are reserved for
+    ///    (future) block selection, which is table-level semantics.
+    ///  • resolves to NO block (empty area under the last row, scrollers) → `super`.
+    ///  • the click did not produce a live island cell for that block → `super`
+    ///    (never swallow a click that promoted nothing).
+    ///  • DOUBLE / TRIPLE clicks → FORWARDED, deliberately. A double-click inside a
+    ///    block means "select the word", which is the TEXT VIEW's job; the table has
+    ///    no double-click action (`doubleAction` is unset, selection is `.none`), so
+    ///    routing them to `super` would lose word/paragraph select on the promoting
+    ///    click for no gain. The forwarded event carries its own `clickCount`, so
+    ///    `NSTextView` does the right thing with it.
+    ///
+    /// The click report is armed on the table subclass (`ClickReportingTableView`),
+    /// NOT via a `mouseDown` override on this ancestor: `NSTableView` consumes a row
+    /// click in its own `mouseDown` and never bubbles it up the view hierarchy, so
+    /// an override here would be dead for real clicks.
+    @discardableResult
+    func handleTableMouseDown(_ event: NSEvent) -> Bool {
+        guard event.type == .leftMouseDown else {
+            ilog("click.super", "reason=notLeftMouseDown type=\(event.type.rawValue)")
+            return false
         }
+        let modifiers = event.modifierFlags
+            .intersection(.deviceIndependentFlagsMask)
+            .subtracting([.capsLock, .function, .numericPad])
+        guard modifiers.isEmpty else {
+            ilog("click.super", "reason=modifierClick flags=\(modifiers.rawValue)")
+            return false
+        }
+        guard let (blockID, localPoint) = blockAndPoint(forWindowPoint: event.locationInWindow) else {
+            ilog("click.super", "reason=noBlock")
+            return false
+        }
+        ilog("click.report", "blockID=\(blockID) clickCount=\(event.clickCount)")
+
+        // PROMOTE (synchronously, via `IslandController.activate` → `promoteRow`).
+        isForwardingClickToIsland = true
+        onBlockClicked?(blockID, localPoint)
+        isForwardingClickToIsland = false
+
+        guard let cell = liveEditorCell, let editing = _editingBlockID,
+              cell.blockID == editing, cell.window != nil else {
+            ilog("click.super", "reason=noLiveIslandAfterPromote blockID=\(blockID)")
+            return false
+        }
+        // FORWARD: the island's text view runs its OWN native tracking loop for
+        // this very event — it places its own caret and supports drag-select on
+        // the promoting click.
+        ilog("click.forward", "blockID=\(editing) clickCount=\(event.clickCount)")
+        cell.islandTextView.mouseDown(with: event)
+        // Belt and braces: the island owns focus at the end of the click, whatever
+        // the text view's own tracking did with it.
+        if window?.firstResponder !== cell.islandTextView {
+            cell.window?.makeFirstResponder(cell.islandTextView)
+        }
+        ilog("click.forward.post", {
+            let fr = self.window?.firstResponder
+            return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil") "
+                + "selectedRow=\(self.tableView.selectedRow) "
+                + "sel=\(NSStringFromRange(cell.islandTextView.selectedRange()))"
+        }())
+        return true
     }
 
     // MARK: - Height
@@ -658,7 +937,7 @@ public final class BlockRecyclerView: NSView {
             renderer: renderer, theme: theme, width: contentWidth)
         settledHeights[blockID] = height
         didRecordSettledHeightForTest?(blockID)
-        tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: row))
+        noteRowHeights(IndexSet(integer: row))
     }
 
     // MARK: - Top-block reporting
@@ -798,12 +1077,42 @@ public final class BlockRecyclerView: NSView {
     /// alternating heights) versus a monotone settle.
     private(set) var heightQueriesByRowForTest: [Int: [CGFloat]] = [:]
 
+    /// The `NSAnimationContext.duration` in force for every table op that can
+    /// change a row's height (`withoutAnimation`). Spec §4 steps 3/6 require the
+    /// read-height↔island-height flip to be applied with NO animation — a bare
+    /// `noteHeightOfRows` inherits whatever duration is current (0.25 s by
+    /// default), which is the animated grow/shrink the user sees as the jiggle.
+    /// Every entry here must be 0.
+    private(set) var animationDurationsForTest: [TimeInterval] = []
+
     /// Zero the churn counters, so a test observes exactly one interaction
     /// (call immediately before dispatching the click).
     func resetChurnCountersForTest() {
         editorCellVendsByRowForTest.removeAll()
         renderCellVendsByRowForTest.removeAll()
         heightQueriesByRowForTest.removeAll()
+        animationDurationsForTest.removeAll()
+    }
+
+    /// The table's selected row (-1 when nothing is selected). Half of the
+    /// OWNERSHIP evidence: a promoting click that reached `super.mouseDown` would
+    /// have let `NSTableView` select the row.
+    var selectedRowForTest: Int { tableView.selectedRow }
+
+    /// How many times the table has actually called `super.mouseDown` — the DIRECT
+    /// measurement of the "never call super" rule (the other half of the ownership
+    /// evidence, independent of whatever `NSTableView` chooses to do with a click).
+    var tableSuperMouseDownCountForTest: Int { tableView.superMouseDownCountForTest }
+
+    /// Whether the table itself would accept first responder. `false` (via
+    /// `refusesFirstResponder`) is the defense-in-depth against the live trace's
+    /// `NSWindow._realMakeFirstResponder` reclaiming focus for the table.
+    var tableAcceptsFirstResponderForTest: Bool { tableView.acceptsFirstResponder }
+
+    /// The table's `validateProposedFirstResponder` verdict for a responder — the
+    /// override that lets the ISLAND (not the table) own focus inside a cell.
+    func tableValidatesFirstResponderForTest(_ responder: NSResponder) -> Bool {
+        tableView.validateProposedFirstResponder(responder, for: nil)
     }
 
     /// The clip view's scroll origin — the recycler's analogue of the
@@ -904,12 +1213,23 @@ extension BlockRecyclerView: NSTableViewDelegate {
 /// dispatches to — not on the ancestor `BlockRecyclerView`: `NSTableView`
 /// consumes a row click in its own `mouseDown` (row tracking) and never bubbles
 /// it up the view hierarchy, so an ancestor override is dead for real clicks.
-/// The closure fires BEFORE `super.mouseDown` so the report does not hinge on
-/// the internal tracking loop (which, with selection highlight off, does no
-/// visible work anyway).
+///
+/// **Phase 3 (click-seam re-shape).** The handler now returns whether it HANDLED
+/// the click by promoting the row and forwarding the event to the new island's
+/// text view. When it did, `super.mouseDown` is NOT called — the table never
+/// processes the click, so it cannot reclaim first responder inside its modal
+/// tracking loop (the live-trace failure), cannot select the row, and cannot
+/// start a row drag. See `BlockRecyclerView.handleTableMouseDown` for the full
+/// forward-vs-super decision tree.
 @MainActor
 private final class ClickReportingTableView: NSTableView {
-    var onMouseDown: ((NSEvent) -> Void)?
+    /// Returns `true` when the click was fully handled (promote + forward), in
+    /// which case `super.mouseDown` must NOT run.
+    var onMouseDown: ((NSEvent) -> Bool)?
+
+    /// Test-only: how many times this view has actually deferred to
+    /// `super.mouseDown` (see `BlockRecyclerView.tableSuperMouseDownCountForTest`).
+    private(set) var superMouseDownCountForTest = 0
 
     override func mouseDown(with event: NSEvent) {
         ilog("click.mouseDown.pre", {
@@ -917,12 +1237,32 @@ private final class ClickReportingTableView: NSTableView {
             let fr = self.window?.firstResponder
             return "row=\(self.row(at: p)) point=\(NSStringFromPoint(p)) firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil")"
         }())
-        onMouseDown?(event)
-        super.mouseDown(with: event)
+        let handled = onMouseDown?(event) ?? false
+        if !handled {
+            ilog("click.mouseDown.super")
+            superMouseDownCountForTest += 1
+            super.mouseDown(with: event)
+        }
         ilog("click.mouseDown.post", {
             let fr = self.window?.firstResponder
-            return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil")"
+            return "handled=\(handled) selectedRow=\(self.selectedRow) firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil")"
         }())
+    }
+
+    /// `NSTableView` refuses first responder for most of its subviews so a click
+    /// on a cell focuses the TABLE, not the cell. That is exactly backwards here:
+    /// the island IS the editable surface. Approve it (and anything inside a
+    /// `BlockEditorCell`) explicitly — defense in depth for any path that still
+    /// reaches the table, since the forward path never calls `super.mouseDown`.
+    override func validateProposedFirstResponder(
+        _ responder: NSResponder, for event: NSEvent?
+    ) -> Bool {
+        var node = responder as? NSView
+        while let current = node {
+            if current is IslandTextView || current is BlockEditorCell { return true }
+            node = current.superview
+        }
+        return super.validateProposedFirstResponder(responder, for: event)
     }
 }
 #endif

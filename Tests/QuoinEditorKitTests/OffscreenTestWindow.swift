@@ -75,6 +75,41 @@ enum OffscreenTestWindow {
     }
 }
 
+/// A BORDERLESS window that can nonetheless become key — the combination the
+/// harness needs and neither stock option gives:
+///
+///  • stock `.borderless` ⇒ `canBecomeKey == false` ⇒ never key, so the
+///    first-responder-theft candidate (`NSWindow._realMakeFirstResponder`
+///    reclaiming focus for the table inside `super.mouseDown`'s tracking loop,
+///    which the live trace showed happening in a KEY window) was never exercised;
+///  • `.titled` ⇒ keyable, but it SWALLOWS a dispatched `leftMouseDown` outright
+///    (the documented harness pitfall), so the click tests would silently stop
+///    testing anything.
+///
+/// Overriding `canBecomeKey` on a borderless window buys key status without the
+/// title bar's event swallowing, and keeps the offscreen geometry.
+final class KeyableOffscreenWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
+extension OffscreenTestWindow {
+    /// An offscreen, ordered-in, borderless window that CAN become key (see
+    /// `KeyableOffscreenWindow`). Still `.prohibited`/`.accessory` activation
+    /// policy and still at `origin`, so nothing appears on the user's screen.
+    @MainActor
+    static func makeKeyable(width: CGFloat, height: CGFloat) -> NSWindow {
+        _ = activationPolicy   // force the one-time policy configuration
+        let window = KeyableOffscreenWindow(
+            contentRect: NSRect(x: origin.x, y: origin.y, width: width, height: height),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.orderFrontRegardless()
+        window.makeKey()
+        return window
+    }
+}
+
 /// Base class for tests that stand up real AppKit windows: vends offscreen
 /// windows and closes them in `tearDown`, so nothing lingers after the run.
 @MainActor
@@ -88,8 +123,41 @@ class AppKitWindowTestCase: XCTestCase {
         return window
     }
 
+    /// An offscreen window that can become KEY, closed automatically at teardown.
+    /// Use for seams whose behaviour differs in a key window (first-responder
+    /// ownership); everything else can stay on `makeTestWindow`.
+    func makeKeyTestWindow(width: CGFloat = 640, height: CGFloat = 480) -> NSWindow {
+        let window = OffscreenTestWindow.makeKeyable(width: width, height: height)
+        trackedWindows.append(window)
+        return window
+    }
+
+    /// Dequeue every pending mouse event.
+    ///
+    /// Tests dispatch clicks by POSTING a `leftMouseUp` (and, for a drag, several
+    /// `leftMouseDragged`) and then sending the `leftMouseDown`, so that whichever
+    /// modal tracking loop the down enters finds its terminator. If the down never
+    /// enters one — or the loop stops early — those posted events stay in the
+    /// application's queue, and the NEXT test's tracking loop happily consumes
+    /// them: `nextEventMatchingMask` is application-wide and does not care which
+    /// window (or which closed window) an event was posted to. That produced a real
+    /// cross-test failure: a click that passed in isolation came back with a
+    /// SELECTION, because a stale mouseUp from an earlier suite ended its drag
+    /// somewhere else entirely. Drain in `tearDown` so no suite can leak mouse
+    /// events into the next one.
+    static func drainPendingMouseEvents() {
+        let mask: NSEvent.EventTypeMask = [
+            .leftMouseDown, .leftMouseUp, .leftMouseDragged,
+            .rightMouseDown, .rightMouseUp, .rightMouseDragged,
+            .otherMouseDown, .otherMouseUp, .otherMouseDragged, .mouseMoved,
+        ]
+        while NSApp.nextEvent(matching: mask, until: .distantPast,
+                              inMode: .default, dequeue: true) != nil {}
+    }
+
     override func tearDown() {
         MainActor.assumeIsolated {
+            Self.drainPendingMouseEvents()
             for window in trackedWindows {
                 window.contentView = nil
                 window.orderOut(nil)
