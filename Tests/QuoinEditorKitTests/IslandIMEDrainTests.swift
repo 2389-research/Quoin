@@ -38,14 +38,29 @@ final class IslandIMEDrainTests: XCTestCase {
     /// keystroke marks `wasComposing` → `activate(B)` parks in `.blockedIME`
     /// with NO swap (A still active) → the composition commits (stub clears)
     /// → the commit keystroke fires the drain: the parked activation for B
-    /// replays, flushing A and promoting B.
+    /// replays, flushing A EXACTLY ONCE and promoting B.
+    ///
+    /// Fix round 1: the commit edge used to unconditionally `reconcileNow()`
+    /// (a KEEP flush of A) before draining, and the drain's own `activate(B)`
+    /// then TERMINALLY flushed A again via `flushActiveIsland()` — the same
+    /// block reconciled twice with identical content. In the real app both
+    /// `onReconcile` firings become back-to-back applies against the same
+    /// captured `baseRevision`; the first succeeds and bumps
+    /// `contentRevision`, the second then fails the staleness check and
+    /// surfaces a spurious "document changed underneath your typing" banner.
+    /// This test counts `onReconcile` invocations to catch a regression back
+    /// to the double-flush.
     func testParkedActivationReplaysWhenCompositionCommits() {
         let (v, doc, window) = makeRecycler("# Heading\n\nFirst para.\n\nSecond para.")
         defer { window.orderOut(nil) }
         let controller = IslandController(recycler: v)
 
         var reconciledRanges: [ByteRange] = []
-        controller.onReconcile = { range, _, _ in reconciledRanges.append(range) }
+        var reconcileCount = 0
+        controller.onReconcile = { range, _, _ in
+            reconciledRanges.append(range)
+            reconcileCount += 1
+        }
 
         controller.activate(blockID: doc.blocks[0].id, localPoint: .zero, in: doc, baseRevision: 0)
         XCTAssertTrue(v.isEditingRow(0), "block A is the active island")
@@ -70,9 +85,10 @@ final class IslandIMEDrainTests: XCTestCase {
         XCTAssertFalse(v.isEditingRow(1), "block B was NOT promoted while composing")
         XCTAssertTrue(reconciledRanges.isEmpty, "IME refusal must not flush")
 
-        // The composition commits: hasMarkedText clears. The commit
-        // keystroke is the drain edge — it flushes A's pending KEEP reconcile
-        // immediately, THEN replays the parked activation for B.
+        // The composition commits: hasMarkedText clears. The commit keystroke
+        // is the drain edge — since an activation is parked, it must skip the
+        // KEEP reconcile and go straight to replaying the parked activation
+        // for B, whose own terminal flush is the SOLE reconcile of A.
         controller.hasMarkedTextProbe = { false }
         let endA2 = cellA.islandTextView.string.utf16.count
         cellA.islandTextView.insertText("!", replacementRange: NSRange(location: endA2, length: 0))
@@ -82,9 +98,11 @@ final class IslandIMEDrainTests: XCTestCase {
                        "the parked activation for block B replayed")
         XCTAssertTrue(v.isEditingRow(1), "block B is now the editable island")
         XCTAssertFalse(v.isEditingRow(0), "block A swapped back to read-only — it was flushed")
-        XCTAssertFalse(reconciledRanges.isEmpty, "block A's pending edits were flushed on the drain")
+        XCTAssertEqual(reconcileCount, 1,
+                       "block A is reconciled EXACTLY ONCE across the whole commit+drain — " +
+                       "no duplicate KEEP-then-terminal flush")
         XCTAssertEqual(reconciledRanges.last?.offset, doc.blocks[0].range.offset,
-                       "the terminal flush (as part of the B swap) is for block A's byte range")
+                       "the single flush (the B swap's terminal flush) is for block A's byte range")
     }
 
     /// No composition, no click while blocked → nothing was ever parked, so

@@ -268,10 +268,18 @@ public final class IslandController {
             // window (the "hasMarkedText clears" immediate-flush rule).
             wasComposing = false
             pendingReconcile = true
-            reconcileNow()
-            // Phase 3: replay a parked IME-blocked activation now that the
-            // composition that blocked it has committed.
-            drainPendingIntent()
+            // Phase 3: if an activation is parked, its replay below will flush
+            // the outgoing island TERMINALLY via `activate`'s own
+            // `flushActiveIsland()` — do NOT also KEEP-reconcile it here, or the
+            // same block fires `onReconcile` twice with identical content (the
+            // second lands on a stale `baseRevision` once the app applies the
+            // first and trips the staleness guard). Skip straight to the drain;
+            // its terminal flush is the single reconcile for this commit.
+            if pendingIntent != nil {
+                drainPendingIntent()
+            } else {
+                reconcileNow()
+            }
             return
         }
         pendingReconcile = true
