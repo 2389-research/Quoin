@@ -141,6 +141,12 @@ public final class IslandController {
         recycler.onEditingTextChanged = { [weak self] in
             self?.islandTextDidChange()
         }
+        // Phase 3 hotfix: when a reload re-vends the live editing cell, the new
+        // cell has none of our responder seams (they live on the cell instance).
+        // Re-install them before it retakes first responder.
+        recycler.onEditingCellRebuilt = { [weak self] in
+            self?.editingCellWasRebuilt()
+        }
         resignKeyObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.didResignKeyNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -212,21 +218,17 @@ public final class IslandController {
         // row height so it sizes from the LIVE raw-source island layout (not the
         // projected read height) at activation, before any keystroke.
         recycler.editingBlockID = blockID
+        // (Phase 3 hotfix, approach b) COMMIT the read→edit reload NOW, while no
+        // island holds first responder yet, so the final editor cell exists before
+        // we hand focus over. In the app this reload is otherwise DEFERRED and
+        // commits inside `super.mouseDown`'s tracking loop — re-vending the row and
+        // evicting the just-focused island (the transient-resign self-teardown).
+        recycler.drainPendingEditingReload()
         if let cell = recycler.editorCellForEditingRow() {
-            // Blur seam: a click outside the island — or the window handing first
-            // responder to another view — flushes + swaps this row back to
-            // read-only. A responder override, NOT a delegate method, so the
-            // cell's ChangeForwarder delegate is untouched.
-            cell.onResignFirstResponder = { [weak self] in self?.deactivate() }
-            // Return-key seam (Task 5): route Return through the controller so it
-            // splits per `ReturnSemantics`. A nil return (no island / composing /
-            // out-of-scope kind) falls through to the native newline.
-            cell.onInsertNewline = { [weak self] in self?.handleReturn() ?? false }
-            // Backspace-key seam (Task 7): route Backspace through the controller
-            // so a caret at island start MERGES the block into its predecessor. A
-            // nil return (no island / not at start / no predecessor / composing)
-            // falls through to the native within-island delete.
-            cell.onDeleteBackward = { [weak self] in self?.handleBackspace() ?? false }
+            // Install the responder seams (blur / Return / Backspace). Extracted so
+            // a later reload that re-vends this cell can re-install them
+            // (`editingCellWasRebuilt`).
+            installIslandSeams(on: cell)
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
             recycler.noteEditingRowHeight()
@@ -245,6 +247,64 @@ public final class IslandController {
         lastFlushedText = nil
         cancelReconcileTimer()
         state = .idle
+    }
+
+    /// Install the island's responder seams onto `cell`: blur (resign), Return,
+    /// and Backspace. Called at activation AND whenever a reload re-vends the live
+    /// editing cell (`editingCellWasRebuilt`) — the closures live on the cell
+    /// instance, so a rebuilt cell needs them re-installed.
+    private func installIslandSeams(on cell: BlockEditorCell) {
+        // Blur seam: a click outside the island — or the window handing first
+        // responder to another view — flushes + swaps this row back to read-only.
+        // A responder override, NOT a delegate method, so the cell's
+        // ChangeForwarder delegate is untouched. Routed through
+        // `handleIslandResignFirstResponder` so a TRANSIENT reload-induced resign
+        // (the recycler rebuilding this very row) does NOT self-deactivate.
+        cell.onResignFirstResponder = { [weak self] in
+            self?.handleIslandResignFirstResponder()
+        }
+        // Return-key seam (Task 5): route Return through the controller so it
+        // splits per `ReturnSemantics`. A nil return (no island / composing /
+        // out-of-scope kind) falls through to the native newline.
+        cell.onInsertNewline = { [weak self] in self?.handleReturn() ?? false }
+        // Backspace-key seam (Task 7): route Backspace through the controller so a
+        // caret at island start MERGES the block into its predecessor. A nil return
+        // (no island / not at start / no predecessor / composing) falls through to
+        // the native within-island delete.
+        cell.onDeleteBackward = { [weak self] in self?.handleBackspace() ?? false }
+    }
+
+    /// The island's text view resigned first responder. Two very different causes:
+    ///
+    ///  • **Transient** — the recycler is rebuilding the editing row's view (the
+    ///    read→edit residual reload, a projection refresh, or a height-driven
+    ///    re-vend) and yanked our first-responder island out from under us. The
+    ///    recycler restores first responder to the rebuilt cell immediately after
+    ///    the reload, so this is NOT a user blur: DO NOT flush/deactivate. Detected
+    ///    by `recycler.isReloadingEditingRow`.
+    ///  • **Genuine** — focus moved to another view/block with no editing-row
+    ///    reload in flight → flush + swap the row back to read-only.
+    ///
+    /// A swap to ANOTHER block already flushed `activeIsland` to nil in
+    /// `activate(...)`, so the guard makes that resign a no-op too.
+    private func handleIslandResignFirstResponder() {
+        guard activeIsland != nil else { return }
+        if recycler.isReloadingEditingRow {
+            ilog("resign.transient", "suppressing deactivate during editing-row reload")
+            return
+        }
+        deactivate()
+    }
+
+    /// A reload re-vended the live editing cell (see
+    /// `BlockRecyclerView.reloadRows`): re-install the responder seams on the fresh
+    /// cell before it retakes first responder. No-op unless an island is active on
+    /// that cell (e.g. during a fresh activation / swap the island is not yet
+    /// minted — `activate(...)` installs the seams itself).
+    private func editingCellWasRebuilt() {
+        guard let island = activeIsland, let cell = recycler.currentEditorCell,
+              cell.blockID == island.originBlockID else { return }
+        installIslandSeams(on: cell)
     }
 
     /// Blur: flush the active island and swap its row back to read-only.

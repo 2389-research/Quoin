@@ -105,6 +105,24 @@ public final class BlockRecyclerView: NSView {
     // handoff + flush read-back.
     private weak var liveEditorCell: BlockEditorCell?
 
+    /// Phase 3 hotfix: true for the duration of a `reloadData(forRowIndexes:)`
+    /// that rebuilds the LIVE editing row's cell. Such a rebuild removes the
+    /// first-responder `IslandTextView` from the window, firing a TRANSIENT
+    /// `resignFirstResponder`. The `IslandController`'s blur seam reads this flag
+    /// and SUPPRESSES its deactivate for that transient resign (it is a table
+    /// re-vend, NOT a user blur) — the recycler restores first responder to the
+    /// rebuilt cell immediately after the reload. A genuine focus change (no
+    /// editing-row reload in flight) leaves this false, so the island still
+    /// deactivates. Read by `IslandController.handleIslandResignFirstResponder()`.
+    private(set) var isReloadingEditingRow = false
+
+    /// Fired AFTER the live editing row's cell is re-vended by a reload but BEFORE
+    /// it retakes first responder, so the `IslandController` can re-install its
+    /// responder seams (blur / Return / Backspace closures) onto the freshly built
+    /// cell — those closures live on the cell instance, so a rebuild would
+    /// otherwise drop them. Installed by the controller.
+    var onEditingCellRebuilt: (() -> Void)?
+
     /// Report the top-most visible block (drives the outline sync).
     public var onTopBlockChange: ((BlockID) -> Void)?
     private var lastReportedTop: BlockID?
@@ -460,6 +478,20 @@ public final class BlockRecyclerView: NSView {
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) as? BlockEditorCell
     }
 
+    /// Phase 3 hotfix (approach b): force the table to COMMIT the pending
+    /// `reloadData(forRowIndexes:)` armed by the read→edit `editingBlockID`
+    /// transition NOW, before the controller hands first responder to the island.
+    /// In the app that reload is otherwise DEFERRED and commits later inside
+    /// `super.mouseDown`'s tracking loop — re-vending the editing row and evicting
+    /// the just-focused island (the transient-resign self-teardown). Draining it up
+    /// front (while no island holds first responder yet) means the final
+    /// `BlockEditorCell` already exists when first responder is handed over, so no
+    /// later re-vend can steal it. No-op when not editing.
+    func drainPendingEditingReload() {
+        guard _editingBlockID != nil else { return }
+        tableView.layoutSubtreeIfNeeded()
+    }
+
     /// Re-query the editing row's height so it picks up the LIVE island layout
     /// (raw source) instead of the projected read height. The controller calls
     /// this once the island cell is realized at activation — for blocks whose
@@ -499,7 +531,46 @@ public final class BlockRecyclerView: NSView {
             }
         }
         guard !rows.isEmpty else { return }
+
+        // FIRST-RESPONDER CONTINUITY (Phase 3 hotfix): a `reloadData(forRowIndexes:)`
+        // that includes the LIVE editing row DESTROYS + recreates its
+        // `BlockEditorCell`, removing the first-responder `IslandTextView` from the
+        // window → a TRANSIENT `resignFirstResponder`. The `IslandController` must
+        // NOT read that as a genuine blur (it would self-deactivate the island the
+        // click just created). Flag the reload so its blur seam suppresses
+        // deactivate, then — if the island genuinely held first responder — restore
+        // first responder + caret to the rebuilt cell and let the controller
+        // re-install its responder seams on it.
+        let editingRow = _editingBlockID.flatMap { rowByBlockID[$0] }
+        let touchesEditingRow = editingRow.map { rows.contains($0) } ?? false
+        let priorIslandTextView = liveEditorCell?.islandTextView
+        let islandWasFirstResponder = touchesEditingRow
+            && priorIslandTextView != nil
+            && window?.firstResponder === priorIslandTextView
+        let savedSelection = islandWasFirstResponder ? priorIslandTextView?.selectedRange() : nil
+
+        if touchesEditingRow { isReloadingEditingRow = true }
         tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+        guard touchesEditingRow else { return }
+        isReloadingEditingRow = false
+
+        // Restore focus ONLY when the island actually HELD it before the rebuild.
+        // A read→edit transition (activation) or an edit→read teardown
+        // (deactivate) had no island first responder to preserve — each
+        // installs/omits focus itself.
+        guard islandWasFirstResponder, let cell = liveEditorCell,
+              cell.blockID == _editingBlockID else { return }
+        // Re-wire the controller's responder seams (blur/Return/Backspace) onto the
+        // freshly vended cell before it takes first responder.
+        onEditingCellRebuilt?()
+        if let savedSelection {
+            let length = (cell.islandTextView.string as NSString).length
+            let loc = min(savedSelection.location, length)
+            let len = min(savedSelection.length, length - loc)
+            cell.islandTextView.setSelectedRange(NSRange(location: loc, length: len))
+        }
+        cell.window?.makeFirstResponder(cell.islandTextView)
+        ilog("reloadRows.restoredFR", "editingRow=\(editingRow.map { "\($0)" } ?? "nil")")
     }
 
     // The island cell's live edits re-notify its own row height (the editing row
