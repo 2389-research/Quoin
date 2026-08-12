@@ -151,12 +151,15 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         coordinator.onReconcile = onReconcile
 
         let width = contentWidth(for: view)
+        ilog("apply.enter", "initial=\(initial) appliedRevision=\(coordinator.appliedRevision.map { "\($0)" } ?? "nil") currentRevision=\(rendered.revision) appliedWidth=\(coordinator.appliedWidth.map { "\($0)" } ?? "nil") width=\(width)")
         if initial {
+            ilog("apply.setDocument")
             view.setDocument(document, contentWidth: width)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
         } else if coordinator.appliedRevision != rendered.revision
                     || coordinator.appliedWidth != width {
+            ilog("apply.updateDoc", "islandStart=\((coordinator.islandController?.activeIsland?.byteRange.lowerBound).map { "\($0)" } ?? "nil")")
             // Phase 2 final-review fix: a revision bump is USUALLY an external
             // document swap, but it is ALSO how the active island's OWN KEEP
             // reconcile re-projects. A bare `setDocument` would tear the island
@@ -179,6 +182,8 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
                 document, contentWidth: width, islandStartByte: islandStart)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
+        } else {
+            ilog("apply.noop")
         }
         // Re-scroll when the target changes OR the scroll generation was bumped
         // (a repeat outline click on the SAME heading keeps `scrollTarget` but

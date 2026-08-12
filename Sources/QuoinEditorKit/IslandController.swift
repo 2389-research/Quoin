@@ -170,6 +170,7 @@ public final class IslandController {
     /// be dropped by the swap.
     public func activate(blockID: BlockID, localPoint: CGPoint,
                          in document: QuoinDocument, baseRevision: Int) {
+        ilog("activate.enter", "blockID=\(blockID) kind=\(document.blocks.first(where: { $0.id == blockID }).map { "\($0.kind)" } ?? "nil") baseRevision=\(baseRevision)")
         // Retain the freshest parse so structural ops (Backspace-merge) resolve
         // the predecessor block against the current document.
         currentDocument = document
@@ -229,6 +230,10 @@ public final class IslandController {
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
             recycler.noteEditingRowHeight()
+            ilog("activate.madeFirstResponder", {
+                let fr = cell.window?.firstResponder
+                return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil") isEditable=\(cell.islandTextView.isEditable) cellFrame=\(NSStringFromRect(cell.frame))"
+            }())
         }
 
         activeIsland = island
@@ -244,6 +249,7 @@ public final class IslandController {
 
     /// Blur: flush the active island and swap its row back to read-only.
     public func deactivate() {
+        ilog("deactivate.enter", "activeIsland=\(activeIsland != nil) state=\(state) stack=\(islandShortStack(8))")
         guard activeIsland != nil else {
             state = .idle
             return
@@ -467,6 +473,7 @@ public final class IslandController {
     /// apply is a no-op (there is nothing left to re-anchor).
     private func flushActiveIsland() {
         guard let island = activeIsland else { return }
+        ilog("flush.enter", "originBlockID=\(island.originBlockID) byteRange=\(island.byteRange)")
         cancelReconcileTimer()
         pendingReconcile = false
         state = .pendingFlush(island.originBlockID)
@@ -478,6 +485,7 @@ public final class IslandController {
         // EMPTY STRING and DELETES its content. Bail: drop the island WITHOUT
         // firing onReconcile.
         guard let textView = recycler.currentEditorCell?.islandTextView else {
+            ilog("flush.fired", "fired=false reason=noCell")
             activeIsland = nil
             activeIslandKind = nil
             lastFlushedText = nil
@@ -487,10 +495,12 @@ public final class IslandController {
         }
         let text = textView.string
         let caret = textView.selectedRange().location
+        let priorFlushed = lastFlushedText
         // Drop the island FIRST so any synchronous applyReconciled is inert.
         activeIsland = nil
         activeIslandKind = nil
         lastFlushedText = text
+        ilog("flush.fired", "fired=true textLen=\((text as NSString).length) changed=\(priorFlushed != text) caret=\(caret)")
         onReconcile?(ByteRange(island.byteRange), text, caret)
     }
 
@@ -596,6 +606,7 @@ public final class IslandController {
     /// don't move), NOT a live `selectedRange()` re-read (the cell may be gone after
     /// a split). Additive + defaulted so pre-Task-4 callers keep compiling.
     public func applyReconciled(_ newDocument: QuoinDocument, caretDocByte: Int? = nil) {
+        ilog("apply.enter", "caretDocByte=\(caretDocByte.map { "\($0)" } ?? "nil") activeIsland=\(activeIsland != nil) hasFlushed=\(lastFlushedText != nil)")
         // The in-flight apply has landed — clear the stale-range guard regardless
         // of the outcome below.
         reconcileInFlight = false
@@ -614,7 +625,10 @@ public final class IslandController {
                 fireBackspaceMerge()
             }
         }
-        guard let island = activeIsland, let flushed = lastFlushedText else { return }
+        guard let island = activeIsland, let flushed = lastFlushedText else {
+            ilog("apply.branch", "branch=noIslandOrFlushed")
+            return
+        }
         let model = BlockListModel(document: newDocument)
 
         // KEEP: the island's origin byte still resolves to a block whose content is
@@ -625,6 +639,7 @@ public final class IslandController {
         // refresh (`updateDocumentPreservingEditing`).
         if let record = model.record(at: island.byteRange.lowerBound),
            newDocument.source.substring(in: ByteRange(record.byteRange)) == flushed {
+            ilog("apply.branch", "branch=keep newID=\(record.blockID)")
             let oldStart = island.byteRange.lowerBound
             activeIsland?.byteRange = record.byteRange
             activeIsland?.originBlockID = record.blockID
@@ -659,6 +674,7 @@ public final class IslandController {
 
         // No caret (legacy caller) → safe teardown; the edit is already applied.
         guard let caretDocByte else {
+            ilog("apply.branch", "branch=teardown reason=noCaret")
             teardownIsland()
             return
         }
@@ -679,6 +695,7 @@ public final class IslandController {
         if model.record(at: caretDocByte) == nil,
            let last = model.records.last,
            caretDocByte >= last.byteRange.upperBound {
+            ilog("apply.branch", "branch=terminalEmptyParagraph lastBlockID=\(last.blockID)")
             let extended = last.byteRange.lowerBound ..< caretDocByte
             let extendedSlice = newDocument.source.substring(in: ByteRange(extended)) ?? flushed
             activeIsland?.byteRange = extended
@@ -705,9 +722,11 @@ public final class IslandController {
         // the block that now CONTAINS the reconcile-time caret. Caret in a separator
         // gap (not the terminal case above) → safe teardown (the edit is applied).
         guard let rec = model.record(at: caretDocByte) else {
+            ilog("apply.branch", "branch=teardown reason=caretInSeparatorGap")
             teardownIsland()
             return
         }
+        ilog("apply.branch", "branch=split newID=\(rec.blockID)")
         let islandSource = newDocument.source.substring(in: ByteRange(rec.byteRange)) ?? ""
         activeIsland?.byteRange = rec.byteRange
         activeIsland?.originBlockID = rec.blockID

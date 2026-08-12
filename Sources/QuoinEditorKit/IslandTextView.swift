@@ -34,8 +34,14 @@ public final class IslandTextView: NSTextView {
     public var onDeleteBackward: (() -> Bool)?
 
     public override func resignFirstResponder() -> Bool {
+        ilog("resignFR", "windowIsKey=\(self.window?.isKeyWindow ?? false) keyWindow=\(NSApp.keyWindow.map { String(describing: type(of: $0)) } ?? "nil")")
         onResignFirstResponder?()
         return super.resignFirstResponder()
+    }
+
+    public override func becomeFirstResponder() -> Bool {
+        ilog("becomeFR", "windowIsKey=\(self.window?.isKeyWindow ?? false)")
+        return super.becomeFirstResponder()
     }
 
     public override func doCommand(by selector: Selector) {

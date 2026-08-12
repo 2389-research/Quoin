@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import QuoinCore
+import QuoinEditorKit
 import QuoinRender
 
 /// The `@MainActor` adapter for one window: it owns an `EditorCore` (the
@@ -1360,9 +1361,12 @@ final class ReaderModel {
     /// (`IslandController.applyReconciled`) re-anchors against post-edit truth.
     @discardableResult
     func reconcileIsland(byteRange: ByteRange, replacement: String) async -> QuoinDocument {
+        let oldRevision = rendered.revision
+        ilog("reconcile.enter", "byteRange=\(byteRange) replacementLen=\(replacement.utf8.count)")
         let edit = SourceEdit(range: byteRange, replacement: replacement)
         applyAbsolute(edit, caretUTF8: nil, actionName: .typing)
         await editPipelineTask?.value
+        ilog("reconcile.revisionBump", "old=\(oldRevision) new=\(rendered.revision)")
         return document
     }
 

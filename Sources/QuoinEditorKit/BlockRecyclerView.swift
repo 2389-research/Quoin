@@ -92,6 +92,7 @@ public final class BlockRecyclerView: NSView {
         set {
             guard newValue != _editingBlockID else { return }
             let old = _editingBlockID
+            ilog("editingBlockID.set", "old=\(old.map { "\($0)" } ?? "nil") new=\(newValue.map { "\($0)" } ?? "nil")")
             _editingBlockID = newValue
             reloadRows(forBlocks: [old, newValue])
             if newValue == nil { liveEditorCell = nil }
@@ -222,6 +223,7 @@ public final class BlockRecyclerView: NSView {
     /// Reload the list for `document`, laying every cell's text out at
     /// `contentWidth`.
     public func setDocument(_ document: QuoinDocument, contentWidth: CGFloat) {
+        ilog("setDocument", "blocks=\(document.blocks.count) stack=\(islandShortStack(6))")
         // A fresh document dissolves any active island: clear editing WITHOUT the
         // didSet's partial reload (the full `reloadData` below covers it).
         clearEditingWithoutReload()
@@ -272,10 +274,12 @@ public final class BlockRecyclerView: NSView {
     /// count changed) — so the read-only / flag-off path is byte-identical to
     /// before.
     public func updateDocumentPreservingEditing(_ document: QuoinDocument, contentWidth: CGFloat, islandStartByte: Int?) {
+        ilog("preserve.enter", "islandStartByte=\(islandStartByte.map { "\($0)" } ?? "nil") oldRowCount=\(tableView.numberOfRows) newRowCount=\(document.blocks.count)")
         // Read-only / flag-off path: no active editing island (or no island start)
         // → full swap, byte-identical to before.
         guard _editingBlockID != nil, liveEditorCell != nil,
               let islandStartByte else {
+            ilog("preserve.fallback.setDocument", "reason=noActiveIsland")
             setDocument(document, contentWidth: contentWidth)
             return
         }
@@ -287,6 +291,7 @@ public final class BlockRecyclerView: NSView {
         // the count-change branch below), so the guard only bails when the island
         // start resolves to no block at all.
         guard let record = BlockListModel(document: document).record(at: islandStartByte) else {
+            ilog("preserve.fallback.setDocument", "reason=noRecordAtStartByte")
             setDocument(document, contentWidth: contentWidth)
             return
         }
@@ -318,6 +323,7 @@ public final class BlockRecyclerView: NSView {
         tableView.tableColumns.first?.width = contentWidth + 2 * DecorationDraw.leftGutter
         let editingRow = rowByBlockID[newID]
         if newRowCount == oldRowCount {
+            ilog("preserve.keep", "editingRow=\(editingRow.map { "\($0)" } ?? "nil") newID=\(newID)")
             // KEEP path: reload every row EXCEPT the live editing row, which keeps
             // its realized `BlockEditorCell` (first responder + caret survive).
             var rows = IndexSet(integersIn: 0..<newRowCount)
@@ -336,6 +342,7 @@ public final class BlockRecyclerView: NSView {
             // shift the editing cell to its new row via insert/remove (which move
             // existing row views instead of re-vending them, so first responder +
             // caret survive), then refresh every other row's content.
+            ilog("preserve.rowcount", "oldRowCount=\(oldRowCount) newRowCount=\(newRowCount) oldEditingRow=\(oldEditingRow.map { "\($0)" } ?? "nil") newEditingRow=\(editingRow.map { "\($0)" } ?? "nil")")
             reconcileRowCountKeepingEditing(
                 oldRowCount: oldRowCount, newRowCount: newRowCount,
                 oldEditingRow: oldEditingRow, newEditingRow: editingRow)
@@ -474,6 +481,7 @@ public final class BlockRecyclerView: NSView {
     }
 
     private func clearEditingWithoutReload() {
+        ilog("clearEditing", "editingBlockID=\(_editingBlockID.map { "\($0)" } ?? "nil") stack=\(islandShortStack(6))")
         _editingBlockID = nil
         liveEditorCell = nil
     }
@@ -535,6 +543,7 @@ public final class BlockRecyclerView: NSView {
     private func reportClick(_ event: NSEvent) {
         guard event.type == .leftMouseDown else { return }
         if let hit = blockAndPoint(forWindowPoint: event.locationInWindow) {
+            ilog("click.report", "blockID=\(hit.0)")
             onBlockClicked?(hit.0, hit.1)
         }
     }
@@ -774,8 +783,17 @@ private final class ClickReportingTableView: NSTableView {
     var onMouseDown: ((NSEvent) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
+        ilog("click.mouseDown.pre", {
+            let p = self.convert(event.locationInWindow, from: nil)
+            let fr = self.window?.firstResponder
+            return "row=\(self.row(at: p)) point=\(NSStringFromPoint(p)) firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil")"
+        }())
         onMouseDown?(event)
         super.mouseDown(with: event)
+        ilog("click.mouseDown.post", {
+            let fr = self.window?.firstResponder
+            return "firstResponder=\(fr.map { String(describing: type(of: $0)) } ?? "nil")"
+        }())
     }
 }
 #endif
