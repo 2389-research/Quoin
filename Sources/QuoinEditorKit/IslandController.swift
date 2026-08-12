@@ -42,6 +42,15 @@ public final class IslandController {
     public private(set) var state: SwapState = .idle
     public private(set) var activeIsland: IslandUnit?
 
+    /// The most recent parse of the document the island lives in. Threaded so
+    /// structural ops that reach OUTSIDE the island's own text — Task 7's
+    /// Backspace-merge, which deletes the inter-block separator — can locate the
+    /// predecessor block and compute their `SourceEdit` against the CURRENT
+    /// document, never a stale one (CLAUDE.md: "a SourceEdit must be COMPUTED
+    /// where it is APPLIED"). Set at `activate(...)` and refreshed at the top of
+    /// `applyReconciled(...)` (every branch, before any early return).
+    private var currentDocument: QuoinDocument?
+
     /// The `BlockKind` of the block the active island currently hosts, threaded at
     /// `activate` and kept in step with the hosted block across KEEP re-anchors and
     /// SPLIT re-homes. The Return handler (Task 5) classifies on this via
@@ -147,6 +156,9 @@ public final class IslandController {
     /// be dropped by the swap.
     public func activate(blockID: BlockID, localPoint: CGPoint,
                          in document: QuoinDocument, baseRevision: Int) {
+        // Retain the freshest parse so structural ops (Backspace-merge) resolve
+        // the predecessor block against the current document.
+        currentDocument = document
         // IME refusal: swapping mid-composition drops the marked text. Park the
         // intent and keep the current island — do NOT flush, do NOT swap.
         if refuseWhileMarkedText, currentHasMarkedText() {
@@ -195,6 +207,11 @@ public final class IslandController {
             // splits per `ReturnSemantics`. A nil return (no island / composing /
             // out-of-scope kind) falls through to the native newline.
             cell.onInsertNewline = { [weak self] in self?.handleReturn() ?? false }
+            // Backspace-key seam (Task 7): route Backspace through the controller
+            // so a caret at island start MERGES the block into its predecessor. A
+            // nil return (no island / not at start / no predecessor / composing)
+            // falls through to the native within-island delete.
+            cell.onDeleteBackward = { [weak self] in self?.handleBackspace() ?? false }
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
             recycler.noteEditingRowHeight()
@@ -319,6 +336,90 @@ public final class IslandController {
         textView.insertText(text, replacementRange: sel)
         let newCaret = sel.location + (text as NSString).length
         textView.setSelectedRange(NSRange(location: newCaret, length: 0))
+    }
+
+    // MARK: - Backspace-merge (Phase 3, Task 7)
+
+    /// Backspace pressed inside the active island. When the caret sits at the
+    /// island's START with an EMPTY selection, MERGE the island's block into its
+    /// predecessor by deleting the inter-block separator; otherwise fall through
+    /// to the native within-island delete.
+    ///
+    /// Returns `true` to CONSUME the keystroke (the `IslandTextView` override does
+    /// NOT call `super`); `false` falls through to the native `deleteBackward:`.
+    /// Falls through (native) when: there is no active island, an IME composition
+    /// is live, the caret is not at `{0,0}` (any non-zero location OR a non-empty
+    /// selection is a normal within-island delete), or the island is already the
+    /// FIRST block (no predecessor — never a splice).
+    ///
+    /// The merge is NOT expressible as a native in-island edit: the deleted bytes
+    /// are the inter-block SEPARATOR, which lives OUTSIDE the island's own text.
+    /// So it is emitted directly through the controller's existing `onReconcile`
+    /// seam (the same channel `reconcileNow`/`flushActiveIsland` use), and
+    /// `applyReconciled` re-homes the island onto the merged block with the caret
+    /// at the join.
+    public func handleBackspace() -> Bool {
+        // Only act on the LIVE island cell; a missing/mismatched cell → native.
+        guard let cell = recycler.currentEditorCell,
+              let island = activeIsland,
+              cell.blockID == island.originBlockID else {
+            return false
+        }
+        let textView = cell.islandTextView
+        // Never merge mid-composition: splicing around half-composed marked text
+        // corrupts the source. Let native handle the delete.
+        if currentHasMarkedText() { return false }
+        // Consume ONLY at the island's very start with an EMPTY selection. Any
+        // non-zero location OR a non-empty selection is an ordinary within-island
+        // backspace → native.
+        guard textView.selectedRange() == NSRange(location: 0, length: 0) else {
+            return false
+        }
+
+        // Flush any pending debounced (KEEP) edit FIRST: if the user typed then
+        // immediately Backspaced-at-0, the retained document is stale until that
+        // edit lands. Computing the merge against a stale document would splice at
+        // the wrong offsets (CLAUDE.md: "a SourceEdit must be COMPUTED where it is
+        // APPLIED"). `flushPendingReconcile` re-homes + refreshes `currentDocument`
+        // and re-anchors `island.byteRange`; re-read everything afterward.
+        if pendingReconcile { flushPendingReconcile() }
+        guard let mergedIsland = activeIsland, let document = currentDocument else {
+            return false
+        }
+
+        // Find the PREDECESSOR: the block whose content ends at or before the
+        // island's start, nearest to it (the block immediately before the island).
+        let islandStart = mergedIsland.byteRange.lowerBound
+        let predecessor = BlockListModel(document: document).records
+            .filter { $0.byteRange.upperBound <= islandStart }
+            .max(by: { $0.byteRange.upperBound < $1.byteRange.upperBound })
+        // No predecessor → the island is the first block. Native no-op; NEVER
+        // splice with a nil record.
+        guard let prev = predecessor else { return false }
+
+        // JOIN RULE: replace the inter-block separator bytes
+        // `[prev.upperBound, islandStart)` with "" — the island's block MERGES
+        // INTO the previous block (e.g. "First\n\nSecond" → "FirstSecond", ONE
+        // block); the reparse decides the merged block's kind. The caret lands at
+        // the JOIN — `prev.byteRange.upperBound`, where the predecessor's content
+        // ends and the merged-in text begins.
+        let separator = prev.byteRange.upperBound ..< islandStart
+        // EMPTY-SPLICE GUARD: only fire for a real, positive-length separator.
+        guard separator.lowerBound < separator.upperBound else { return false }
+
+        // Route through the SAME `onReconcile` seam the KEEP/flush paths use: the
+        // app (or test stub) builds `SourceEdit(range: separator, replacement: "")`
+        // and hands the reparsed document to `applyReconciled`, which re-homes the
+        // island onto the merged block. The island-local caret is 0 (we are at the
+        // island's start); in the "" replacement that maps to
+        // `caretDocByte == separator.lowerBound == prev.byteRange.upperBound`, the
+        // join. `lastFlushedText`/`reconcileInFlight` mirror `reconcileNow` so the
+        // in-flight guard holds and `applyReconciled`'s KEEP check fails (the
+        // merged block's content is NOT the old island text) → the re-home runs.
+        lastFlushedText = textView.string
+        reconcileInFlight = true
+        onReconcile?(ByteRange(separator), "", 0)
+        return true
     }
 
     // MARK: - Flush
@@ -463,6 +564,9 @@ public final class IslandController {
         // The in-flight apply has landed — clear the stale-range guard regardless
         // of the outcome below.
         reconcileInFlight = false
+        // Refresh the retained parse in EVERY branch (before any early return) so
+        // a subsequent structural op sees the latest document.
+        currentDocument = newDocument
         guard let island = activeIsland, let flushed = lastFlushedText else { return }
         let model = BlockListModel(document: newDocument)
 
