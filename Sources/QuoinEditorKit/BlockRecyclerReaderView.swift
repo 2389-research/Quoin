@@ -149,6 +149,10 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         coordinator.document = document
         coordinator.baseRevision = rendered.revision
         coordinator.onReconcile = onReconcile
+        // I3: the controller replays a parked IME activation against its OWN current
+        // document; give it the matching revision so the replayed mint is stamped
+        // with the live one, not the one captured when the click was parked.
+        coordinator.islandController?.noteBaseRevision(rendered.revision)
 
         let width = contentWidth(for: view)
         ilog("apply.enter", "initial=\(initial) appliedRevision=\(coordinator.appliedRevision.map { "\($0)" } ?? "nil") currentRevision=\(rendered.revision) appliedWidth=\(coordinator.appliedWidth.map { "\($0)" } ?? "nil") width=\(width)")

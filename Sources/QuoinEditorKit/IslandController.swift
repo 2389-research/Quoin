@@ -47,9 +47,53 @@ public final class IslandController {
     /// Backspace-merge, which deletes the inter-block separator — can locate the
     /// predecessor block and compute their `SourceEdit` against the CURRENT
     /// document, never a stale one (CLAUDE.md: "a SourceEdit must be COMPUTED
-    /// where it is APPLIED"). Set at `activate(...)` and refreshed at the top of
-    /// `applyReconciled(...)` (every branch, before any early return).
+    /// where it is APPLIED"). Set at `activate(...)`, refreshed at the top of
+    /// `applyReconciled(...)` (every branch, before any early return), AND at every
+    /// document refresh the recycler projects (`revalidateForDocumentRefresh`) —
+    /// that last one is what makes the flush-time drift check (I4) able to see an
+    /// EXTERNALLY-driven change (undo/redo, format command, task toggle, conflict
+    /// resolution, external file adoption) at all.
     private var currentDocument: QuoinDocument?
+
+    /// The document revision in effect for `currentDocument`. Carried so the IME
+    /// drain can replay a parked activation against the CURRENT revision (I3)
+    /// instead of the one captured at click time.
+    private var currentBaseRevision: Int = 0
+
+    // MARK: - The island's ANCHOR (I4)
+
+    /// The exact bytes the active island is anchored to: what
+    /// `currentDocument.source` holds at `activeIsland.byteRange` right now.
+    ///
+    /// This is the island's contract with the document, and it is DISTINCT from
+    /// `lastFlushedText` (which is the "did the user actually change anything"
+    /// baseline and is written OPTIMISTICALLY at fire time, before the apply
+    /// lands). `anchoredSource` only ever advances at points where the document is
+    /// KNOWN to hold it: activation, each `applyReconciled` branch, and an accepted
+    /// external revalidation.
+    ///
+    /// Every splice the controller emits is byte-re-validated against it first
+    /// (`anchorIsIntact`) — the CLAUDE.md "refuse-on-drift byte re-validation"
+    /// pattern. If the document underneath the island moved (⌘Z is the canonical
+    /// case) the anchor no longer matches and the splice is REFUSED rather than
+    /// written at the wrong offsets.
+    private var anchoredSource: String?
+
+    /// The island block's INDEX in `currentDocument.blocks`. Paired with the start
+    /// byte in `revalidateForDocumentRefresh`: a start byte that still lands on a
+    /// block START could, after a shift, be a DIFFERENT block's start (the shift
+    /// happened to equal an inter-block-start distance). Requiring the index to
+    /// match too makes that coincidence non-silent.
+    private var activeIslandIndex: Int?
+
+    /// Test-only observability (anti-vacuity): how many times a splice was REFUSED
+    /// by the flush-time drift check, and how many times an external document
+    /// change forced the island down. `lastDiscardedIslandText` is the island text
+    /// that was thrown away by the most recent refusal/teardown — the report's
+    /// "what happens to unflushed keystrokes" answer, observable from a test.
+    private(set) var refusedFlushCount = 0
+    private(set) var invalidationTeardownCount = 0
+    private(set) var lastDiscardedIslandText: String?
 
     // MARK: - The deferral channel (ordered work behind an in-flight apply)
 
@@ -171,13 +215,20 @@ public final class IslandController {
     var hasMarkedTextProbe: (() -> Bool)?
 
     // The activation intent parked while blocked by a live IME composition, so a
-    // later commit (IME end → retry) can resume the swap. Retry is Task 6/7; the
-    // intent is captured here so the seam is complete.
+    // later commit (IME end → retry) can resume the swap.
+    //
+    // I3: it parks the click's IDENTITY ONLY — `blockID` + `localPoint`. It used to
+    // also capture the click-time `document` + `baseRevision` and replay them
+    // VERBATIM, so any apply that landed between park and drain (the composition
+    // window is unbounded — it lasts as long as the user keeps composing) left the
+    // replayed `activate` setting `currentDocument` to a STALE parse and minting
+    // the island's `byteRange` from stale block ranges. The very first flush then
+    // spliced at wrong offsets. The drain re-reads `currentDocument` /
+    // `currentBaseRevision`, which every landing apply and every projected document
+    // refresh keeps current.
     private struct PendingIntent {
         let blockID: BlockID
         let localPoint: CGPoint
-        let document: QuoinDocument
-        let baseRevision: Int
     }
     private var pendingIntent: PendingIntent?
 
@@ -194,8 +245,9 @@ public final class IslandController {
         self.recycler = recycler
         // Test-only observability (weak, never read by production code): lets a
         // test reach this controller when SwiftUI — not the test — owns the
-        // Coordinator that owns it. See `BlockRecyclerView.islandControllerForTest`.
-        recycler.islandControllerForTest = self
+        // Coordinator that owns it — and, since I4, the seam the recycler uses to
+        // hand every projected document back for revalidation.
+        recycler.islandController = self
         // Install the reconcile-debounce fan-out. The recycler stays the SOLE
         // owner of the editing cell's `onTextDidChange` slot; it fans that signal
         // out to BOTH its row-height re-notify and this closure (Task 6).
@@ -238,14 +290,20 @@ public final class IslandController {
     public func activate(blockID: BlockID, localPoint: CGPoint,
                          in document: QuoinDocument, baseRevision: Int) {
         ilog("activate.enter", "blockID=\(blockID) kind=\(document.blocks.first(where: { $0.id == blockID }).map { "\($0.kind)" } ?? "nil") baseRevision=\(baseRevision)")
-        // Retain the freshest parse so structural ops (Backspace-merge) resolve
-        // the predecessor block against the current document.
-        currentDocument = document
         // IME refusal: swapping mid-composition drops the marked text. Park the
         // intent and keep the current island — do NOT flush, do NOT swap.
         if refuseWhileMarkedText, currentHasMarkedText() {
-            pendingIntent = PendingIntent(blockID: blockID, localPoint: localPoint,
-                                          document: document, baseRevision: baseRevision)
+            // I3: park identity only. Adopt the click-time parse ONLY when there is
+            // no island to invalidate — with an island active, `currentDocument` is
+            // the parse THAT island is anchored to (kept current by every landing
+            // apply and every projected refresh), and overwriting it with a
+            // possibly-older click-time snapshot would make the outgoing island's
+            // own drift check read a false mismatch and discard its typing.
+            if activeIsland == nil {
+                currentDocument = document
+                currentBaseRevision = baseRevision
+            }
+            pendingIntent = PendingIntent(blockID: blockID, localPoint: localPoint)
             state = .blockedIME(blockID)
             return
         }
@@ -257,10 +315,17 @@ public final class IslandController {
         purgeDeferredMerges()
 
         // Flush the OUTGOING island (if any) before touching the recycler, while
-        // its editor cell still hosts the outgoing block's text.
+        // its editor cell still hosts the outgoing block's text — and while
+        // `currentDocument` is still the parse IT is anchored to, so its drift check
+        // measures the right thing.
         if activeIsland != nil {
             flushActiveIsland()
         }
+
+        // Retain the freshest parse so structural ops (Backspace-merge) resolve
+        // the predecessor block against the current document.
+        currentDocument = document
+        currentBaseRevision = baseRevision
 
         state = .swapping
 
@@ -315,6 +380,14 @@ public final class IslandController {
 
         activeIsland = island
         activeIslandKind = block.kind
+        // I4: seed the ANCHOR. `anchoredSource` is the document's own bytes at the
+        // island's range (the cell's seeded string is the fallback for a
+        // not-yet-configured cell); `activeIslandIndex` pins which block that is, so
+        // an external shift that happens to re-align the start byte onto a DIFFERENT
+        // block's start is still detected.
+        anchoredSource = document.source.substring(in: ByteRange(island.byteRange))
+            ?? cell.islandTextView.string
+        activeIslandIndex = document.blocks.firstIndex(where: { $0.id == blockID })
         // Fresh island: clear any reconcile carry-over from the previous one.
         pendingReconcile = false
         wasComposing = false
@@ -371,6 +444,149 @@ public final class IslandController {
     private func assertNoOrphanedEditorCell(_ context: String) {
         assert(!hasOrphanedEditorCell,
                "island invariant violated at \(context): a live editable cell exists with no active island")
+    }
+
+    // MARK: - Revalidation against EXTERNAL document changes (I4)
+
+    /// Does the document the controller currently knows about still hold, at
+    /// `range`, exactly the bytes the island is anchored to?
+    ///
+    /// The flush-time BACKSTOP. Every splice the controller emits is gated on it,
+    /// so even if a notification path is missed the controller can never write the
+    /// island's text over a span that has moved underneath it. Answers `true` when
+    /// there is nothing to compare against (no retained parse / no anchor — only
+    /// reachable for callers that drive `applyReconciled` directly), which keeps
+    /// legacy call sites behaving exactly as before.
+    private func anchorIsIntact(range: Range<Int>) -> Bool {
+        guard let document = currentDocument, let anchoredSource else { return true }
+        return document.source.substring(in: ByteRange(range)) == anchoredSource
+    }
+
+    /// The recycler is about to project `document`. Revalidate the active island
+    /// against it and answer the byte offset the recycler should locate the editing
+    /// row by — or `nil` to tear the editing row down (`setDocument`).
+    ///
+    /// ## The contract
+    ///
+    /// A document change that did NOT come from this island (undo/redo, a format or
+    /// block command, a task-checkbox toggle, conflict resolution, external file
+    /// adoption) shifts the bytes underneath `activeIsland.byteRange`. The island
+    /// must therefore either RE-ANCHOR correctly or GO AWAY — it may never keep a
+    /// range it has not revalidated.
+    ///
+    /// Re-anchor is accepted only on a POSITIONAL identity match: the island's start
+    /// byte must still be a block START, and that block must still sit at the
+    /// island's remembered INDEX. That is the signal that separates the two cases
+    /// that look alike from here:
+    ///
+    ///  • the island's OWN edit re-projecting (its block's content — and so its
+    ///    content-hash id and length — changed, but nothing before it moved), which
+    ///    MUST be preserved (`IslandRefreshOrderTests`); and
+    ///  • an external change that moved the island's block (⌘Z), which MUST NOT be
+    ///    trusted.
+    ///
+    /// Content equality cannot do that job: in the first case the projected content
+    /// is the island's NEW text, which matches neither the anchor nor (when the
+    /// refresh wins the race with `applyReconciled`) anything else the controller
+    /// holds.
+    ///
+    /// While an apply this controller fired is still outstanding, the island's range
+    /// is about to be re-anchored by `applyReconciled` (or by the deferred op behind
+    /// it): the positional mismatch in that window is DELIBERATE and transient, so
+    /// revalidation stands down and lets the in-flight path finish. `currentDocument`
+    /// is still refreshed, which is what keeps the flush-time drift check honest.
+    ///
+    /// UNFLUSHED KEYSTROKES on a refused re-anchor are DISCARDED, loudly
+    /// (`revalidate.abandon … discardedUnflushed=`). They cannot be flushed first:
+    /// by the time a projected document reaches us the external change has ALREADY
+    /// been applied to the session, so the only range we could splice them at is the
+    /// stale one — which is the corruption this fix exists to prevent. Discarding a
+    /// few characters is recoverable; overwriting the span an undo just restored is
+    /// not.
+    func revalidateForDocumentRefresh(_ document: QuoinDocument, islandStartByte: Int?) -> Int? {
+        guard let island = activeIsland else {
+            // No island: the recycler's own guards decide, and an editing row with
+            // no island is an orphan → full swap.
+            currentDocument = document
+            return nil
+        }
+        let previous = currentDocument
+        currentDocument = document
+
+        if reconcileInFlight || !deferredOps.isEmpty {
+            ilog("revalidate.skip",
+                 "reason=applyInFlight islandStart=\(island.byteRange.lowerBound) deferred=\(deferredOps.count)")
+            return island.byteRange.lowerBound
+        }
+        if let previous, previous.source == document.source {
+            ilog("revalidate.unchanged", "islandStart=\(island.byteRange.lowerBound)")
+            return island.byteRange.lowerBound
+        }
+
+        let start = island.byteRange.lowerBound
+        let model = BlockListModel(document: document)
+        guard let index = model.records.firstIndex(where: { $0.byteRange.lowerBound == start }),
+              index == activeIslandIndex else {
+            ilog("revalidate.mismatch",
+                 "islandStart=\(start) expectedIndex=\(activeIslandIndex.map { "\($0)" } ?? "nil") foundIndex=\(model.records.firstIndex(where: { $0.byteRange.lowerBound == start }).map { "\($0)" } ?? "nil")")
+            abandonIslandForInvalidatedDocument(reason: "externalDocumentChange")
+            return nil
+        }
+        let record = model.records[index]
+        activeIsland?.byteRange = record.byteRange
+        activeIsland?.originBlockID = record.blockID
+        activeIslandKind = record.kind
+        anchoredSource = document.source.substring(in: ByteRange(record.byteRange))
+        ilog("revalidate.reanchor", "islandStart=\(start) index=\(index) newID=\(record.blockID)")
+        return start
+    }
+
+    /// Drop the island because the document it was anchored to is gone, WITHOUT
+    /// flushing and WITHOUT touching the recycler (its caller — `setDocument`, or
+    /// the `updateDocumentPreservingEditing` fallback — is already replacing the
+    /// rows). Unflushed island text is discarded; the log line names it and the
+    /// counters make it observable to tests.
+    func abandonIslandForInvalidatedDocument(reason: String) {
+        guard activeIsland != nil else { return }
+        let live = recycler.currentEditorCell?.islandTextView.string
+        let unflushed = live != nil && live != lastFlushedText
+        ilog("revalidate.abandon",
+             "reason=\(reason) discardedUnflushed=\(unflushed) textLen=\((live as NSString?)?.length ?? 0)")
+        invalidationTeardownCount += 1
+        if unflushed { lastDiscardedIslandText = live }
+        cancelReconcileTimer()
+        pendingReconcile = false
+        wasComposing = false
+        reconcileInFlight = false
+        inFlightOwner = nil
+        pendingIntent = nil
+        purgeDeferredMerges()
+        activeIsland = nil
+        activeIslandKind = nil
+        activeIslandIndex = nil
+        anchoredSource = nil
+        lastFlushedText = nil
+        state = .idle
+    }
+
+    /// The app's current document revision, refreshed on every projection pass so
+    /// a parked IME activation replays against it (I3) rather than the revision
+    /// captured at click time.
+    public func noteBaseRevision(_ revision: Int) {
+        currentBaseRevision = revision
+    }
+
+    /// Test seam (I4): adopt `document` as the controller's current parse WITHOUT
+    /// revalidating the island against it — exactly the state a MISSED notification
+    /// path leaves behind.
+    ///
+    /// It exists because the flush-time drift check is otherwise UNREACHABLE: every
+    /// production path that delivers a new document runs `revalidateForDocumentRefresh`
+    /// first, which tears a mis-anchored island down before any flush can be
+    /// attempted. That is the point of a backstop — and a backstop with no way to
+    /// exercise it is a backstop nobody can prove works.
+    func adoptDocumentWithoutRevalidationForTest(_ document: QuoinDocument) {
+        currentDocument = document
     }
 
     /// Install the island's responder seams onto `cell`: blur (resign), Return,
@@ -673,6 +889,14 @@ public final class IslandController {
               let cell = recycler.currentEditorCell,
               cell.blockID == island.originBlockID else { return }
         let islandStart = island.byteRange.lowerBound
+        // I4 backstop: the separator offsets below are derived from the island's
+        // byte range. If the document moved underneath it, they are meaningless.
+        guard anchorIsIntact(range: island.byteRange) else {
+            ilog("merge.refused", "reason=byteDrift range=\(island.byteRange)")
+            refusedFlushCount += 1
+            teardownIsland()
+            return
+        }
         guard let prev = predecessorRecord(before: islandStart, in: document) else { return }
         let separator = prev.byteRange.upperBound ..< islandStart
         // EMPTY-SPLICE GUARD: only fire for a real, positive-length separator.
@@ -727,6 +951,8 @@ public final class IslandController {
             ilog("flush.fired", "fired=false reason=noCell")
             activeIsland = nil
             activeIslandKind = nil
+            activeIslandIndex = nil
+            anchoredSource = nil
             lastFlushedText = nil
             reconcileInFlight = false
             state = .idle
@@ -751,6 +977,20 @@ public final class IslandController {
                 islandStart: island.byteRange.lowerBound, priorText: priorFlushed,
                 text: text, caretUTF16: caret)))
             ilog("flush.deferred", "islandStart=\(island.byteRange.lowerBound) priorLen=\(priorFlushed.utf8.count) textLen=\((text as NSString).length) queued=\(deferredOps.count)")
+            state = .idle
+            return
+        }
+        // (4) I4 backstop — REFUSE ON DRIFT. The island's range is only meaningful
+        // if the document still holds the bytes the island was anchored to. When an
+        // external change (⌘Z is the canonical one) moved them, splicing `text` here
+        // would overwrite whatever now occupies the old span. Refuse and discard.
+        guard anchorIsIntact(range: island.byteRange) else {
+            ilog("flush.fired", "fired=false reason=byteDrift range=\(island.byteRange) textLen=\((text as NSString).length)")
+            refusedFlushCount += 1
+            lastDiscardedIslandText = text
+            lastFlushedText = nil
+            anchoredSource = nil
+            activeIslandIndex = nil
             state = .idle
             return
         }
@@ -919,6 +1159,18 @@ public final class IslandController {
             ilog("reconcile.skipped", "reason=unchanged textLen=\((newText as NSString).length)")
             return false
         }
+        // I4 backstop — REFUSE ON DRIFT (see `anchorIsIntact`). The whole-island
+        // replace below is computed against `island.byteRange`; if the document no
+        // longer holds the island's anchored bytes there, that range belongs to
+        // something else now. Refuse, and tear the island down rather than leave a
+        // live editor bound to a range it cannot write.
+        guard anchorIsIntact(range: island.byteRange) else {
+            ilog("reconcile.refused", "reason=byteDrift range=\(island.byteRange) textLen=\((newText as NSString).length)")
+            refusedFlushCount += 1
+            lastDiscardedIslandText = newText
+            teardownIsland()
+            return false
+        }
         let caret = cell.islandTextView.selectedRange().location
         lastFlushedText = newText
         reconcileInFlight = true
@@ -1004,6 +1256,12 @@ public final class IslandController {
             activeIsland?.byteRange = record.byteRange
             activeIsland?.originBlockID = record.blockID
             activeIslandKind = record.kind
+            // I4: the document is KNOWN to hold `flushed` at this range (that is the
+            // branch condition) — advance the anchor with it.
+            anchoredSource = flushed
+            activeIslandIndex = model.records.firstIndex {
+                $0.byteRange.lowerBound == record.byteRange.lowerBound
+            }
             recycler.reanchorEditing(to: record.blockID)
             if let textView = recycler.currentEditorCell?.islandTextView {
                 // Prefer the flush-time caret (`caretDocByte`); fall back to a live
@@ -1065,6 +1323,9 @@ public final class IslandController {
             // `lastFlushedText` in step so the next reconcile's whole-island replace
             // maps against it.
             lastFlushedText = extendedSlice
+            // I4: the extended slice IS the document's bytes at the extended range.
+            anchoredSource = extendedSlice
+            activeIslandIndex = model.records.count - 1
             recycler.reanchorEditing(to: last.blockID)
             if let textView = recycler.currentEditorCell?.islandTextView {
                 // The cell already hosts the extended slice (the user just typed the
@@ -1094,6 +1355,11 @@ public final class IslandController {
         // The island now flushes the caret block's text; keep `lastFlushedText` in
         // step so a subsequent KEEP reconcile maps 1:1 against it.
         lastFlushedText = islandSource
+        // I4: `islandSource` is read straight out of `newDocument` at `rec.byteRange`.
+        anchoredSource = islandSource
+        activeIslandIndex = model.records.firstIndex {
+            $0.byteRange.lowerBound == rec.byteRange.lowerBound
+        }
         recycler.reanchorEditing(to: rec.blockID)
         if let textView = recycler.currentEditorCell?.islandTextView {
             // Re-seed the island cell's source from the caret block's bytes (NOT a
@@ -1125,6 +1391,8 @@ public final class IslandController {
         purgeDeferredMerges()
         activeIsland = nil
         activeIslandKind = nil
+        activeIslandIndex = nil
+        anchoredSource = nil
         lastFlushedText = nil
         recycler.editingBlockID = nil
         state = .idle
@@ -1156,8 +1424,18 @@ public final class IslandController {
     private func drainPendingIntent() {
         guard let intent = pendingIntent else { return }
         pendingIntent = nil
+        // I3: re-read the CURRENT document + revision. The parked intent carries
+        // identity only; replaying the click-time parse would mint the incoming
+        // island's `byteRange` from block ranges any apply landed since the park has
+        // already moved, and its first flush would splice at those wrong offsets.
+        guard let document = currentDocument else {
+            ilog("intent.drain.refused", "reason=noCurrentDocument blockID=\(intent.blockID)")
+            state = .idle
+            return
+        }
+        ilog("intent.drain", "blockID=\(intent.blockID) baseRevision=\(currentBaseRevision)")
         activate(blockID: intent.blockID, localPoint: intent.localPoint,
-                 in: intent.document, baseRevision: intent.baseRevision)
+                 in: document, baseRevision: currentBaseRevision)
     }
 
     // MARK: - IME probe

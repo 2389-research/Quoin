@@ -115,6 +115,16 @@ public final class BlockRecyclerView: NSView {
     // handoff + flush read-back.
     private weak var liveEditorCell: BlockEditorCell?
 
+    /// Back-reference to the `IslandController` driving this recycler, set by the
+    /// controller's `init`. Weak — the controller owns the relationship.
+    ///
+    /// The recycler consults it on the two paths where a NEW document arrives
+    /// (`setDocument`, `updateDocumentPreservingEditing`) so the island can
+    /// revalidate against it (I4) before anything is re-pointed. Nil in the
+    /// read-only / flag-off configuration and in the pure-recycler tests, where both
+    /// paths behave exactly as they did before.
+    weak var islandController: IslandController?
+
     /// Phase 3 hotfix: true for the duration of a `reloadData(forRowIndexes:)`
     /// that rebuilds the LIVE editing row's cell. Such a rebuild removes the
     /// first-responder `IslandTextView` from the window, firing a TRANSIENT
@@ -261,7 +271,12 @@ public final class BlockRecyclerView: NSView {
     public func setDocument(_ document: QuoinDocument, contentWidth: CGFloat) {
         ilog("setDocument", "blocks=\(document.blocks.count) stack=\(islandShortStack(6))")
         // A fresh document dissolves any active island: clear editing WITHOUT the
-        // didSet's partial reload (the full `reloadData` below covers it).
+        // didSet's partial reload (the full `reloadData` below covers it). I4: tell
+        // the controller too, or it keeps an `activeIsland` pointing at a byte range
+        // in the OLD document with no cell behind it — a desync whose next flush
+        // splices at unvalidated offsets. `abandonIsland…` deliberately does not
+        // touch the recycler (we are already replacing every row).
+        islandController?.abandonIslandForInvalidatedDocument(reason: "setDocument")
         clearEditingWithoutReload()
         self.document = document
         self.contentWidth = contentWidth
@@ -311,10 +326,20 @@ public final class BlockRecyclerView: NSView {
     /// before.
     public func updateDocumentPreservingEditing(_ document: QuoinDocument, contentWidth: CGFloat, islandStartByte: Int?) {
         ilog("preserve.enter", "islandStartByte=\(islandStartByte.map { "\($0)" } ?? "nil") oldRowCount=\(tableView.numberOfRows) newRowCount=\(document.blocks.count)")
+        // I4: hand the document to the island controller FIRST. It either
+        // re-anchors the island against this document and answers the (possibly
+        // updated) start byte to locate the editing row by, or answers nil — meaning
+        // it has abandoned the island because the document moved underneath it, and
+        // this refresh must fall through to the full `setDocument` swap. Without a
+        // controller (pure-recycler / read-only configurations) the caller's start
+        // byte is used exactly as before.
+        let resolvedStartByte = islandController.map {
+            $0.revalidateForDocumentRefresh(document, islandStartByte: islandStartByte)
+        } ?? islandStartByte
         // Read-only / flag-off path: no active editing island (or no island start)
         // → full swap, byte-identical to before.
         guard _editingBlockID != nil, liveEditorCell != nil,
-              let islandStartByte else {
+              let islandStartByte = resolvedStartByte else {
             ilog("preserve.fallback.setDocument", "reason=noActiveIsland")
             setDocument(document, contentWidth: contentWidth)
             return
@@ -326,8 +351,20 @@ public final class BlockRecyclerView: NSView {
         // (split/merge) changes it — Task 4 handles that WITHOUT tearing down (see
         // the count-change branch below), so the guard only bails when the island
         // start resolves to no block at all.
-        guard let record = BlockListModel(document: document).record(at: islandStartByte) else {
-            ilog("preserve.fallback.setDocument", "reason=noRecordAtStartByte")
+        //
+        // I4 (second half): `record(at:)` answers whatever block CONTAINS the
+        // offset, so on a document whose bytes shifted underneath the island it
+        // happily resolves to some OTHER block — and the re-point below would then
+        // silently move the live editing row onto a block the user never opened.
+        // Require the offset to still be that block's START: on the island's own
+        // re-projection it always is (bytes before an island never move across its
+        // own edits), and on an external shift it is not. Anything else falls back
+        // to the full swap.
+        let model = BlockListModel(document: document)
+        guard let record = model.record(at: islandStartByte),
+              record.byteRange.lowerBound == islandStartByte else {
+            ilog("preserve.fallback.setDocument",
+                 "reason=noBlockStartAtIslandByte islandStartByte=\(islandStartByte) foundStart=\(model.record(at: islandStartByte).map { "\($0.byteRange.lowerBound)" } ?? "nil")")
             setDocument(document, contentWidth: contentWidth)
             return
         }
@@ -1164,12 +1201,9 @@ public final class BlockRecyclerView: NSView {
     /// `reloadData(forRowIndexes:)` coalesces instead of running synchronously).
     var tableViewForTest: NSTableView { tableView }
 
-    /// Back-reference to the `IslandController` driving this recycler, set by the
-    /// controller's `init`. Weak and never read by production code — it exists so
-    /// a test that stands the stack up through a REAL `NSHostingView` (where
-    /// SwiftUI, not the test, owns the Coordinator that owns the controller) can
-    /// still reach `activeIsland`.
-    weak var islandControllerForTest: IslandController?
+    /// Test-only alias for `islandController` (kept so existing tests that reach
+    /// the controller through the recycler keep reading the way they did).
+    var islandControllerForTest: IslandController? { islandController }
 }
 
 extension BlockRecyclerView: NSTableViewDataSource {
