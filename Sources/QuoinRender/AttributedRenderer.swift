@@ -1008,6 +1008,12 @@ public struct AttributedRenderer: Sendable {
         // The island is its own view and paints its own background; the
         // projection's per-glyph active wash would be a per-line strip here.
         styler.appliesActiveWash = false
+        // Inside an island EVERY line belongs to the one active block, so a
+        // caret that has left the heading's line (Phase 3's virtual line puts it
+        // on a byte-less blank line below) has NOT left the block: keep the `#`
+        // marks faded-visible instead of collapsing them to the hidden face,
+        // which made the heading text jump left mid-edit.
+        styler.revealsHeadingMarksRegardlessOfCaretLine = true
         let styled = NSMutableAttributedString(
             attributedString: styler.style(slice, caretOffset: caretUTF16))
         guard styled.length > 0 else { return styled }

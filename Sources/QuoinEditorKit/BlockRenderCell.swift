@@ -223,6 +223,13 @@ public final class BlockRenderCell: NSView {
     /// its configured block, without an AX client query.
     var accessibilityForTest: BlockRecyclerAccessibility.CellAccessibility? { cellAccessibility }
 
+    /// Test hook (the row-model tests): the PLAIN TEXT this cell is currently
+    /// drawing — what the user actually sees in this row. The row-model defects
+    /// this exists for (a row rendering another block's content, a duplicated
+    /// block, a vanished heading) are invisible to any assertion that only reads
+    /// controller state, which is exactly how one shipped.
+    var renderedTextForTest: String { configuredFragment?.string ?? "" }
+
     /// Test hook (DecorationBleedTests): false when the cell will NOT clip the
     /// negative-inset decoration bleed / gutter bar to its bounds.
     var clipsDecorationForTest: Bool { clipsToBounds }

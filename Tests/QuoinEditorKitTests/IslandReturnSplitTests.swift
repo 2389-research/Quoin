@@ -27,11 +27,19 @@ import QuoinRender
 /// Markdown has NO representation for an empty trailing paragraph: `"Hello\n\n"`
 /// re-parses to ONE block, not two. So Return at the very end of the document's
 /// last paragraph cannot immediately yield a second block — the new block
-/// MATERIALIZES on the first keystroke. Between the two, the island stays alive on
-/// the last block with its slice extended through EOF (the design doc's "last block
-/// absorbs through EOF"), caret on the now-occupiable blank line — which is exactly
-/// the fix for the dead-caret bug. The test asserts that live intermediate state
-/// AND the materialized two-block result after typing.
+/// MATERIALIZES on the first keystroke.
+///
+/// **Contract change (Return unification).** Task 5 bridged that gap by WRITING
+/// `"\n\n"` at Return time and keeping the island alive on the last block with its
+/// slice extended through EOF; this test asserted the intermediate source was
+/// `"Hello\n\n"`. The terminal case now uses the same VIRTUAL LINE the interior
+/// case has used since Task 5b: **nothing is written at all** until the new line
+/// earns content, so the intermediate document is byte-identical to the original
+/// and a Return the user abandons at the end of the file leaves no trace. What the
+/// USER sees is unchanged (the island alive, the caret on an occupiable blank line
+/// below the paragraph), and the materialized result is byte-identical to before —
+/// so the assertions below are strengthened, not relaxed: the intermediate state
+/// now also asserts that ZERO edits were emitted.
 ///
 /// Headless, on a real recycler in an offscreen borderless window; the stub
 /// `onReconcile` applies the `SourceEdit` through the real incremental parse and
@@ -56,10 +64,14 @@ final class IslandReturnSplitTests: XCTestCase {
     /// parse, computes `caretDocByte` at flush, and hands the result back.
     private func installStub(
         _ controller: IslandController, startingFrom doc: QuoinDocument
-    ) -> (doc: () -> QuoinDocument, rev: () -> Int) {
-        final class Box { var doc: QuoinDocument; var rev = 0; init(_ d: QuoinDocument) { doc = d } }
+    ) -> (doc: () -> QuoinDocument, rev: () -> Int, fires: () -> Int) {
+        final class Box {
+            var doc: QuoinDocument; var rev = 0; var fires = 0
+            init(_ d: QuoinDocument) { doc = d }
+        }
         let box = Box(doc)
         controller.onReconcile = { [weak controller] range, newText, caret in
+            box.fires += 1
             let edit = SourceEdit(range: range, replacement: newText)
             let result = try! MarkdownConverter.parseAfterEdit(previous: box.doc, edit: edit)
             box.doc = result.document
@@ -68,7 +80,7 @@ final class IslandReturnSplitTests: XCTestCase {
                 localUTF16: caret, islandSource: newText, islandByteStart: range.offset)
             controller?.applyReconciled(result.document, caretDocByte: caretDocByte)
         }
-        return ({ box.doc }, { box.rev })
+        return ({ box.doc }, { box.rev }, { box.fires })
     }
 
     // MARK: - The original bug: Return at the end of a paragraph, caret follows
@@ -94,7 +106,13 @@ final class IslandReturnSplitTests: XCTestCase {
 
         // The island SURVIVED (the original bug: it died to a dead/dot caret) and now
         // hosts the paragraph plus the occupiable blank line, caret past the break.
-        XCTAssertEqual(stub.doc().source, "Hello\n\n")
+        //
+        // CONTRACT CHANGE (see the type comment): the terminal Return writes NOTHING
+        // until the line earns content. Pre-unification this asserted `"Hello\n\n"`
+        // — two bytes the user had not asked for, left behind by an abandoned Return.
+        XCTAssertEqual(stub.doc().source, "Hello",
+                       "the terminal Return is not an edit: the document is byte-identical")
+        XCTAssertEqual(stub.fires(), 0, "…and no reconcile was emitted at all")
         XCTAssertNotNil(controller.activeIsland,
                         "Return at end keeps the island alive (the original bug killed it)")
         XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "Hello\n\n")
@@ -111,6 +129,9 @@ final class IslandReturnSplitTests: XCTestCase {
         let newDoc = stub.doc()
         XCTAssertEqual(newDoc.source, "Hello\n\nX",
                        "the caret followed into the new block; the X landed there")
+        XCTAssertEqual(stub.fires(), 1,
+                       "ONE edit carries the whole new-paragraph-with-content op "
+                       + "(pre-unification it was two: the Return's \\n\\n, then the typing)")
         XCTAssertEqual(newDoc.blocks.count, 2, "two blocks now: \"Hello\" + \"X\"")
         XCTAssertEqual(newDoc.source.substring(in: newDoc.blocks[0].range), "Hello")
         XCTAssertEqual(newDoc.source.substring(in: newDoc.blocks[1].range), "X")

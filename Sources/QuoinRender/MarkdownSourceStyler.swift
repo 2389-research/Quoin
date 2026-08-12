@@ -42,6 +42,20 @@ struct MarkdownSourceStyler {
     /// Default `true` keeps the projection byte-for-byte unchanged.
     var appliesActiveWash = true
 
+    /// Keep a heading's `#` marks faded-VISIBLE no matter which line the caret
+    /// is on. Off by default (the projection's rule is "marks reveal only while
+    /// the caret is on the heading's line", which is right there: every OTHER
+    /// line in the monolithic string belongs to some other, inactive block).
+    ///
+    /// The editable ISLAND turns it ON, because inside an island every line
+    /// belongs to the ONE active block, so "the caret left the line" is not
+    /// "the caret left the block". Phase 3's virtual line made that reachable:
+    /// pressing Return at the end of a heading puts the caret on a byte-less
+    /// blank line inside the SAME island, and the heading's `##` collapsed to
+    /// the 0.1pt hidden face — the text jumped left and the delimiter the user
+    /// was editing vanished (reported from the live app).
+    var revealsHeadingMarksRegardlessOfCaretLine = false
+
     /// Reveal-styling patterns are literals — recompiling them on every
     /// keystroke measurably cost the reveal path, so compile them once.
     /// Optional so a malformed literal degrades that one styling pass rather
@@ -148,7 +162,8 @@ struct MarkdownSourceStyler {
             if let hashes = prefixLength(of: line, matching: { $0 == "#" }), hashes >= 1, hashes <= 6,
                line.dropFirst(hashes).first == " " {
                 output.addAttributes(
-                    caretOnLine ? delimiterAttributes : hiddenDelimiterAttributes,
+                    (caretOnLine || revealsHeadingMarksRegardlessOfCaretLine)
+                        ? delimiterAttributes : hiddenDelimiterAttributes,
                     range: NSRange(location: lineRange.location, length: hashes + 1)
                 )
                 let bodyStart = lineRange.location + hashes + 1

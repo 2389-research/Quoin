@@ -102,6 +102,57 @@ final class IslandInteriorReturnTests: AppKitWindowTestCase {
         doc.source.substring(in: ByteRange(range))
     }
 
+    /// Which of the app's two independently-scheduled main-actor jobs wins.
+    ///
+    /// In the app the reconcile continuation (`applyReconciled`) and SwiftUI's
+    /// projection refresh (`updateDocumentPreservingEditing`) are separate jobs —
+    /// `ReaderModel.reconcileIsland` publishes the new document from inside the
+    /// edit pipeline task, and the controller's `applyReconciled` runs when the
+    /// awaiting `Task` resumes. Neither order is guaranteed, so BOTH have to be
+    /// correct.
+    enum RefreshOrder { case applyThenRefresh, refreshThenApply }
+
+    /// The app's wiring, headless and complete: apply the edit through the real
+    /// incremental parse, then drive BOTH seams the app drives — the controller's
+    /// re-anchor AND the recycler's projection refresh — in `order`.
+    ///
+    /// The Task-4 stub (`installStub`) drives only the controller. That is the
+    /// hole the materialization row-model defect shipped through: every
+    /// controller-state assertion passed while the TABLE was displaying the wrong
+    /// blocks.
+    @discardableResult
+    private func installAppLikeStub(
+        _ controller: IslandController, recycler: BlockRecyclerView,
+        startingFrom doc: QuoinDocument, order: RefreshOrder
+    ) -> StubSession {
+        let box = StubSession(doc)
+        controller.onReconcile = { [weak controller, weak recycler] range, newText, caret in
+            box.fires.append((range, newText, caret))
+            let edit = SourceEdit(range: range, replacement: newText)
+            let result = try! MarkdownConverter.parseAfterEdit(previous: box.doc, edit: edit)
+            box.doc = result.document
+            box.rev += 1
+            let caretDocByte = IslandCaretMapping.documentByte(
+                localUTF16: caret, islandSource: newText, islandByteStart: range.offset)
+            // Exactly what `BlockRecyclerReaderView.apply` passes: the island's
+            // CURRENT start byte, read at refresh time.
+            let refresh = {
+                recycler?.updateDocumentPreservingEditing(
+                    result.document, contentWidth: 600,
+                    islandStartByte: controller?.activeIsland?.byteRange.lowerBound)
+            }
+            switch order {
+            case .applyThenRefresh:
+                controller?.applyReconciled(result.document, caretDocByte: caretDocByte)
+                refresh()
+            case .refreshThenApply:
+                refresh()
+                controller?.applyReconciled(result.document, caretDocByte: caretDocByte)
+            }
+        }
+        return box
+    }
+
     /// Activate `index`'s block with the caret at the very END of its source.
     private func activateAtEnd(
         _ controller: IslandController, _ recycler: BlockRecyclerView,
@@ -467,6 +518,148 @@ final class IslandInteriorReturnTests: AppKitWindowTestCase {
         let afterDelivery = await session.document
         XCTAssertEqual(afterDelivery.source, original,
                        "…and the document is still the undone one")
+    }
+
+    // MARK: - 7. THE ROW MODEL AFTER MATERIALIZATION (the live-app defect)
+    //
+    // Reported from the real app on the Task-5b build: click at the end of an
+    // interior `## Front matter` heading, Return, type `c`, type `oi`.
+    //  • after `c` the island row rendered the NEW block ("c") while still
+    //    occupying the HEADING's row — the heading vanished from the screen and a
+    //    SECOND "c" appeared in the row below it;
+    //  • two keystrokes later the island CLOSED ITSELF (no click, no Escape).
+    // The final BYTES were right the whole time, which is why every
+    // controller-state test in this suite passed. These tests assert what the
+    // TABLE is displaying.
+
+    /// Type one character into the virtual line and assert the table's row model
+    /// is intact: one row per block, each row showing its OWN block, the editing
+    /// row on the block the caret is in, the island alive and focused.
+    private func assertRowModelSurvivesMaterialization(_ order: RefreshOrder) throws {
+        let (v, doc, controller) = makeStack("Intro\n\n## Front matter\n\nBody text.")
+        let stub = installAppLikeStub(controller, recycler: v, startingFrom: doc, order: order)
+        let cell = try activateAtEnd(controller, v, doc, index: 1)
+        XCTAssertEqual(v.numberOfRowsForTest, 3, "precondition: three blocks, three rows")
+
+        EditorTestHarness(adopting: cell.islandTextView, appliedRevision: { stub.rev }).pressReturn()
+        let live = try XCTUnwrap(v.currentEditorCell, "the island survives the Return")
+        let end = (live.islandTextView.string as NSString).length
+        live.islandTextView.insertText("c", replacementRange: NSRange(location: end, length: 0))
+        live.islandTextView.setSelectedRange(NSRange(location: end + 1, length: 0))
+        controller.flushPendingReconcile()
+
+        // ANTI-VACUITY: the mutation really happened — one edit, a new block.
+        XCTAssertEqual(stub.fires.count, 1, "the keystroke materialized the line as ONE edit")
+        XCTAssertEqual(stub.doc.source, "Intro\n\n## Front matter\n\nc\n\nBody text.")
+        XCTAssertEqual(stub.doc.blocks.count, 4, "the document really grew by a block")
+        if order == .refreshThenApply {
+            XCTAssertEqual(v.parkedRefreshReplayCountForTest, 1,
+                           "the structural refresh that raced ahead of the apply was PARKED "
+                           + "and replayed once the island had re-anchored")
+        }
+
+        // THE ROW MODEL.
+        XCTAssertEqual(v.numberOfRowsForTest, stub.doc.blocks.count,
+                       "one row per block")
+        XCTAssertEqual(v.displayedRowTextsForTest(),
+                       ["Intro", "Front matter", "c", "Body text."],
+                       "every row shows its OWN block: the heading is still there and the "
+                       + "typed character appears exactly once (the defect rendered "
+                       + "[\"Intro\", \"c\", \"c\", \"Body text.\"])")
+        XCTAssertEqual(v.editingRowForTest, 2, "the editing row is the NEW block's row")
+        XCTAssertTrue(v.isEditingRow(2), "…and it is the row vending the editable cell")
+        XCTAssertFalse(v.isEditingRow(1), "the heading's row is a read cell again")
+        let newBlockID = stub.doc.blocks[2].id
+        XCTAssertEqual(v.mappedRowForTest(newBlockID), 2,
+                       "the row map points the new block at the row that displays it")
+
+        // The island itself.
+        let island = try XCTUnwrap(controller.activeIsland, "the island is still active")
+        XCTAssertEqual(slice(stub.doc, island.byteRange), "c")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "c")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.selectedRange().location, 1)
+        XCTAssertFalse(controller.hasOrphanedEditorCell)
+        XCTAssertTrue(
+            v.window?.firstResponder === v.currentEditorCell?.islandTextView,
+            "the island still holds first responder")
+    }
+
+    func testMaterializationRowModelWhenTheApplyLandsFirst() throws {
+        try assertRowModelSurvivesMaterialization(.applyThenRefresh)
+    }
+
+    func testMaterializationRowModelWhenTheProjectionRefreshLandsFirst() throws {
+        try assertRowModelSurvivesMaterialization(.refreshThenApply)
+    }
+
+    /// Step 4 of the report: two more keystrokes after the materialization closed
+    /// the island with no user action at all (the projection refresh reloaded the
+    /// row the editor cell was physically sitting in, destroying it).
+    func testTypingOnAfterMaterializationKeepsTheIslandOpenAndTheRowsCorrect() throws {
+        let (v, doc, controller) = makeStack("Intro\n\n## Front matter\n\nBody text.")
+        let stub = installAppLikeStub(controller, recycler: v, startingFrom: doc,
+                                      order: .refreshThenApply)
+        let cell = try activateAtEnd(controller, v, doc, index: 1)
+        EditorTestHarness(adopting: cell.islandTextView, appliedRevision: { stub.rev }).pressReturn()
+
+        for character in ["c", "o", "i"] {
+            let editor = try XCTUnwrap(
+                v.currentEditorCell,
+                "the island closed itself while typing \"\(character)\" — no click, no Escape")
+            let at = editor.islandTextView.selectedRange().location
+            editor.islandTextView.insertText(character,
+                                             replacementRange: NSRange(location: at, length: 0))
+            editor.islandTextView.setSelectedRange(NSRange(location: at + 1, length: 0))
+            controller.flushPendingReconcile()
+        }
+
+        XCTAssertEqual(stub.doc.source, "Intro\n\n## Front matter\n\ncoi\n\nBody text.",
+                       "the bytes are right (they always were — the defect was in the view)")
+        XCTAssertNotNil(controller.activeIsland, "the island is STILL open after three keystrokes")
+        XCTAssertEqual(v.displayedRowTextsForTest(),
+                       ["Intro", "Front matter", "coi", "Body text."])
+        XCTAssertEqual(v.editingRowForTest, 2)
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.string, "coi")
+        XCTAssertEqual(v.currentEditorCell?.islandTextView.selectedRange().location, 3)
+        XCTAssertTrue(
+            v.window?.firstResponder === v.currentEditorCell?.islandTextView,
+            "…and it still has the caret")
+    }
+
+    /// Step 2 of the report: after the Return the heading's `##` DISAPPEARED from
+    /// the island (collapsed to the 0.1pt hidden face), so the heading text jumped
+    /// left. The caret had left the heading's LINE but not the heading's BLOCK —
+    /// and inside an island those are not the same thing.
+    func testTheVirtualLineKeepsTheHeadingsHashMarksVisible() throws {
+        let (v, doc, controller) = makeStack("Intro\n\n## Front matter\n\nBody text.")
+        installStub(controller, startingFrom: doc)
+        let cell = try activateAtEnd(controller, v, doc, index: 1)
+
+        let sizeBefore = try headingMarkPointSize(cell)
+        XCTAssertGreaterThan(sizeBefore, 6,
+                             "precondition: the marks are faded-VISIBLE while the island is open")
+
+        EditorTestHarness(adopting: cell.islandTextView, appliedRevision: { 0 }).pressReturn()
+
+        // ANTI-VACUITY: the Return really opened the line and the island really
+        // re-styled (the string it styled is the one with the blank line on it).
+        XCTAssertTrue(controller.hasVirtualLineForTest)
+        let live = try XCTUnwrap(v.currentEditorCell)
+        XCTAssertEqual(live.styledTextForTest.string, "## Front matter\n\n",
+                       "the styled string is 1:1 with the island's live source")
+
+        let sizeAfter = try headingMarkPointSize(live)
+        XCTAssertEqual(sizeAfter, sizeBefore, accuracy: 0.01,
+                       "the `##` must stay faded-visible with the caret on the virtual line "
+                       + "(it collapsed to the 0.1pt hidden face — the heading jumped left)")
+    }
+
+    /// The point size of the run covering the heading's `##` marker.
+    private func headingMarkPointSize(_ cell: BlockEditorCell) throws -> CGFloat {
+        let styled = cell.styledTextForTest
+        XCTAssertTrue(styled.string.hasPrefix("## "), "the island holds the heading's raw source")
+        let font = try XCTUnwrap(styled.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+        return font.pointSize
     }
 
     // MARK: - 6. VIEWPORT: the interior Return must not move the caret's line

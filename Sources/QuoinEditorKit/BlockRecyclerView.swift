@@ -125,6 +125,39 @@ public final class BlockRecyclerView: NSView {
     /// paths behave exactly as they did before.
     weak var islandController: IslandController?
 
+    /// A projection refresh held back because it would RESTRUCTURE the table
+    /// while the island's own apply is still in flight (see the park in
+    /// `updateDocumentPreservingEditing`). Replayed by
+    /// `replayParkedRefreshIfNeeded()`, which `IslandController.applyReconciled`
+    /// calls once the island has been re-anchored onto its post-edit block.
+    private struct ParkedRefresh {
+        let document: QuoinDocument
+        let contentWidth: CGFloat
+    }
+    private var parkedRefresh: ParkedRefresh?
+
+    /// Test hook: is a structural refresh currently held behind an in-flight
+    /// apply? (Anti-vacuity for the row-model tests: proves the DEFERRAL
+    /// happened, not just that the end state came out right.)
+    var hasParkedRefreshForTest: Bool { parkedRefresh != nil }
+    /// Test hook: how many parked refreshes have been replayed.
+    private(set) var parkedRefreshReplayCountForTest = 0
+
+    /// Run a refresh that was parked behind an in-flight apply, now that the apply
+    /// has landed and the island is re-anchored. No-op when nothing is parked.
+    ///
+    /// The park is cleared BEFORE the replay, so the re-entrant
+    /// `updateDocumentPreservingEditing` below can never re-consume it.
+    func replayParkedRefreshIfNeeded() {
+        guard let parked = parkedRefresh else { return }
+        parkedRefresh = nil
+        parkedRefreshReplayCountForTest += 1
+        ilog("preserve.replayParked", "blocks=\(parked.document.blocks.count)")
+        updateDocumentPreservingEditing(
+            parked.document, contentWidth: parked.contentWidth,
+            islandStartByte: islandController?.activeIsland?.byteRange.lowerBound)
+    }
+
     /// Phase 3 hotfix: true for the duration of a `reloadData(forRowIndexes:)`
     /// that rebuilds the LIVE editing row's cell. Such a rebuild removes the
     /// first-responder `IslandTextView` from the window, firing a TRANSIENT
@@ -277,6 +310,9 @@ public final class BlockRecyclerView: NSView {
         // splices at unvalidated offsets. `abandonIsland…` deliberately does not
         // touch the recycler (we are already replacing every row).
         islandController?.abandonIslandForInvalidatedDocument(reason: "setDocument")
+        // A full swap supersedes ANY held refresh: replaying a parked (older)
+        // document afterwards would re-project it on top of this one.
+        parkedRefresh = nil
         clearEditingWithoutReload()
         self.document = document
         self.contentWidth = contentWidth
@@ -337,6 +373,42 @@ public final class BlockRecyclerView: NSView {
         let resolvedStartByte = islandController.map {
             $0.revalidateForDocumentRefresh(document, islandStartByte: islandStartByte)
         } ?? islandStartByte
+        // PARK A STRUCTURAL REFRESH BEHIND AN IN-FLIGHT APPLY (the materialization
+        // row-model defect).
+        //
+        // The app fires two INDEPENDENTLY SCHEDULED main-actor jobs for one
+        // reconcile: SwiftUI's projection refresh (this method) and the
+        // controller's `applyReconciled` re-anchor. For a KEEP reconcile either
+        // order is fine — the row count is unchanged and the island's start byte
+        // still resolves to the same block START, which is exactly the idempotence
+        // documented above. For a STRUCTURAL one it is NOT: with the apply still in
+        // flight the island is still anchored to its PRE-split block, so this
+        // refresh locates the editing row by the OLD start byte, computes
+        // `newEditingRow == oldEditingRow`, and inserts the new row on the WRONG
+        // SIDE of the editing row. The measured result (interior Return → type
+        // one character) was the caret's row rendering the NEW block while still
+        // occupying the OLD block's slot: the heading vanished, its text was
+        // duplicated one row down, and the next keystroke's refresh reloaded the
+        // row the editor cell was physically in — destroying it and closing the
+        // island with no user action at all.
+        //
+        // There is no correct row model to compute here: which block the island
+        // ends up on is decided by `applyReconciled` (from the reconcile-time
+        // caret), which has not run. So PARK the refresh and let the landing apply
+        // replay it — the deferral discipline the reconcile channel already uses.
+        // Narrow by construction: only with an ACTIVE island, only with an apply
+        // genuinely in flight, and only when the row count actually changed, so
+        // every non-structural refresh keeps its current behaviour byte for byte.
+        if let controller = islandController, controller.isApplyInFlight,
+           controller.activeIsland != nil, document.blocks.count != tableView.numberOfRows {
+            ilog("preserve.parked",
+                 "reason=structuralWhileApplyInFlight oldRowCount=\(tableView.numberOfRows) newRowCount=\(document.blocks.count)")
+            parkedRefresh = ParkedRefresh(document: document, contentWidth: contentWidth)
+            return
+        }
+        // A refresh that DOES run supersedes anything parked (its document is
+        // newer), so the replay can never re-project a stale one on top of it.
+        parkedRefresh = nil
         // Read-only / flag-off path: no active editing island (or no island start)
         // → full swap, byte-identical to before.
         guard _editingBlockID != nil, liveEditorCell != nil,
@@ -1364,6 +1436,31 @@ public final class BlockRecyclerView: NSView {
         guard row >= 0, row < tableView.numberOfRows else { return false }
         return tableView.view(atColumn: 0, row: row, makeIfNecessary: true) is BlockEditorCell
     }
+
+    /// Test hook (row-model tests): what row `row` is actually DISPLAYING — the
+    /// island's live source for the editing row, the drawn fragment's plain text
+    /// for a read row. Forces the view, so it reports what `viewFor` vends rather
+    /// than what the model believes.
+    ///
+    /// The Phase-3 materialization defect (island row rendering the NEW block's
+    /// text while still occupying the OLD block's row, the heading gone and its
+    /// text duplicated one row down) was invisible to every controller-state
+    /// assertion in the suite. This is the seam that makes it assertable.
+    func displayedTextForRowForTest(_ row: Int) -> String? {
+        guard row >= 0, row < tableView.numberOfRows else { return nil }
+        let view = tableView.view(atColumn: 0, row: row, makeIfNecessary: true)
+        if let editor = view as? BlockEditorCell { return editor.islandTextView.string }
+        if let render = view as? BlockRenderCell { return render.renderedTextForTest }
+        return nil
+    }
+
+    /// Test hook: every row's displayed text, top to bottom.
+    func displayedRowTextsForTest() -> [String] {
+        (0..<tableView.numberOfRows).map { displayedTextForRowForTest($0) ?? "<none>" }
+    }
+
+    /// Test hook: the row the row MAP says hosts `blockID` (nil when unmapped).
+    func mappedRowForTest(_ blockID: BlockID) -> Int? { rowByBlockID[blockID] }
 
     // MARK: - Churn instrumentation (Phase 3 falsifiers; test-only, behavior-free)
     //
