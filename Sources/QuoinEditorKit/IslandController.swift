@@ -257,11 +257,55 @@ public final class IslandController {
             // reparse keeps one block and Task-4's KEEP path re-seeds 1:1, no split.
             insertAndSeatCaret("\n", in: textView)
             return true
-        case .listAware, .quoteAware, .tableRow:
-            // Task 6: list/quote marker continuation + table-row skeleton. Until
-            // then fall through to native (a plain `\n`) — do NOT split here.
+        case .listAware:
+            return handleListReturn(in: textView, quote: false)
+        case .quoteAware:
+            return handleListReturn(in: textView, quote: true)
+        case .tableRow:
+            // Task 6b/Phase 4: table-row skeleton. A blank line TERMINATES a
+            // table, so NEVER insert `\n\n` here — fall through to native.
             return false
         }
+    }
+
+    /// Return inside a list (`quote == false`) or block-quote (`quote == true`)
+    /// island. Reads the current line UP TO THE CARET off the live text view,
+    /// asks the pure `ListContinuation` engine what to do, and realizes it:
+    ///
+    /// - `.continue(str)`: splice `str` (a `\n` + fresh marker) at the caret. The
+    ///   list/quote is ONE cmark block, so the reparse keeps it one block with an
+    ///   extra item → the debounce reconcile rides Task 4's KEEP re-anchor (1:1,
+    ///   `activeIslandKind` stays the list/quote kind), NOT the split re-home.
+    /// - `.exit`: DELETE the empty marker on the current line (the whole
+    ///   `lineStart ..< caret` prefix, which for an empty item IS the marker), so
+    ///   the trailing item collapses to a blank line. For a list/quote at the END
+    ///   of the document, Task 5's terminal-empty-paragraph branch keeps the
+    ///   island alive on the blank line; a MID-document exit-to-empty-paragraph
+    ///   shares the deferred Task 5b representation gap (may tear down) — both are
+    ///   handled gracefully (never a crash, never a byte-corrupting splice).
+    ///
+    /// Always returns `true` (the structural op consumed the Return).
+    private func handleListReturn(in textView: NSTextView, quote: Bool) -> Bool {
+        let ns = textView.string as NSString
+        let caret = textView.selectedRange().location
+        let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
+        let lineStart = lineRange.location
+        let lineUpToCaret = ns.substring(with: NSRange(location: lineStart,
+                                                       length: caret - lineStart))
+        let result = quote
+            ? ListContinuation.quote(lineUpToCaret: lineUpToCaret)
+            : ListContinuation.list(lineUpToCaret: lineUpToCaret)
+
+        switch result {
+        case .continue(let insertion):
+            insertAndSeatCaret(insertion, in: textView)
+        case .exit:
+            // Delete the empty marker (lineStart ..< caret) to collapse the item.
+            let markerRange = NSRange(location: lineStart, length: caret - lineStart)
+            textView.insertText("", replacementRange: markerRange)
+            textView.setSelectedRange(NSRange(location: lineStart, length: 0))
+        }
+        return true
     }
 
     /// Insert `text` at the island's selection through the NATIVE `NSTextInputClient`
