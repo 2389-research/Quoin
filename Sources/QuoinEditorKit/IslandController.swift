@@ -42,6 +42,12 @@ public final class IslandController {
     public private(set) var state: SwapState = .idle
     public private(set) var activeIsland: IslandUnit?
 
+    /// The `BlockKind` of the block the active island currently hosts, threaded at
+    /// `activate` and kept in step with the hosted block across KEEP re-anchors and
+    /// SPLIT re-homes. The Return handler (Task 5) classifies on this via
+    /// `ReturnSemantics.mode(for:)`. `nil` whenever there is no active island.
+    public private(set) var activeIslandKind: BlockKind?
+
     /// App installs this to apply a flushed island's text back through the
     /// session. Fired on every flush — the per-keystroke debounce (KEEP path),
     /// the swap-out, and blur — with the island's byte range, its current text,
@@ -185,12 +191,17 @@ public final class IslandController {
             // read-only. A responder override, NOT a delegate method, so the
             // cell's ChangeForwarder delegate is untouched.
             cell.onResignFirstResponder = { [weak self] in self?.deactivate() }
+            // Return-key seam (Task 5): route Return through the controller so it
+            // splits per `ReturnSemantics`. A nil return (no island / composing /
+            // out-of-scope kind) falls through to the native newline.
+            cell.onInsertNewline = { [weak self] in self?.handleReturn() ?? false }
             cell.window?.makeFirstResponder(cell.islandTextView)
             placeCaret(in: cell.islandTextView, atLocalPoint: localPoint)
             recycler.noteEditingRowHeight()
         }
 
         activeIsland = island
+        activeIslandKind = block.kind
         // Fresh island: clear any reconcile carry-over from the previous one.
         pendingReconcile = false
         wasComposing = false
@@ -209,6 +220,61 @@ public final class IslandController {
         flushActiveIsland()
         recycler.editingBlockID = nil
         state = .idle
+    }
+
+    // MARK: - Return (Phase 3, Task 5)
+
+    /// Return pressed inside the active island. Classifies on the island block's
+    /// `ReturnSemantics.mode` and performs the structural insert on the island's
+    /// `NSTextView` through the NATIVE input path (`insertText`), so TextKit
+    /// updates, the cell's change notification fires, and the debounce reconcile +
+    /// Task-4 re-activate-at-caret primitive re-homes the island into the block the
+    /// caret now sits in.
+    ///
+    /// Returns `true` to CONSUME the keystroke (a structural op handled it — the
+    /// `IslandTextView` override does NOT call `super`); `false` falls through to
+    /// the native `insertNewline:` (a plain `\n`). Falls through when there is no
+    /// active island, mid-IME-composition (never split into marked text — Task 3's
+    /// composing-edge discipline), or for the not-yet-implemented list/quote/table
+    /// modes (Task 6).
+    public func handleReturn() -> Bool {
+        guard let kind = activeIslandKind,
+              let textView = recycler.currentEditorCell?.islandTextView else {
+            return false
+        }
+        // Never split mid-composition: splicing into half-composed marked text
+        // corrupts the source. Let native handle the newline.
+        if currentHasMarkedText() { return false }
+
+        switch ReturnSemantics.mode(for: kind) {
+        case .paragraphBreak:
+            // Markdown separates blocks with a BLANK line, so `\n\n` is what makes
+            // the reparse yield two blocks; a lone `\n` is a soft break (same block).
+            insertAndSeatCaret("\n\n", in: textView)
+            return true
+        case .verbatim:
+            // A newline inside a verbatim block (code/math/…) stays IN-block — the
+            // reparse keeps one block and Task-4's KEEP path re-seeds 1:1, no split.
+            insertAndSeatCaret("\n", in: textView)
+            return true
+        case .listAware, .quoteAware, .tableRow:
+            // Task 6: list/quote marker continuation + table-row skeleton. Until
+            // then fall through to native (a plain `\n`) — do NOT split here.
+            return false
+        }
+    }
+
+    /// Insert `text` at the island's selection through the NATIVE `NSTextInputClient`
+    /// entry point (so the cell's `textDidChange` fires → reconcile debounce), then
+    /// seat the caret past the insertion. Seating is explicit because a headless
+    /// `insertText` does not advance the selection; on the live first responder the
+    /// caret is already there, so re-seating to the same offset is a no-op — either
+    /// way the post-Return caret is deterministic.
+    private func insertAndSeatCaret(_ text: String, in textView: NSTextView) {
+        let sel = textView.selectedRange()
+        textView.insertText(text, replacementRange: sel)
+        let newCaret = sel.location + (text as NSString).length
+        textView.setSelectedRange(NSRange(location: newCaret, length: 0))
     }
 
     // MARK: - Flush
@@ -233,6 +299,7 @@ public final class IslandController {
         // firing onReconcile.
         guard let textView = recycler.currentEditorCell?.islandTextView else {
             activeIsland = nil
+            activeIslandKind = nil
             lastFlushedText = nil
             reconcileInFlight = false
             state = .idle
@@ -242,6 +309,7 @@ public final class IslandController {
         let caret = textView.selectedRange().location
         // Drop the island FIRST so any synchronous applyReconciled is inert.
         activeIsland = nil
+        activeIslandKind = nil
         lastFlushedText = text
         onReconcile?(ByteRange(island.byteRange), text, caret)
     }
@@ -365,6 +433,7 @@ public final class IslandController {
             let oldStart = island.byteRange.lowerBound
             activeIsland?.byteRange = record.byteRange
             activeIsland?.originBlockID = record.blockID
+            activeIslandKind = record.kind
             recycler.reanchorEditing(to: record.blockID)
             if let textView = recycler.currentEditorCell?.islandTextView {
                 // Prefer the flush-time caret (`caretDocByte`); fall back to a live
@@ -393,16 +462,61 @@ public final class IslandController {
             return
         }
 
+        // No caret (legacy caller) → safe teardown; the edit is already applied.
+        guard let caretDocByte else {
+            teardownIsland()
+            return
+        }
+
+        // TERMINAL EMPTY PARAGRAPH (Task 5): Return at the END of the document's
+        // LAST block yields a trailing blank-line gap ("Hello" → "Hello\n\n") that
+        // Markdown cannot represent as a second block, so the reconcile-time caret
+        // byte lands PAST all block content, at document end. `record(at:)` returns
+        // nil there. Tearing down here IS the original Return-at-end bug (a dead
+        // caret, next keystroke on the wrong block). Instead — matching the design
+        // doc's "the last block absorbs through EOF" — keep the island on the LAST
+        // block with its slice EXTENDED through the caret to host the trailing
+        // newlines, caret on the now-occupiable blank line. The NEXT keystroke
+        // splices at the caret and materializes the new block, and the normal
+        // re-home (below) then lands the island onto it. Guarded to the LAST block
+        // (caret at/after its content end): a mid-document end-of-paragraph gap is a
+        // separate, recycler-level feature (occupiable blank lines) still deferred.
+        if model.record(at: caretDocByte) == nil,
+           let last = model.records.last,
+           caretDocByte >= last.byteRange.upperBound {
+            let extended = last.byteRange.lowerBound ..< caretDocByte
+            let extendedSlice = newDocument.source.substring(in: ByteRange(extended)) ?? flushed
+            activeIsland?.byteRange = extended
+            activeIsland?.originBlockID = last.blockID
+            activeIslandKind = last.kind
+            // The island now flushes the extended (block + trailing gap) slice; keep
+            // `lastFlushedText` in step so the next reconcile's whole-island replace
+            // maps against it.
+            lastFlushedText = extendedSlice
+            recycler.reanchorEditing(to: last.blockID)
+            if let textView = recycler.currentEditorCell?.islandTextView {
+                // The cell already hosts the extended slice (the user just typed the
+                // break into it) — do NOT re-seed. Seat the caret at the trailing gap.
+                let reseated = IslandCaretMapping.localUTF16(
+                    documentByte: caretDocByte, islandSource: extendedSlice,
+                    islandByteStart: extended.lowerBound) ?? (extendedSlice as NSString).length
+                let length = (textView.string as NSString).length
+                textView.setSelectedRange(NSRange(location: max(0, min(reseated, length)), length: 0))
+            }
+            return
+        }
+
         // SPLIT / structural change → RE-ACTIVATE AT CARET. Re-home the island onto
-        // the block that now CONTAINS the reconcile-time caret. No caret (legacy) or
-        // caret in a separator gap → safe teardown (the edit is already applied).
-        guard let caretDocByte, let rec = model.record(at: caretDocByte) else {
+        // the block that now CONTAINS the reconcile-time caret. Caret in a separator
+        // gap (not the terminal case above) → safe teardown (the edit is applied).
+        guard let rec = model.record(at: caretDocByte) else {
             teardownIsland()
             return
         }
         let islandSource = newDocument.source.substring(in: ByteRange(rec.byteRange)) ?? ""
         activeIsland?.byteRange = rec.byteRange
         activeIsland?.originBlockID = rec.blockID
+        activeIslandKind = rec.kind
         // The island now flushes the caret block's text; keep `lastFlushedText` in
         // step so a subsequent KEEP reconcile maps 1:1 against it.
         lastFlushedText = islandSource
@@ -433,6 +547,7 @@ public final class IslandController {
         wasComposing = false
         reconcileInFlight = false
         activeIsland = nil
+        activeIslandKind = nil
         lastFlushedText = nil
         recycler.editingBlockID = nil
         state = .idle

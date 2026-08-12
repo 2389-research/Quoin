@@ -119,13 +119,20 @@ public final class EditorTestHarness {
         }
     }
 
+    /// Drive Return through the REAL command path — `doCommand(by: insertNewline:)`
+    /// — NOT `insertNewline(nil)` directly, so the `IslandTextView.doCommand`
+    /// override (and its `onInsertNewline` structural-op hook, Task 5) is actually
+    /// exercised. A hook that consumes the keystroke suppresses the native newline;
+    /// a nil/false hook falls through to native, same as before.
     public func pressReturn() {
-        textView.insertNewline(nil)
+        textView.doCommand(by: #selector(NSTextView.insertNewline(_:)))
         drivenRevision += 1
     }
 
+    /// Drive Backspace through the real command path (mirrors `pressReturn`), so the
+    /// `onDeleteBackward` hook (Task 7) is exercised.
     public func pressBackspace() {
-        textView.deleteBackward(nil)
+        textView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
         drivenRevision += 1
     }
 
