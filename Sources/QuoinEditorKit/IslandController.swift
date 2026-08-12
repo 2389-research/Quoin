@@ -67,6 +67,14 @@ public final class IslandController {
     private var reconcileTimer: Timer?
     private var wasComposing = false
     private var lastFlushedText: String?
+    // Minor fix (stale-range guard): true from the moment a KEEP reconcile fires
+    // `onReconcile` until the app hands the resulting document back through
+    // `applyReconciled` and the island's `byteRange` is re-anchored. A second
+    // `reconcileNow` MUST NOT compute a whole-island replace against a byteRange
+    // that the in-flight apply is about to move — it would splice a stale span.
+    // While set, `reconcileNow` re-arms the debounce instead of firing. Cleared in
+    // `applyReconciled` and `teardownIsland` (both terminate an in-flight apply).
+    private var reconcileInFlight = false
 
     /// The machine refuses to swap while an IME composition is live. On by
     /// default; the tests flip it only to prove the gate.
@@ -160,6 +168,7 @@ public final class IslandController {
         // Fresh island: clear any reconcile carry-over from the previous one.
         pendingReconcile = false
         wasComposing = false
+        reconcileInFlight = false
         lastFlushedText = nil
         cancelReconcileTimer()
         state = .idle
@@ -189,9 +198,22 @@ public final class IslandController {
         cancelReconcileTimer()
         pendingReconcile = false
         state = .pendingFlush(island.originBlockID)
-        let textView = recycler.currentEditorCell?.islandTextView
-        let text = textView?.string ?? ""
-        let caret = textView?.selectedRange().location ?? 0
+        // CRITICAL guard: a missing editor cell must NEVER cause a splice. If the
+        // live island cell is gone (e.g. a projection refresh reloaded the row out
+        // from under us, or the row is not realized), we have NO trustworthy island
+        // text. Falling back to `textView?.string ?? ""` here fires
+        // `onReconcile(range, "")`, which splices the block's byte range with an
+        // EMPTY STRING and DELETES its content. Bail: drop the island WITHOUT
+        // firing onReconcile.
+        guard let textView = recycler.currentEditorCell?.islandTextView else {
+            activeIsland = nil
+            lastFlushedText = nil
+            reconcileInFlight = false
+            state = .idle
+            return
+        }
+        let text = textView.string
+        let caret = textView.selectedRange().location
         // Drop the island FIRST so any synchronous applyReconciled is inert.
         activeIsland = nil
         lastFlushedText = text
@@ -244,6 +266,15 @@ public final class IslandController {
             pendingReconcile = false
             return
         }
+        // Minor fix (stale-range guard): a prior reconcile's apply/re-anchor is
+        // still in flight, so `island.byteRange` is about to move. Computing a
+        // whole-island replace against it now would splice a stale span. Leave
+        // `pendingReconcile` set and re-arm the debounce so this fires once the
+        // re-anchor lands.
+        if reconcileInFlight {
+            scheduleReconcileTimer()
+            return
+        }
         guard let cell = recycler.currentEditorCell,
               cell.blockID == island.originBlockID else { return }
         // Never splice mid-composition; the commit keystroke will re-drive this.
@@ -252,6 +283,7 @@ public final class IslandController {
         let newText = cell.islandTextView.string
         let caret = cell.islandTextView.selectedRange().location
         lastFlushedText = newText
+        reconcileInFlight = true
         onReconcile?(ByteRange(island.byteRange), newText, caret)
     }
 
@@ -266,6 +298,9 @@ public final class IslandController {
     /// island's byte range is re-anchored and the caret re-seeded through
     /// `IslandCaretMapping`.
     public func applyReconciled(_ newDocument: QuoinDocument) {
+        // The in-flight apply has landed — clear the stale-range guard regardless
+        // of the outcome below.
+        reconcileInFlight = false
         guard let island = activeIsland, let flushed = lastFlushedText else { return }
         let model = BlockListModel(document: newDocument)
         guard let record = model.record(at: island.byteRange.lowerBound),
@@ -275,10 +310,17 @@ public final class IslandController {
             return
         }
         // 1:1 KEEP: re-anchor the byte range (its offset is unchanged — bytes
-        // before the island never moved — but the length tracks the new text)
-        // and re-seed the caret through the map. The IslandUnit.id is preserved.
+        // before the island never moved — but the length tracks the new text) and
+        // its origin block id (content changed → content-hash id changed), then
+        // re-seed the caret through the map. The IslandUnit.id is preserved.
+        // Hand the NEW block id to the recycler so its editing identity (and the
+        // live cell's) tracks in lockstep — the revision-driven projection refresh
+        // then carries this same editing row across `updateDocumentPreservingEditing`
+        // instead of tearing it down.
         let oldStart = island.byteRange.lowerBound
         activeIsland?.byteRange = record.byteRange
+        activeIsland?.originBlockID = record.blockID
+        recycler.reanchorEditing(to: record.blockID)
         if let textView = recycler.currentEditorCell?.islandTextView {
             let localCaret = textView.selectedRange().location
             if let docByte = IslandCaretMapping.documentByte(
@@ -302,6 +344,7 @@ public final class IslandController {
         cancelReconcileTimer()
         pendingReconcile = false
         wasComposing = false
+        reconcileInFlight = false
         activeIsland = nil
         lastFlushedText = nil
         recycler.editingBlockID = nil

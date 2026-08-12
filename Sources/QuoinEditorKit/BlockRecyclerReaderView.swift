@@ -144,10 +144,24 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         coordinator.onReconcile = onReconcile
 
         let width = contentWidth(for: view)
-        if initial
-            || coordinator.appliedRevision != rendered.revision
-            || coordinator.appliedWidth != width {
+        if initial {
             view.setDocument(document, contentWidth: width)
+            coordinator.appliedRevision = rendered.revision
+            coordinator.appliedWidth = width
+        } else if coordinator.appliedRevision != rendered.revision
+                    || coordinator.appliedWidth != width {
+            // Phase 2 final-review fix: a revision bump is USUALLY an external
+            // document swap, but it is ALSO how the active island's OWN KEEP
+            // reconcile re-projects. A bare `setDocument` would tear the island
+            // down (clear editing + full reload) and desync the controller, whose
+            // `activeIsland` still points at a now-missing editor cell — the next
+            // flush then empty-splices and DELETES the block. Route every
+            // non-initial refresh through `updateDocumentPreservingEditing`, which
+            // KEEPS the live editing row (first responder + caret) when the island
+            // is active and re-anchored, and falls back to `setDocument` otherwise
+            // (read-only, external swap, structural change) — so the non-editing
+            // path is byte-identical to before.
+            view.updateDocumentPreservingEditing(document, contentWidth: width)
             coordinator.appliedRevision = rendered.revision
             coordinator.appliedWidth = width
         }

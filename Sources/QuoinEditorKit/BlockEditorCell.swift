@@ -104,6 +104,15 @@ public final class BlockEditorCell: NSView {
         textView.setFrameSize(NSSize(width: width, height: fittingHeightForConfiguredWidth))
     }
 
+    /// Re-point this cell's recycling identity after a KEEP reconcile changed the
+    /// hosted block's content-hash id. The hosted text, first responder, and caret
+    /// are untouched — ONLY the identity tag moves, so the live editing row can be
+    /// carried across a projection refresh without a reload (see
+    /// `BlockRecyclerView.reanchorEditing`).
+    public func reassignBlockID(_ newID: BlockID) {
+        blockID = newID
+    }
+
     /// The row height for the CURRENTLY-LIVE source at the configured width,
     /// measured from the real text layout (ensure layout, then sum the layout
     /// fragment heights). Grows as the source is edited — later tasks re-query

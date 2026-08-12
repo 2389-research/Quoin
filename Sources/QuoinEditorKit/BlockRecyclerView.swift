@@ -237,6 +237,81 @@ public final class BlockRecyclerView: NSView {
         tableView.reloadData()
     }
 
+    /// Phase 2 final-review fix: refresh the list for a NEW document produced by
+    /// the ACTIVE island's own KEEP reconcile, WITHOUT tearing the island down.
+    ///
+    /// The plain `setDocument` unconditionally `clearEditingWithoutReload()`s and
+    /// full-`reloadData()`s — correct for an external document swap, catastrophic
+    /// for a revision bump that came from the island's OWN reconcile: it reverts
+    /// the just-edited row to a read-only cell, drops first responder + caret, and
+    /// leaves the `IslandController` desynced (its `activeIsland` still set against
+    /// a now-missing editor cell → the next flush empty-splices and DELETES the
+    /// block). See the reader view's `apply` and `IslandController.applyReconciled`
+    /// for the coordinated seam.
+    ///
+    /// A KEEP reconcile changes the edited block's CONTENT, so its content-hash
+    /// `BlockID` changes; `applyReconciled` has already re-anchored the island and
+    /// called `reanchorEditing(to:)`, so `_editingBlockID` and the live cell's
+    /// `blockID` already point at the NEW id by the time this runs. This method
+    /// swaps in the new document + row map and reloads every NON-editing row,
+    /// KEEPING the editing row's `BlockEditorCell` (and thus its first responder +
+    /// caret) untouched. Falls back to `setDocument` whenever the invariants don't
+    /// hold (not editing, the new document doesn't contain the editing block, or
+    /// the row count changed) — so the read-only flag-on path is byte-identical to
+    /// before.
+    public func updateDocumentPreservingEditing(_ document: QuoinDocument, contentWidth: CGFloat) {
+        guard let editID = _editingBlockID, liveEditorCell != nil,
+              document.blocks.contains(where: { $0.id == editID }) else {
+            setDocument(document, contentWidth: contentWidth)
+            return
+        }
+        // A KEEP reconcile never changes the block COUNT; if it did (structural),
+        // we cannot preserve the row — fall back to the full swap.
+        guard document.blocks.count == tableView.numberOfRows else {
+            setDocument(document, contentWidth: contentWidth)
+            return
+        }
+        self.document = document
+        self.contentWidth = contentWidth
+        settledHeights.removeAll()
+        rowByBlockID.removeAll()
+        for (index, block) in document.blocks.enumerated() {
+            rowByBlockID[block.id] = index
+        }
+        lastReportedTop = nil
+        tableView.tableColumns.first?.width = contentWidth + 2 * DecorationDraw.leftGutter
+        // Reload every row EXCEPT the live editing row: that row keeps its
+        // realized `BlockEditorCell`, so first responder and caret survive.
+        let editingRow = rowByBlockID[editID]
+        var rows = IndexSet(integersIn: 0..<document.blocks.count)
+        if let editingRow { rows.remove(editingRow) }
+        if !rows.isEmpty {
+            tableView.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: 0))
+        }
+        // The editing block's byte content changed; re-size its row off the live
+        // cell layout (its height is excluded from `settledHeights`).
+        if let editingRow {
+            tableView.noteHeightOfRows(withIndexesChanged: IndexSet(integer: editingRow))
+        }
+    }
+
+    /// KEEP-path re-anchor handoff from `IslandController.applyReconciled`: a
+    /// reconcile changed the edited block's content, so its content-hash id
+    /// changed. Re-point the recycler's editing identity — `_editingBlockID`, the
+    /// live cell's `blockID`, and the row map — onto the NEW id WITHOUT any reload,
+    /// so the still-live editor cell (first responder + caret) is left exactly as
+    /// it is. The subsequent revision-driven `updateDocumentPreservingEditing`
+    /// swaps the document around this already-re-pointed editing row.
+    func reanchorEditing(to newID: BlockID) {
+        guard let oldID = _editingBlockID, oldID != newID else { return }
+        if let row = rowByBlockID[oldID] {
+            rowByBlockID[oldID] = nil
+            rowByBlockID[newID] = row
+        }
+        _editingBlockID = newID
+        liveEditorCell?.reassignBlockID(newID)
+    }
+
     /// Outline-click target: bring `blockID`'s row into view.
     public func scroll(to blockID: BlockID) {
         guard let row = rowByBlockID[blockID], row < tableView.numberOfRows else { return }
