@@ -217,7 +217,10 @@ struct ReaderScreen: View {
                 scrollGeneration: scrollGeneration,
                 onTopBlockChange: { top in topBlockID = top },
                 searchQuery: isFindVisible ? searchQuery : nil,
-                wordWrap: wordWrap
+                wordWrap: wordWrap,
+                onReconcile: { range, text in
+                    await model.reconcileIsland(byteRange: range, replacement: text)
+                }
             )
             } else {
             MarkdownReaderView(

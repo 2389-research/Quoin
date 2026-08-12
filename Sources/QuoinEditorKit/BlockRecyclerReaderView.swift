@@ -42,6 +42,12 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
     /// Reader-wide `QuoinWordWrap` preference, forwarded for parity with the
     /// projection reader (which honours it). See `BlockRecyclerView.wordWrap`.
     private let wordWrap: Bool
+    /// Phase 2, Task 7: the app's KEEP-path island reconcile. Fired with the
+    /// flushed island's byte range + new text; applies the edit through
+    /// `ReaderModel.reconcileIsland` and returns the resulting document, which
+    /// this view hands back to the `IslandController` via `applyReconciled` so
+    /// the island re-anchors. Nil in read-only contexts (no editing surface).
+    private let onReconcile: ((ByteRange, String) async -> QuoinDocument)?
 
     public init(
         document: QuoinDocument,
@@ -52,7 +58,8 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         scrollGeneration: Int = 0,
         onTopBlockChange: ((BlockID) -> Void)?,
         searchQuery: String?,
-        wordWrap: Bool = true
+        wordWrap: Bool = true,
+        onReconcile: ((ByteRange, String) async -> QuoinDocument)? = nil
     ) {
         self.document = document
         self.rendered = rendered
@@ -63,6 +70,7 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         self.onTopBlockChange = onTopBlockChange
         self.searchQuery = searchQuery
         self.wordWrap = wordWrap
+        self.onReconcile = onReconcile
     }
 
     public func makeCoordinator() -> Coordinator { Coordinator() }
@@ -88,13 +96,53 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         let view = BlockRecyclerView(renderer: renderer, theme: theme)
         view.onTopBlockChange = onTopBlockChange
         view.wordWrap = wordWrap
+        installIslandWiring(on: view, coordinator: coordinator)
         apply(to: view, coordinator: coordinator, initial: true)
         return view
+    }
+
+    /// Phase 2, Task 7: own the `IslandController` (on the Coordinator, so it
+    /// survives SwiftUI re-evaluations) and connect the two edit seams:
+    ///
+    /// 1. `recycler.onBlockClicked → controller.activate(...)` — a click promotes
+    ///    that row to an editable island. The click closure reads the CURRENT
+    ///    document/revision off the Coordinator (refreshed every `apply`), never
+    ///    the stale values captured when this ran once at `makeRecycler` time.
+    /// 2. `controller.onReconcile → onReconcile app closure → applyReconciled` —
+    ///    a flushed island applies its edit through `ReaderModel.reconcileIsland`
+    ///    and the resulting document is handed back so the island re-anchors
+    ///    (terminal swap/blur flushes drop the island first, so `applyReconciled`
+    ///    is inert there — safe to always call).
+    private func installIslandWiring(on view: BlockRecyclerView, coordinator: Coordinator) {
+        let controller = IslandController(recycler: view)
+        coordinator.islandController = controller
+
+        view.onBlockClicked = { [weak coordinator] blockID, point in
+            guard let coordinator, let controller = coordinator.islandController else { return }
+            controller.activate(blockID: blockID, localPoint: point,
+                                 in: coordinator.document, baseRevision: coordinator.baseRevision)
+        }
+
+        controller.onReconcile = { [weak coordinator, weak controller] range, text, _ in
+            guard let coordinator, let onReconcile = coordinator.onReconcile else { return }
+            Task { @MainActor in
+                let newDocument = await onReconcile(range, text)
+                controller?.applyReconciled(newDocument)
+            }
+        }
     }
 
     /// Re-run `setDocument` when the document (revision) or the laid-out width
     /// changed, then honor the outline scroll target.
     func apply(to view: BlockRecyclerView, coordinator: Coordinator, initial: Bool) {
+        // Keep the click/reconcile seams pointed at the CURRENT document, base
+        // revision, and app closure — the click closure and controller reconcile
+        // read these off the Coordinator so they never fire against the stale
+        // values captured once at `makeRecycler` time.
+        coordinator.document = document
+        coordinator.baseRevision = rendered.revision
+        coordinator.onReconcile = onReconcile
+
         let width = contentWidth(for: view)
         if initial
             || coordinator.appliedRevision != rendered.revision
@@ -131,6 +179,15 @@ public struct BlockRecyclerReaderView: NSViewRepresentable {
         var appliedWidth: CGFloat?
         var lastScrollTarget: BlockID?
         var lastScrollGeneration: Int?
+        /// Phase 2, Task 7: the editable-island machine, owned here so it (and its
+        /// active island) survive SwiftUI re-evaluations. Created in `makeRecycler`.
+        var islandController: IslandController?
+        /// The current document/base-revision/app-closure, refreshed every `apply`
+        /// so the click and reconcile seams act on live values, not the snapshot
+        /// captured when the wiring was installed.
+        var document: QuoinDocument = .empty
+        var baseRevision: Int = 0
+        var onReconcile: ((ByteRange, String) async -> QuoinDocument)?
     }
 }
 #endif

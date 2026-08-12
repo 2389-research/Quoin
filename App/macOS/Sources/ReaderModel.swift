@@ -1342,6 +1342,30 @@ final class ReaderModel {
         }
     }
 
+    /// Phase 2, Task 7: apply an editable-island reconcile through the KEEP path.
+    ///
+    /// The block recycler's `IslandController` owns a NATIVE `NSTextView` caret,
+    /// so this deliberately routes through `applyAbsolute` with `caretUTF8: nil`
+    /// — skipping the projection caret machinery (`restoreCaret` leaves
+    /// `activeBlockID`/`caretInActiveBlock` alone; the island re-seeds its own
+    /// caret from the returned document). `applyAbsolute` stamps its own base
+    /// revision from `sessionContentRevision` synchronously (ledger #14), so the
+    /// island's mint revision is bookkeeping only. The pipeline task re-renders
+    /// and bumps `rendered.revision`, which drives the recycler's `updateNSView`
+    /// refresh (Phase 1).
+    ///
+    /// Returns the document AFTER the edit has been applied and `document`
+    /// updated: it drains the shell edit FIFO (`editPipelineTask`) — the same
+    /// drain `stop()`/`flush()` use — before reading `document`, so the caller
+    /// (`IslandController.applyReconciled`) re-anchors against post-edit truth.
+    @discardableResult
+    func reconcileIsland(byteRange: ByteRange, replacement: String) async -> QuoinDocument {
+        let edit = SourceEdit(range: byteRange, replacement: replacement)
+        applyAbsolute(edit, caretUTF8: nil, actionName: .typing)
+        await editPipelineTask?.value
+        return document
+    }
+
     private func applyAbsolute(
         _ edit: SourceEdit, caretUTF8: Int?, spliceHint: RenderSpliceHint? = nil,
         actionName: UndoActionName? = nil,
