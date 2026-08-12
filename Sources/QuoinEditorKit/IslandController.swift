@@ -269,6 +269,9 @@ public final class IslandController {
             wasComposing = false
             pendingReconcile = true
             reconcileNow()
+            // Phase 3: replay a parked IME-blocked activation now that the
+            // composition that blocked it has committed.
+            drainPendingIntent()
             return
         }
         pendingReconcile = true
@@ -391,6 +394,19 @@ public final class IslandController {
     private func cancelReconcileTimer() {
         reconcileTimer?.invalidate()
         reconcileTimer = nil
+    }
+
+    /// Replay a parked activation once the composition that blocked it has
+    /// committed. Clears `pendingIntent` FIRST — re-entrancy safety: the
+    /// replayed `activate` may itself re-park (a fresh composition started in
+    /// the window between commit and replay), and that must not stomp on the
+    /// intent this call is in the middle of draining. No-op when nothing is
+    /// parked.
+    private func drainPendingIntent() {
+        guard let intent = pendingIntent else { return }
+        pendingIntent = nil
+        activate(blockID: intent.blockID, localPoint: intent.localPoint,
+                 in: intent.document, baseRevision: intent.baseRevision)
     }
 
     // MARK: - IME probe
