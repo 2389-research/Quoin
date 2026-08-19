@@ -158,12 +158,33 @@ layer; the tree becomes its model.
 **Phase 0 — foundation (DONE, GREEN).** Span tree + byte-lossless round-trip
 fuzz. Committed.
 
-**Phase 1 — the model + editing core (platform-free, Linux-testable).**
-`EditableDocument` with source spans and footnote-definition nodes; the
-span-retaining serializer; the pure edit transforms (insert/delete/split/join/
-wrap); structural caret. Fuzz: parse→serialize byte-identical; edit→untouched
-regions byte-identical; Return/Backspace round-trip to identity. This is the
-bug-elimination core and it is entirely testable without a UI.
+**Phase 1 — the model + editing core (platform-free, Linux-testable). DELIVERED
+2026-08-19** (plan `docs/superpowers/plans/2026-08-19-tree-as-truth-phase1.md`,
+7 tasks, final whole-branch review clean). `EditableDocument` (segment model:
+trivia + blocks with source spans + pristine); the span-retaining serializer
+(byte-lossless over a 24-doc corpus fuzz); the pure edit transforms
+(insert/delete/splitBlock=Return/joinWithPrevious=Backspace); structural caret
+`EditPosition`. Fuzz proves: parse→serialize byte-identical; edit→untouched
+regions byte-identical; split∘join = identity; the exact heading-corruption
+scenario byte-preserved. Entirely testable without a UI; full suite green.
+
+Deferred into later phases (from the Phase 1 final review):
+- **Footnote AND link-reference definitions become inert `.trivia`** — the
+  parser drops them from `doc.blocks`, so Phase 1 keeps them byte-lossless but
+  not editable-as-nodes. Promoting them to first-class block nodes is the
+  spec's "close the Phase 0 gap"; it is the most likely place **Phase 2** gets
+  surprised (split/join/caret can't target trivia). Address in the Phase 2 plan.
+- **`deleteRange` and the `build` slice have no defensive bounds guard** — latent
+  (cmark yields well-formed distinct-offset ranges). Add a `guard isValid`
+  mirror on `deleteRange`, and a bounds assert in `build`'s `slice`, when Phase 2
+  first drives them with UI-derived ranges.
+- **A split tail inherits the original block's `kind`** (heading-split → a
+  heading-kinded empty block). Zero serialization impact in Phase 1 (serialize
+  reads only `text`); Phase 2's rendering must re-derive kind (an empty block
+  after a heading should render as a paragraph).
+- **List/quote marker continuation** (`wrap`/`unwrap`) and inline canonical
+  serialization of edited runs remain later work; the `pristine` flag is the
+  (currently decorative) hook for the latter.
 
 **Phase 2 — the TextKit 2 bridge (macOS).** `NSTextContentManager` over the
 tree, one element per block, empty node = real line; wire Return/Backspace/typing

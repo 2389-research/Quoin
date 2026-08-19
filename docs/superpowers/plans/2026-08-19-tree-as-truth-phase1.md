@@ -288,7 +288,9 @@ final class EditableSerializerTests: XCTestCase {
     // Shared corpus: repo fixtures + the pathological edge cases from Phase 0.
     static func corpus() -> [(String, String)] {
         let dir = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            // Up FOUR levels: EditableDocument/ → QuoinCoreTests/ → Tests/ → repo root.
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Fixtures")
         let fixtures = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil))?
             .filter { $0.pathExtension == "md" }
