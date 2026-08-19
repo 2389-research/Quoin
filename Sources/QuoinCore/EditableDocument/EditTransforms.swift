@@ -33,4 +33,29 @@ public extension EditableDocument {
         }
         return EditPosition(block: id, offsetUTF16: range.lowerBound)
     }
+
+    /// Return: split the caret's block into [before] and [after], inserting a
+    /// canonical "\n\n" trivia between them. The new caret sits at offset 0 of
+    /// the AFTER block. An end-of-block split leaves AFTER empty — a real empty
+    /// paragraph node, not a virtual line.
+    mutating func splitBlock(at pos: EditPosition) -> EditPosition {
+        guard isValid(pos), let segIndex = blockIndex(of: pos.block),
+              case .block(let original) = segments[segIndex] else { return pos }
+        let ns = original.text as NSString
+        let before = ns.substring(to: pos.offsetUTF16)
+        let after = ns.substring(from: pos.offsetUTF16)
+
+        var head = original
+        head.text = before
+        head.sourceSpan = nil          // edited: no longer a verbatim span
+        head.pristine = false
+
+        let tail = EditableBlock(
+            id: .fresh(), kind: original.kind, text: after, sourceSpan: nil, pristine: false)
+
+        segments.replaceSubrange(segIndex...segIndex, with: [
+            .block(head), .trivia("\n\n"), .block(tail),
+        ])
+        return EditPosition(block: tail.id, offsetUTF16: 0)
+    }
 }
