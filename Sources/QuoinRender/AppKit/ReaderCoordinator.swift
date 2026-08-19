@@ -2157,6 +2157,21 @@ extension MarkdownReaderView {
                   selection.location >= active.location,
                   NSMaxRange(selection) <= NSMaxRange(active) else { return false }
             let relCaret = selection.location - active.location
+            // INTERIM DATA-LOSS GUARD (remove when the tree-as-truth editing
+            // model lands — docs/design/wysiwyg-architecture-comparison.md).
+            // When an active block REVEALS on activation its rendered length
+            // grows (a heading "How to do things" → source "# How to do things"),
+            // and a caret carried through that render→reveal shift can strand
+            // INSIDE the content while an absorbed blank line hangs below it
+            // (relCaret < contentEnd, trailing ≥ 2). A native fall-through
+            // Backspace there deletes real content ("things" → "thins"). Never
+            // delete predecessor content on a strand: snap the caret onto the
+            // blank line where it belongs and consume the keystroke.
+            if !forward, Self.caretStrandedAboveBlankLine(sourceText: sourceText, relCaret: relCaret) {
+                textView.setSelectedRange(
+                    NSRange(location: active.location + (sourceText as NSString).length, length: 0))
+                return true
+            }
             guard let decision = Self.gapDeletion(
                     sourceText: sourceText, relCaret: relCaret, forward: forward),
                   let byteRange = EditMapping.utf8Range(
@@ -2312,6 +2327,21 @@ extension MarkdownReaderView {
                 return nil
             }
             return "\\\n"
+        }
+
+        /// INTERIM (remove with the tree-as-truth model): true when the caret is
+        /// stranded strictly INSIDE a block's content while an occupiable
+        /// absorbed blank line hangs below it — the render→reveal coordinate
+        /// shift that lets a Backspace eat a real content character. Requires a
+        /// genuine occupiable blank line (`trailing ≥ 2`, i.e. more than the
+        /// canonical `\n\n` separator) so a normal last-line Backspace inside an
+        /// ordinary block (no trailing blanks) is never hijacked.
+        static func caretStrandedAboveBlankLine(sourceText: String, relCaret: Int) -> Bool {
+            let ns = sourceText as NSString
+            guard relCaret >= 0, relCaret <= ns.length else { return false }
+            let trailing = sourceText.reversed().prefix(while: { $0 == "\n" }).count
+            let contentEnd = ns.length - trailing
+            return trailing >= 2 && relCaret < contentEnd
         }
 
         /// Backspace/Delete when the caret sits in a block's ABSORBED trailing

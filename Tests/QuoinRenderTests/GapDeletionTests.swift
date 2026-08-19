@@ -69,5 +69,40 @@ final class GapDeletionTests: XCTestCase {
         XCTAssertNil(C.gapDeletion(sourceText: "Hello\n", relCaret: 5, forward: false),
                      "one trailing newline is the terminator, not a blank line to merge")
     }
+
+    // MARK: - INTERIM data-loss guard: caret stranded in content above a blank line
+
+    /// THE reported corruption: `# How to do things\n\n` with the caret stranded
+    /// at 17 (inside the heading, before the "s") while an occupiable blank line
+    /// hangs below. A native Backspace would eat the "g". The guard fires.
+    func testStrandedCaretInsideHeadingContentIsGuarded() {
+        XCTAssertTrue(
+            C.caretStrandedAboveBlankLine(sourceText: "# How to do things\n\n", relCaret: 17),
+            "caret inside content with an occupiable blank line below must be guarded")
+    }
+
+    /// The guard must NOT hijack an ordinary mid-content Backspace when there is
+    /// no occupiable blank line (no trailing blanks).
+    func testMidContentBackspaceWithoutTrailingBlankIsNotGuarded() {
+        XCTAssertFalse(
+            C.caretStrandedAboveBlankLine(sourceText: "# How to do things", relCaret: 17),
+            "no trailing blank line: a real content Backspace must pass through")
+    }
+
+    /// A single trailing newline (canonical terminator) is not an occupiable
+    /// blank line — the guard stays out of the way.
+    func testMidContentWithSingleTrailingNewlineIsNotGuarded() {
+        XCTAssertFalse(
+            C.caretStrandedAboveBlankLine(sourceText: "# Heading\n", relCaret: 4),
+            "one trailing newline is the terminator, not a blank line")
+    }
+
+    /// The caret genuinely ON the blank line (in the trailing run) is handled by
+    /// gapDeletion, not the strand guard.
+    func testCaretOnBlankLineIsNotStranded() {
+        XCTAssertFalse(
+            C.caretStrandedAboveBlankLine(sourceText: "# How to do things\n\n", relCaret: 20),
+            "the caret on the blank line is gapDeletion's job, not the strand guard")
+    }
 }
 #endif
