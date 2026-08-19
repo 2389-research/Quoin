@@ -750,7 +750,7 @@ final class EditTransformJoinTests: XCTestCase {
     /// removes it and the blank line, caret at the predecessor's end. One
     /// Backspace undoes one Return.
     func testJoinEmptyParagraphUndoesTheReturn() {
-        var d = EditableDocument.build(parsing: "Hello\n\n")
+        var d = EditableDocument.build(parsing: "Hello")
         // Build a real empty trailing paragraph by splitting at the end first.
         let first = blockIDs(d)[0]
         let caret0 = d.splitBlock(at: EditPosition(block: first, offsetUTF16: 5))
