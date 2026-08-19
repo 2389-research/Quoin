@@ -2164,16 +2164,18 @@ extension MarkdownReaderView {
             // and a caret carried through that render→reveal shift can strand
             // INSIDE the content while an absorbed blank line hangs below it
             // (relCaret < contentEnd, trailing ≥ 2). A native fall-through
-            // Backspace there deletes real content ("things" → "thins"). Never
-            // delete predecessor content on a strand: snap the caret onto the
-            // blank line where it belongs and consume the keystroke.
+            // Backspace there would delete real content ("things" → "thins").
+            // The caret BELONGS on the blank line, and Backspace there means
+            // "remove the blank line I just made" — so treat the delete as one
+            // from the blank line: it removes a newline (never content) and the
+            // caret rides back down toward the paragraph, exactly as an
+            // un-Return should.
+            var effectiveRelCaret = relCaret
             if !forward, Self.caretStrandedAboveBlankLine(sourceText: sourceText, relCaret: relCaret) {
-                textView.setSelectedRange(
-                    NSRange(location: active.location + (sourceText as NSString).length, length: 0))
-                return true
+                effectiveRelCaret = (sourceText as NSString).length
             }
             guard let decision = Self.gapDeletion(
-                    sourceText: sourceText, relCaret: relCaret, forward: forward),
+                    sourceText: sourceText, relCaret: effectiveRelCaret, forward: forward),
                   let byteRange = EditMapping.utf8Range(
                     inText: sourceText, utf16Range: decision.utf16Range),
                   let caretByte = EditMapping.utf8Offset(
@@ -2364,6 +2366,16 @@ extension MarkdownReaderView {
             // contentEnd): remove the newline just before it, rising one line
             // toward the paragraph — the ordinary "undo one Return" case.
             guard relCaret >= contentEnd, relCaret <= ns.length, relCaret > 0 else { return nil }
+            // SYMMETRY: a Return from content inserts "\n\n" (the block's first
+            // occupiable blank line, trailing 2); every LATER Return adds one
+            // "\n". Backspace must mirror that exactly — undoing ONE Return in
+            // ONE press — so from the last blank line (trailing == 2, caret at
+            // the very end) remove BOTH newlines, returning to the pristine
+            // block. Deeper runs (trailing > 2) remove one per press, mirroring
+            // the one-"\n"-per-later-Return insert.
+            if trailing == 2, relCaret == ns.length {
+                return (contentEnd ..< ns.length, contentEnd)
+            }
             if relCaret == contentEnd {
                 // CARET-1 symptom 3: the caret is EXACTLY at the content
                 // boundary, yet an absorbed blank line still hangs below. A

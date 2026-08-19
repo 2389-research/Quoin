@@ -10,11 +10,20 @@ final class GapDeletionTests: XCTestCase {
 
     typealias C = MarkdownReaderView.Coordinator
 
-    func testBackspaceOnABlankLineRemovesOneNewline() {
-        // Slice "A\n\n" (two Returns pressed), caret on the second blank line.
+    func testBackspaceOnTheFirstBlankLineUndoesTheReturnInOnePress() {
+        // "A\n\n" is ONE Return from content (inserts "\n\n"). Backspace from the
+        // blank line must UNDO it in one press — remove BOTH newlines → "A".
         let d = C.gapDeletion(sourceText: "A\n\n", relCaret: 3, forward: false)
-        XCTAssertEqual(d?.utf16Range, 2..<3)
-        XCTAssertEqual(d?.caretUTF16, 2)
+        XCTAssertEqual(d?.utf16Range, 1..<3, "symmetry: one Return, one Backspace")
+        XCTAssertEqual(d?.caretUTF16, 1)
+    }
+
+    func testBackspaceOnADeeperBlankLineRemovesOneNewline() {
+        // "A\n\n\n" is TWO Returns (first "\n\n", then "\n"). Backspace from the
+        // last blank line undoes the SECOND Return — remove one → "A\n\n".
+        let d = C.gapDeletion(sourceText: "A\n\n\n", relCaret: 4, forward: false)
+        XCTAssertEqual(d?.utf16Range, 3..<4)
+        XCTAssertEqual(d?.caretUTF16, 3)
     }
 
     func testBackspaceOnTheLastBlankLineReturnsToTheParagraph() {
