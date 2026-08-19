@@ -13,7 +13,7 @@ final class EditFidelityFuzzTests: XCTestCase {
     /// the original. (In the old model this corrupted the heading.)
     func testSplitThenJoinIsIdentity() {
         for source in ["# How to do things", "Hello", "a\n\nb\n\nc", "# H\n\nbody\n"] {
-            var d = EditableDocument.build(parsing: source)
+            let d = EditableDocument.build(parsing: source)
             for id in blockIDs(d) {
                 let len = (d.block(id)!.text as NSString).length
                 for offset in [0, len / 2, len] {
