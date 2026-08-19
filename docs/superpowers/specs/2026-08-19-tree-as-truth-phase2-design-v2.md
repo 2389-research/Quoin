@@ -1,6 +1,11 @@
 ---
 title: Tree-as-truth Phase 2 — the live editor (Design v2, correctness-machinery re-homed)
-status: DESIGN v2 (resolves the two critical reviews; for re-review before planning)
+status: RE-REVIEWED — NOT sound to plan against. Both adversarial reviews of v2
+  reject it. Root cause: v2 layers the tree over the BYTE-NATIVE substrate
+  (existing recycler + DocumentSession undo); the two sync-bridges are non-inverse
+  at the identity and granularity layers, and the recycler seam re-exposes bytes.
+  Superseded by the Option-B fork (tree owns its undo + its own TextKit-2 view);
+  see "Re-review verdict (2026-08-19)" below.
 created: 2026-08-19
 supersedes: 2026-08-19-tree-as-truth-phase2-design.md (v1, found flawed)
 parent: 2026-08-19-tree-as-truth-editing-design.md
@@ -177,6 +182,73 @@ blocks), not by a multi-block selection model.
    survives; one-Enter-one-Backspace) through the real keystroke path.
 6. **Viewport invariant + full regression suite** through the GUI path.
 7. **Cutover prep** (flag still off) — the interim guard removal is Phase 3.
+
+## Re-review verdict (2026-08-19) — v2 is NOT plannable; the byte-native substrate is the flaw
+
+Two adversarial reviews (sync-bridge crux; recycler seam + integration), each
+grounded in the real code, both reject v2. They converge on one root cause:
+**v2 keeps the tree's benefits only until the first bridge crossing, because the
+substrate beneath it (the byte-native recycler + DocumentSession's char-level
+undo) is still string-as-truth.** Every seam re-imports the bytes the tree exists
+to delete.
+
+**Sync-bridge review — the two bridges are non-inverse:**
+- **Undo coalescing FAILS.** `recordUndo` (DocumentSession.swift:556-608) only
+  coalesces *single-character* edits (`replacement.count == 1`, whitespace breaks
+  the run). A debounce-batch bridge emits multi-char SourceEdits that bypass the
+  coalescer entirely → undo granularity regresses to a whole batch, whitespace-
+  break dead. A per-keystroke bridge feeds it count==1 edits but reintroduces a
+  whole-doc `parseAfterEdit` on *every keystroke* — the exact cost the tree meant
+  to delete. No middle setting gets both. "Coalescing for free" is false.
+- **Rebuild-on-republish shreds identity.** `build(parsing:)` mints all-new
+  NodeIDs unconditionally (EditableDocument.swift:60 `.fresh()`), so every
+  `EditPosition` and the focused-cell key dangle on undo/redo/external. The
+  specified restore input doesn't exist — `undo()`/`redo()` return only a
+  `QuoinDocument`, no caret byte (DocumentSession.swift:774-806; consumer restores
+  with `atUTF8Offset: nil`, ReaderModel.swift:1580). And placing the caret after a
+  rebuild *is* byte→structure mapping on the hot inbound path — the very thing the
+  tree was supposed to make impossible. A ⌘Z while a cell is focused has no cell to
+  "move."
+- **Self-republish loop, unnamed.** The outbound `applyEdit` publishes through the
+  same `publish()` path as undo/external; a naive "rebuild on republish" rebuilds
+  the tree — fresh NodeIDs — on its *own* keystroke, destroying the caret every
+  character. Needs a sourceHash self-echo discriminator v2 never states.
+
+**Recycler-seam review — three of four resolutions lean on absent/wrong-shaped machinery:**
+- **The render→source activation hit-map is VAPORWARE.** The island path has NO
+  render→source mapping: on click it forwards the raw `NSEvent` and places the
+  caret in *raw-source* space (IslandController.swift:459; IslandClickSeamTests
+  bless exactly that), so the heading-coordinate field bug is latent and untested
+  there. The real `EditMapping.sourceOffset` lives only in the monolith being
+  deleted and is built for the single-textview reveal model (1:1 hidden
+  delimiters), not the recycler's two-layout (read cell hides `#`, island shows
+  it). It must be built FROM SCRATCH — v2 sells a from-scratch build as a re-home.
+- **The protocol seam re-exposes bytes.** The recycler's row model *is*
+  byte-range end to end (`record(at:)`, `byteRange.lowerBound == islandStartByte`).
+  Any seam must answer block-id + start-byte + is-apply-in-flight +
+  revalidate-against-document — every one a byte concept. Sub-phase 1 (extract the
+  seam green) freezes the coupling in IslandController's *async-park* shape, which
+  is wrong for a *synchronous* tree driver → likely thrown-away rework.
+- **"Structural ops MOVE the cell" inverts the concurrency model.** Today a split
+  comes back FROM the session async (`reconcileRowCountKeepingEditing` after
+  republish); the park/replay guards exist *because* of that ordering. A
+  tree-driven synchronous split is a new entry point that inverts it — buildable,
+  but not "reuse."
+- IME gate mostly holds, but composition-end is reconstructed from the
+  `wasComposing` edge (not an AppKit event), and the *inbound* reseed path must
+  ALSO gate on `hasMarkedText()` — v2 gated only outbound, and whole-tree rebuild
+  makes this MORE exposed than today.
+
+**The convergent conclusion:** the friction is not a set of fixable oversights —
+it is the *reuse-the-byte-native-substrate* decision itself. The sync-bridge
+reviewer's own recommendation ("own a tree-snapshot undo stack — likely the real
+answer, not the fallback") and the seam reviewer's ("design for the tree's
+synchronous needs, not IslandController's async byte-anchor") both point to the
+same place: **let the tree own its undo and its view layer** — which is what the
+master spec's original Phase 2 ("NSTextContentManager over the tree") always said,
+before v1/v2 pivoted to reusing the recycler. That is the Option-B fork now under
+decision. v2 is retained only as the record of why re-homing onto the byte-native
+substrate does not work.
 
 ## Open questions for re-review (the crux points to attack again)
 
