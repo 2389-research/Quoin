@@ -1,6 +1,9 @@
 ---
 title: Tree-as-truth Phase 2 — the live editor (Design v4, Option B + stock-storage structural projection)
-status: DESIGN v4 (candidate to plan against; sub-phase 1 is a spike gate)
+status: DESIGN v4 — READY TO PLAN. Bridge-gap wiring (GAP 1/2/3/4) verified against real
+  DocumentSession/EditableDocument code: all wireable; two new named tasks surfaced
+  (a public saveTreeSource(_:) write API for GAP 2; a trivia definition-pattern scanner for
+  GAP 4). Sub-phase 1 remains a SPIKE with a go/no-go gate (structural-patch invariants).
 created: 2026-08-19
 supersedes: 2026-08-19-tree-as-truth-phase2-design-v3.md (v3, sound but storage approach unpicked + 3 bridge gaps)
 parent: 2026-08-19-tree-as-truth-editing-design.md (master spec — this is its Phase 2)
@@ -160,7 +163,13 @@ path.
   controller writes via a save that **stamps `selfWriteHash`** (see GAP 2). `apply(source:)`
   alone is wrong for our own save because it publishes an adopt without the self-write stamp
   (`:470-473,:341-347`) — so the save path is `writeToDisk`-shaped (which does stamp
-  `selfWriteHash`, `:936-937`), not a bare `apply(source:)`.
+  `selfWriteHash`, `:936`). **Under-specified piece (verified):** `saveNow()` writes
+  `document.source` (the session's own parsed truth), not an arbitrary string, and there is
+  **no existing *public* API** to write a tree-serialized source string while stamping
+  `selfWriteHash`. The primitive exists privately — `toggleTask` (`:998-1020`) already writes
+  an arbitrary `newSource` via `writeToDisk(newSource, to:)` — so **a new public method
+  (e.g. `saveTreeSource(_:)`) that calls that primitive must be added**; this is a named
+  Phase-2 task, not a reuse of `saveNow()`.
 - **GAP 2 fixed — distinguish our own save's publish from a real external change.** The tree
   controller subscribes to session publishes to learn of external changes; but
   `adoptExternal` publishes without setting `selfWriteHash`, so an own-save publish is
@@ -176,7 +185,11 @@ path.
   restore by structural position** — same block index if the count is stable, else nearest
   surviving anchor, clamped offset — and surface the merge banner rather than silently
   moving the caret. Composition-gated (below). Rare path (external edit to the exact block
-  being typed in); best-effort restore + visible banner is the contract.
+  being typed in); best-effort restore + visible banner is the contract. **Verified
+  feasibility + one detail:** `blockIndex(of:)` and `block(_:)` (`EditPosition.swift:15-22`)
+  already expose index+text for correlation, but `blockIndex(of:)` indexes into `segments`
+  (blocks *and* interleaved trivia) — the "same index" fallback must count block segments
+  only, not raw segment position.
 
 ### Rendering — whole-document parse, but off the keystroke path (GAP 4 / cost)
 
@@ -190,10 +203,15 @@ path.
     deactivated block and **re-kind it by a single-block parse** of its own text — cheap,
     O(block). Other blocks are unaffected because a prose edit cannot change their rendering.
   - **Whole-document reproject** happens **only when an edit could affect other blocks'
-    rendering** — i.e. it touched a reference/link/footnote **definition** (trivia) or
-    changed footnote ordinals. This is detectable from the transform (did a definition
-    segment change?); it is rare. The controller maintains a document-level reference map and
-    reparses whole-doc only on that trigger, with the measured budget as the gate.
+    rendering** — i.e. it touched a reference/link/footnote **definition** (which lives in
+    `.trivia`, verified: definitions never become `.block` segments) or changed footnote
+    ordinals. **Under-specified piece (verified):** `Segment.trivia` is a flat undifferentiated
+    `String`, so "a *definition* changed" is not a ready segment case — the controller must
+    scan changed trivia text for definition patterns (`^\s*\[...\]:` link-ref,
+    `^\s*\[\^...\]:` footnote) to distinguish a definition edit from an incidental blank-line
+    change. That scanner is a named Phase-2 task (sub-phase 7), not a free switch. The
+    controller maintains a document-level reference map and reparses whole-doc only on that
+    trigger, with the measured budget as the gate.
   - This keeps typing and block-to-block navigation off the whole-doc parse; only definition
     edits pay for it. Sub-phase 7 measures and enforces the budget.
 - **Live kind reclassification** (typing `> ` → quote) resolves via the deactivated block's
