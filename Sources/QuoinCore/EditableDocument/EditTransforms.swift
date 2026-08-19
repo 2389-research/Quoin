@@ -58,4 +58,30 @@ public extension EditableDocument {
         ])
         return EditPosition(block: tail.id, offsetUTF16: 0)
     }
+
+    /// Backspace at a block's start: merge it into the immediately-preceding
+    /// block. The trivia between them is dropped; the caret lands at the end of
+    /// the predecessor's ORIGINAL text (the join). The exact inverse of
+    /// splitBlock. Returns nil for the first block (no predecessor).
+    mutating func joinWithPrevious(_ id: NodeID) -> EditPosition? {
+        guard let segIndex = blockIndex(of: id),
+              case .block(let current) = segments[segIndex] else { return nil }
+        // Find the nearest preceding BLOCK segment; everything between it and us
+        // (a single trivia) is the separator to drop.
+        var prevIndex = segIndex - 1
+        while prevIndex >= 0 {
+            if case .block = segments[prevIndex] { break }
+            prevIndex -= 1
+        }
+        guard prevIndex >= 0, case .block(var prev) = segments[prevIndex] else { return nil }
+
+        let joinOffset = (prev.text as NSString).length
+        prev.text += current.text
+        prev.sourceSpan = nil
+        prev.pristine = false
+        // Replace [prev ... current] (prev, the trivia(s) between, current) with
+        // just the merged prev.
+        segments.replaceSubrange(prevIndex...segIndex, with: [.block(prev)])
+        return EditPosition(block: prev.id, offsetUTF16: joinOffset)
+    }
 }
