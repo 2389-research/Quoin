@@ -1,12 +1,72 @@
 ---
 title: Tree-as-truth Phase 2 — the live editor (tree-native controller over the recycler)
-status: DESIGN (for review)
+status: NEEDS REVISION — two adversarial reviews found load-bearing flaws (see "Critical-review findings")
 created: 2026-08-19
 parent: docs/superpowers/specs/2026-08-19-tree-as-truth-editing-design.md
 builds on: Phase 1 (Sources/QuoinCore/EditableDocument/, delivered 2026-08-19)
 ---
 
 # Phase 2 — the live editor
+
+## Critical-review findings (2026-08-19) — DO NOT plan against this doc until revised
+
+Two adversarial design reviews (architecture + correctness), each grounded in the
+real recycler/IslandController/DocumentSession code, found the design below is a
+happy-path account that assumes away the hard obligations. The core error: it
+mistook **IslandController's *reconcile* burden for its *entire* burden.** Most of
+its ~2,100 lines are undo, IME, external-change reconciliation, and stale-base
+protection — correctness the tree does NOT obsolete and that must be RE-HOMED,
+not deleted.
+
+**Must resolve in the DESIGN before any plan (each changes the shape of the
+controller):**
+1. **Undo/redo.** Undo lives entirely in `DocumentSession`'s SourceEdit stack
+   (`recordUndo`, coalescing, Edit-menu titles). A controller that mutates the
+   tree and autosaves `serialized()` records nothing → ⌘Z is dead. The parent
+   spec claimed "each transform is a single undo unit" with no mechanism.
+2. **Save / external-change / concurrency.** Feeding `serialized()` to autosave
+   bypasses stale-base rejection (`staleEditBase`), the external-change merge
+   banner (→ silent data loss), and the edit FIFO; and there is no path to
+   rebuild the tree when `DocumentSession` republishes an external change.
+3. **IME / marked text.** IslandController's `blockedIME` state machine is the
+   only guard against split/join/re-vend mid-composition; the design deletes it
+   → CJK/emoji corrupts on the first composed word, and re-vend resets the IME.
+
+**Must be named as explicit tasks/policies in the design (resolvable in the plan
+only once stated):**
+4. **Single-block isolated parse is wrong for rendering.** Reference-style
+   links/images/footnotes resolve against a document-wide reference map whose
+   definitions are *trivia* (a different segment); `.blocks.first` also
+   truncates any block whose text became multi-block (soft break, paste,
+   dictation). Read rendering must come from a document-wide resolved parse or
+   the tree's retained structure, not per-block re-parse. Also makes `kind`
+   flip mid-edit — needs a stated reclassification policy + a one-top-level-block
+   invariant on `block.text`.
+5. **Rendered→source caret mapping on activation.** The tree removes *document*-
+   byte desync but NOT *within-block* rendered↔source desync — a click on the
+   rendered H1 must map to a `block.text` (source) offset. This is the exact
+   coordinate bug the rearch exists to kill; it must be re-homed at activation.
+6. **Caret↔text-view sync** must commit to whole-block-sync (`block.text =
+   textView.string` on `textDidChange`), not the incoherent "replay via
+   insertText/deleteRange."
+7. **Multi-block selection / cut / paste** has no representation today (one
+   NSTextView per row); the design must at least name it as a scope boundary.
+
+**And the recycler coupling is deeper than "keep the cells" implied:**
+`BlockRecyclerView` (1,747 lines) is welded to the concrete `IslandController`
+at ~10 sites and is byte-range-driven throughout (`numberOfRows` →
+`document.blocks.count`, the preserve/park/reanchor engine keyed on byte
+offsets); a synchronous "re-vend the editing row" *destroys* the live
+NSTextView — structural ops deliberately MOVE the cell (`promoteRow`), never
+re-vend it. There is no protocol seam to slide a new controller into.
+
+**Consequence:** the "tree obsoletes IslandController" premise that drove the
+integration-approach choice is only true for the reconcile subset. The approach
+must be reconsidered — see the reframed options carried to the next design pass.
+
+---
+
+# Phase 2 — the live editor (ORIGINAL DRAFT, superseded by the findings above)
 
 ## Goal
 
