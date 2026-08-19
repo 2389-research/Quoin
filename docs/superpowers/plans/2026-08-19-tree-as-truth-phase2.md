@@ -4,7 +4,9 @@
 
 **Goal:** Make the Phase-1 `EditableDocument` tree the live editing truth behind a single macOS `NSTextView`, so Return/Backspace/typing/undo are structural tree operations with no document byte offsets on the interaction path — killing the Return-does-nothing / Backspace-eats-a-character bug class at its root.
 
-**Architecture:** One `NSTextView` backed by the **stock** `NSTextContentStorage`. The tree is the truth; the storage is a write-only downstream projection the tree patches with **strictly-structural** updates (re-project only the changed block's storage range; caret is `EditPosition(NodeID, offsetUTF16)` mapped to a storage offset by per-element length bookkeeping). No byte-diff reconcile, no markdown-string round-trip on the edit path. `DocumentSession` narrows to persistence; its bridge is crossed on edit-commit (dirty), save, and external change only. Behind a new `QuoinTreeEditor` feature flag; the monolith path ships unchanged as default until Phase 3.
+**Architecture:** One `NSTextView` backed by the **stock** `NSTextContentStorage`. The tree is the truth; the storage is a write-only downstream projection the tree patches with **strictly-structural** updates (re-project only the changed block's storage range; caret is `EditPosition(NodeID, offsetUTF16)` mapped to a storage offset by per-element length bookkeeping). No byte-diff reconcile, no markdown-string round-trip on the edit path. `DocumentSession` narrows to persistence; its bridge is crossed on edit-commit (dirty), save, and external change only. A new `QuoinTreeEditor` flag is a **temporary development scaffold** to build parity behind; Phase 2 ends by making the tree editor the SOLE editor and DELETING the monolith, the island recycler view layer, the interim guard, and the flag.
+
+**Product stance (governs this whole plan):** Quoin has **no installed base**. Breaking changes are free, and clearing accumulated clutter to rebuild fresh is always preferred over preserving/patching old code. So Phase 2 does not ship two coexisting paths and does not defer removal to a later "cutover phase" — it replaces and deletes.
 
 **Tech Stack:** Swift 6 (QuoinCore) / Swift 5 (QuoinRender AppKit), TextKit 2 (`NSTextContentStorage`/`NSTextLayoutManager`/`NSTextView`), swift-markdown/cmark-gfm, `EditableDocument` (Phase 1), `EditMapping` (QuoinCore), `NSUndoManager`.
 
@@ -19,7 +21,7 @@
 - **Viewport invariant** (user directive): on any projection change, the caret/click line must not move on screen; edit mode keeps the block's vertical skeleton. Enforced by RevealFidelityTests / CaretLineAnchorTests — extend BOTH for the tree path. Patch-vs-full-render equivalence via ProjectorEquivalenceTests — extend when touching a projection path.
 - **Swift 6 modules** (QuoinCore, macOS app target, QuoinUITests) stay warning-clean under strict concurrency; QuoinRender is Swift 5. Language mode is per-module.
 - **Dependency policy**: no new third-party dependency. swift-markdown only.
-- **The monolith is the DEFAULT, living editor** (`useRecycler = false`; `MarkdownReaderView`). The tree path is additive behind `QuoinTreeEditor`, default OFF. Do not modify the monolith's behavior.
+- **No installed base — Phase 2 REPLACES the monolith, it does not coexist with it.** The `QuoinTreeEditor` flag is a *temporary development scaffold* so Tasks 1–10 build the tree path and prove parity against the still-present monolith (the parity oracle, whose `AttributedRenderer` the tree reuses). Don't gratuitously break the monolith mid-development (it's the oracle), but the Phase-2 END STATE is: the tree editor is the SOLE editor, and the monolith reader path, the island recycler view layer (`QuoinEditorKit`), the interim guard (`ReaderCoordinator.caretStrandedAboveBlankLine`), the now-dead `DocumentSession` edit machinery, and the flag itself are all DELETED (Tasks 11–12). Clearing this clutter is Phase 2, not a deferred phase.
 - **Commit and push after every task, to `main`** is the repo norm, BUT this plan runs in a worktree/branch under subagent-driven-development; commit per task on the branch and integrate at the end via finishing-a-development-branch. Do not push to `main` mid-plan.
 
 ---
@@ -362,26 +364,48 @@ Depends on Task 9.
 
 ---
 
-## Task 11: Cutover prep + docs (flag stays OFF)
+## Task 11: Cutover — tree becomes the SOLE editor; delete the old paths
 
-Depends on Task 10.
+Depends on Task 10 (parity proven: the tree path passes the full regression suite). **No installed base — this task clears the clutter now, it does not defer to a later phase.**
+
+**Parity gate (do this FIRST):** confirm Task 10 left the tree path green on the full regression suite (viewport invariant, reveal fidelity, projector equivalence, the field-bug scenarios). If any parity gap remains, STOP and report — do not delete the oracle before the replacement matches it.
+
+**The deletion boundary — delete the string-as-truth EDIT + old VIEW layers; KEEP the shared projection engine the tree reuses.**
+- **Delete:** the monolith reader edit path — `MarkdownReaderView`, `ReaderCoordinator` (its reconcile/reveal-patch machinery), `QuoinTextView` if the tree view replaces it, `ReaderModel`'s byte-edit plumbing; the interim guard (`ReaderCoordinator.caretStrandedAboveBlankLine` + the `gapDeletion`/`handleGapDeletion` scaffolding); the island recycler VIEW layer in `QuoinEditorKit` (`BlockRecyclerView`, `BlockRecyclerReaderView`, `IslandController`, `BlockRenderCell`, `BlockEditorCell`, `IslandTextView`, and the byte-range row model `IslandUnit`/`BlockListModel`) and its now-orphaned tests; the `QuoinTreeEditor` flag branch and the old `useRecycler`/`QuoinEditorRecycler` selection — the tree view mounts unconditionally.
+- **Keep (the tree reuses these):** `AttributedRenderer`, `MarkdownSourceStyler`, `EditMapping` (QuoinCore), the decoration drawing the tree view adopted, the re-homed `ListContinuation`, and all of `QuoinCore`'s model/session/serializer.
+- The precise cut is whatever Tasks 4–10 did **not** end up importing into the tree path — determine it against the real dependency graph at this point (grep for references before deleting each type), not from this list alone; this list is the intent.
+
+- [ ] **Step 1: Parity gate** — verify the full suite is green through the tree path (per Task 10). Record the evidence.
+- [ ] **Step 2: Make the tree view the unconditional editor** — remove the flag branch; mount `TreeEditorView` directly. Run the suite.
+- [ ] **Step 3: Delete the monolith edit/view path and the interim guard** — remove the files/types above; fix every now-broken reference and delete tests that only exercised the deleted paths. `swift build` + `swift test` green.
+- [ ] **Step 4: Delete the island recycler view layer** (`QuoinEditorKit` view types + byte-range row model + their tests), keeping only the re-homed pure logic. `swift build` + `swift test` green.
+- [ ] **Step 5: Update docs** — `docs/reference/architecture.md` (the tree editor is now THE editor; the string-reconcile path, island recycler, and interim guard are gone), `README.md` if warranted, and the spec statuses (Phase 2 = delivered AND cutover-complete; there is no separate Phase 3).
+- [ ] **Step 6: Commit** (`refactor: delete the string-as-truth monolith, island recycler view layer, interim guard, and flag — tree editor is the sole path`).
+
+---
+
+## Task 12: Narrow `DocumentSession` to persistence — delete the now-dead edit machinery
+
+Depends on Task 11 (nothing but the tree path remains).
+
+With the monolith gone, `DocumentSession`'s keystroke-path plumbing has no remaining consumer. Delete it rather than leave it as clutter (a misleading second edit model the next reader would trust).
 
 **Files:**
-- Modify: `docs/reference/architecture.md` (document the tree editor path + the narrow persistence bridge), `README.md` capability note if warranted.
-- Modify: the spec's status to "Phase 2 delivered; Phase 3 is cutover + interim-guard removal."
+- Modify: `Sources/QuoinCore/DocumentSession.swift`, `Sources/QuoinCore/EditorCore.swift`, and any caller.
+- Test: prune `Tests/QuoinCoreTests` cases that only covered the deleted machinery; keep the persistence + tree-bridge coverage.
 
-- [ ] **Step 1: Document** the TreeTextController data flow, the structural-projection invariant, the persistence bridge, and the `QuoinTreeEditor` flag in `architecture.md`. Note that the interim guard (`ReaderCoordinator.caretStrandedAboveBlankLine`) and the island recycler view layer are superseded by this path and retired in Phase 3.
-- [ ] **Step 2: Update** the Phase-2 spec status and the master spec's phase table.
-- [ ] **Step 3: Commit** (`docs: Phase 2 tree editor — architecture, invariants, flag; Phase 3 = cutover`).
+- [ ] **Step 1: Prove no consumer** — grep the whole repo (excluding deleted files) for `applyEdit`, `undo()`/`redo()` on the session, `staleEditBase`, `TypingRun`, `recordUndo`, `contentRevision`. Anything still referenced by the tree path stays; list what's genuinely dead.
+- [ ] **Step 2: Delete the dead edit machinery** — the `SourceEdit` undo/redo stacks, `TypingRun` coalescing, `applyEdit`, `staleEditBase`, and `contentRevision` if unused — leaving `open`/`saveNow`/`saveTreeSource`/`noteInMemoryEdit`/`apply(source:)`/external-change detection. Keep behavior that prevents real data loss (external-change/conflict handling) — that is correctness, not clutter.
+- [ ] **Step 3:** `swift build` + `swift test` green; the session is now a persistence authority only. Verify Swift 6 strict-concurrency clean.
+- [ ] **Step 4: Commit** (`refactor(core): narrow DocumentSession to persistence — delete the dead SourceEdit/undo/staleEditBase edit path`).
 
 ---
 
 ## Non-goals (Phase 2)
 
-- The monolith and the interim guard are NOT removed — Phase 3 flips `QuoinTreeEditor` on by default and retires them. Two editor paths coexist behind the flag.
-- The island recycler (`QuoinEditorKit` view layer) is superseded but not deleted in Phase 2; its pure-logic modules (`ListContinuation`) are re-homed as needed.
-- Multi-block *editing* transforms beyond split/join composition (a rich cross-block cut/paste model), editable footnote/reference-definition nodes, inline canonical serialization of edited runs — later phases.
-- `QuoinTreeEditor` defaults OFF; Phase 3 is the cutover.
+- Multi-block *editing* transforms beyond split/join composition (a rich cross-block cut/paste model), editable footnote/reference-definition nodes, inline canonical serialization of edited runs — later work (the tree makes them possible, not now).
+- Collaboration/CRDT — out of scope.
+- (There is deliberately no "keep the old path" non-goal: the old paths are DELETED in Tasks 11–12. No installed base ⇒ no coexistence.)
 
 ## Risks
 
@@ -389,4 +413,5 @@ Depends on Task 10.
 - **R-cost — undo snapshot memory.** O(N-segment) spine copy per unit; bounded depth + measured in Task 6; inverse-delta fallback named if the budget fails.
 - **R-parse — whole-doc reparse cost.** Kept off the hot path by Task 9 (definition-triggered only); measured against the parse budget.
 - **R-focused-rebuild — external change to the focused block.** Best-effort structural caret fallback + visible merge banner (Task 8); rare path, explicit contract.
-- **Two live editor paths** behind the flag — acceptable and reversible; the flag is the safety switch; Task 10 asserts the default path stays green.
+- **Two editor paths during development** (behind the flag, Tasks 1–10) — a temporary scaffold, not a shipped state; the flag is the parity harness. Tasks 11–12 delete the old path once parity is proven, so no long-lived dual-path risk.
+- **Deletion tasks (11–12) removing something the tree still needs** — mitigated by the parity gate (Task 11 Step 1) and by determining the cut against the real dependency graph (grep-before-delete), plus the full suite green after each deletion step.
