@@ -1,14 +1,14 @@
 ---
-title: Tree-as-truth Phase 2 — the live editor (Design v4, Option B + Horn B structural projection)
+title: Tree-as-truth Phase 2 — the live editor (Design v4, Option B + stock-storage structural projection)
 status: DESIGN v4 (candidate to plan against; sub-phase 1 is a spike gate)
 created: 2026-08-19
-supersedes: 2026-08-19-tree-as-truth-phase2-design-v3.md (v3, sound but two horns unpicked + 3 bridge gaps)
+supersedes: 2026-08-19-tree-as-truth-phase2-design-v3.md (v3, sound but storage approach unpicked + 3 bridge gaps)
 parent: 2026-08-19-tree-as-truth-editing-design.md (master spec — this is its Phase 2)
 builds on: Phase 1 (Sources/QuoinCore/EditableDocument/, delivered)
 decisions:
   - Option B (Clint, 2026-08-19): tree owns editing + undo + its view layer.
-  - Horn B (ruling, 2026-08-19): keep the stock NSTextContentStorage; the tree drives it
-    by STRICTLY-STRUCTURAL projection (not byte-diff reconcile). Grounded in two v3 reviews.
+  - Storage approach (ruling, 2026-08-19): keep the stock NSTextContentStorage; the tree
+    drives it by STRICTLY-STRUCTURAL projection (not byte-diff reconcile). Grounded in two v3 reviews.
 grounded-by: two code surveys + two adversarial reviews (2026-08-19); every load-bearing
   claim carries file:line evidence.
 ---
@@ -30,22 +30,22 @@ under-specified the persistence bridge's dirty/echo/cost semantics. v4 makes bot
 `DocumentSession` narrows to persistence. No document byte offset and no byte-`SourceEdit`
 reconcile ever appears on the interaction path — that is the bug class's grave.
 
-### Ruling 2 — Horn B: keep stock `NSTextContentStorage`; drive it by structural projection.
-The v3 reviews showed the fork v3 dodged:
-- **Horn A** (a from-scratch `NSTextContentManager`/`NSTextElementProvider`): `textView.
-  textContentStorage` becomes **nil**, so every guard that reads `textContentStorage?.
-  textStorage` silently no-ops — decoration discovery (`QuoinTextView.swift:575`), the
-  incremental `noteStorageEdit` (`:518`), the caret-line settle/anchor
-  (`:434,:461-462,:486-488`), and the dirty/conflict path all go dark. It also stakes the
-  whole approach on the unproven "does a zero-length `NSTextElement` lay out as a caret
-  line" gamble.
-- **Horn B** keeps the stock `NSTextContentStorage` and its real backing `NSTextStorage`,
-  so **all of that machinery survives**, and an empty block is just an empty line in a flat
-  storage — which the monolith lays out today. Its only new obligation is a tree→storage
-  sync layer.
+### Ruling 2 — the storage approach: keep stock `NSTextContentStorage`; drive it by structural projection.
+The v3 reviews surfaced a choice v3 dodged — two ways the tree could back the one text view:
+- **The custom-backend approach** (a from-scratch `NSTextContentManager`/
+  `NSTextElementProvider`): `textView.textContentStorage` becomes **nil**, so every guard
+  that reads `textContentStorage?.textStorage` silently no-ops — decoration discovery
+  (`QuoinTextView.swift:575`), the incremental `noteStorageEdit` (`:518`), the caret-line
+  settle/anchor (`:434,:461-462,:486-488`), and the dirty/conflict path all go dark. It also
+  stakes the whole approach on the unproven "does a zero-length `NSTextElement` lay out as a
+  caret line" gamble.
+- **The stock-storage approach** keeps the stock `NSTextContentStorage` and its real backing
+  `NSTextStorage`, so **all of that machinery survives**, and an empty block is just an empty
+  line in a flat storage — which the monolith lays out today. Its only new obligation is a
+  tree→storage sync layer. **v4 takes this one.**
 
-The reviews warned Horn B "reintroduces the reconcile problem v2 died on." **It does not,
-and the distinction is the core of v4:**
+The reviews warned the stock-storage approach "reintroduces the reconcile problem v2 died
+on." **It does not, and the distinction is the core of v4:**
 
 > v2/monolith reconcile = mutate storage → **diff** back to the markdown string → splice at
 > **document byte offsets** → reparse. That is where carets strand and merges corrupt.
@@ -216,7 +216,7 @@ Question), not assumed free.
 
 ### Decorations — survive, because the storage survives
 
-Because Horn B keeps `textContentStorage.textStorage`, decoration run discovery
+Because the stock-storage approach keeps `textContentStorage.textStorage`, decoration run discovery
 (`enumerateAttribute(QuoinAttribute.blockDecoration…)`, `QuoinTextView.swift:575`),
 `noteStorageEdit` (`:518`), the settle/anchor loop (`:381-398,:434,:486`), and
 `measureVisibleRuns` (which already goes through the abstract `contentManager`, `:623-698`)

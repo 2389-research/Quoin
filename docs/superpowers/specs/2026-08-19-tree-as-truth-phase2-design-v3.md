@@ -1,11 +1,11 @@
 ---
 title: Tree-as-truth Phase 2 — the live editor (Design v3, Option B: tree owns undo + its own view)
 status: SUPERSEDED by v4. Two adversarial reviews found the architecture SOUND but
-  (1) v3 never picked a storage horn — the custom-provider reading loses
+  (1) v3 never chose how the tree backs the text view — the custom-provider reading loses
   textContentStorage.textStorage and darkens the decoration/settle/dirty machinery;
   (2) three persistence-bridge gaps (dirty flag, own-save echo, deactivation reparse
-  cost), two silent-data-loss class. v4 picks Horn B (stock NSTextContentStorage,
-  tree drives it by strictly-structural projection) and closes all three gaps.
+  cost), two silent-data-loss class. v4 keeps the stock NSTextContentStorage and has the
+  tree drive it by strictly-structural projection, and closes all three gaps.
   Activation-via-EditMapping was upheld as plannable-now with existing tests.
 created: 2026-08-19
 supersedes: 2026-08-19-tree-as-truth-phase2-design-v2.md (v2, rejected — byte-native substrate was the flaw)
