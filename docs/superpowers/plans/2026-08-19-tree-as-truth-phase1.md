@@ -688,7 +688,6 @@ public extension EditableDocument {
 
 (`blockIndex(of:)` is the segment-index lookup defined in Task 3 — reuse it, do
 not add a second lookup helper.)
-```
 
 - [ ] **Step 4: Run the test**
 
