@@ -1,5 +1,5 @@
 {
-  "originHash" : "21061b06b8b83a0f11c6f184cc17ca688ef5890aa580a375b6de987b5425f002",
+  "originHash" : "35ece412fe1a62f24dd9ba972deaf8a0871c5651a32ff4271cc344f85f59db63",
   "pins" : [
     {
       "identity" : "mermaidkit",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "85fdc08f347897959248cef97d39bad7f5337dd6",
         "version" : "2.2.0"
-      }
-    },
-    {
-      "identity" : "sparkle",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/sparkle-project/Sparkle",
-      "state" : {
-        "revision" : "b6496a74a087257ef5e6da1c5b29a447a60f5bd7",
-        "version" : "2.9.4"
       }
     },
     {
@@ -42,8 +33,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/2389-research/Vinculum.git",
       "state" : {
-        "revision" : "4c06aabea0377567e66d139f9dc57a85dc1eff96",
-        "version" : "1.5.0"
+        "revision" : "300817fd1430c7c8f00628bd684335ba0fe0281c",
+        "version" : "2.1.0"
       }
     }
   ],
